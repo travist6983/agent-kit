@@ -2,6 +2,9 @@
 # Regression: qa-kb fix_lessons store (4th store) — insert / dedup-bump / semantic recall.
 # Hits the real shared brain with source='test-fixlessons' and cleans up after. Needs the
 # embedding key (kb.config.json `embedding.api_key_env`). SKIPS when the brain is unreachable.
+# Tests never use an owner's overlay: it points at a real brain. Point brain suites at a test
+# database with KB_CONFIG (a config naming a throwaway DB) or KB_DATABASE_URL instead.
+unset AGENT_KIT_OVERLAY AGENT_KIT_PROJECT
 
 # Shared brain lock: refuse rather than corrupt a concurrent run (see lib/brain_lock.sh).
 # Nests quietly under run_all.sh, which already holds it.
@@ -45,6 +48,18 @@ PY
 if ! python3 "$KBPY" pause --status >/dev/null 2>&1; then
   echo "  fix_lessons: SKIPPED (brain unreachable)"; exit 0
 fi
+# Every check below is SEMANTIC (paraphrase bump, recall by meaning), so it needs a live, real
+# embedder. With none (no key, an outage) the rows would land as embed_status='pending' and the
+# checks would go red for a reason this suite does not test — the degraded path is proved by
+# test_kb_durability and the harness instead. The stub embedder is no substitute: its vectors
+# carry no meaning, so a paraphrase can never match.
+EMB_ERR=$(python3 "$KBPY" search fix_lessons --k 1 --query "fix_lessons embedder liveness probe" 2>/dev/null \
+  | python3 -c "import sys,json
+try: print(json.load(sys.stdin).get('error') or '')
+except Exception: print('unparseable')")
+case "$EMB_ERR" in
+  embedder_unavailable*) echo "  fix_lessons: SKIPPED (embedder unavailable — semantic checks need a live embedder)"; exit 0 ;;
+esac
 clean; trap clean EXIT
 
 python3 "$KBPY" write fix_lessons --area "Project Setup" --source $SRC --signature-tag "state-drift-claim-parity" \

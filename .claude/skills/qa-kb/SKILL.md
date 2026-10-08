@@ -3,12 +3,12 @@ name: qa-kb
 description: >-
   The ONLY interface to the loop knowledge brain — always via the kb CLI, never raw SQL. Trigger
   for any "remember this", "have we seen this symptom", "is this test flaky", "is shipping paused",
-  "record the cost/metric" inside a loop. Four stores: app_map (keyed selectors/routes),
-  expectations (semantic; AI proposes, only a human blesses), flakiness (counters + R7 quarantine),
-  fix_lessons (symptom → root-cause → fix-shape) — plus kb_control flags (global_pause kill switch
-  R9, staging_only posture) and loop-health metrics (R5/R8). The CLI enforces provenance, optimistic
-  concurrency (--expect-version), propose→bless, and fail-closed pause semantics — ship only on an
-  explicit paused:false. Backend: Postgres + pgvector on any host, auth mode from kb.config.json.
+  "record the cost/metric", "remember this preference/tooling fact" inside a loop. Five stores:
+  app_map (keyed selectors/routes), expectations (semantic; AI proposes, only a human blesses),
+  flakiness (counters + R7 quarantine), fix_lessons (symptom → root-cause → fix-shape), lessons
+  (general non-defect knowledge; proposed → active) — every row scoped by project — plus
+  kb_control flags (global_pause R9, staging_only) and loop metrics (R5/R8). Enforces provenance,
+  --expect-version, propose→bless, fail-closed pause — ship only on an explicit paused:false.
 ---
 
 # qa-kb — the knowledge brain seam
@@ -53,9 +53,20 @@ First-time access on a new machine or a fresh clone is [`docs/brain-setup.md`](.
   brain and holds **no secret**: credentials come from the auth mode, never from this file. Don't
   localize it; a fresh clone must land on the shared brain with zero hand-configuration.
   `KB_DATABASE_URL` in the environment (or `kb --db …`) overrides it for one process.
-- Secret: `.claude/loops/kb.secret.env` — **gitignored and per-developer**. It holds the
-  embedding key (the variable `embedding.api_key_env` names) and, for `auth.mode: password`, the
-  DB password (`auth.password_env`, default `KB_DB_PASSWORD`). It is the *only* thing you supply by hand.
+  The config may instead live **outside the kit** — `kb` uses the first of `$KB_CONFIG` →
+  `$AGENT_KIT_OVERLAY/projects/<project>/kb.config.json` → `$AGENT_KIT_OVERLAY/kb.config.json` →
+  the kit's file. `kb status` prints which one it chose.
+- Secret: `kb.secret.env` **next to whichever config was chosen** — **gitignored and per-developer**.
+  It holds the embedding key (the variable `embedding.api_key_env` names) and, for
+  `auth.mode: password`, the DB password (`auth.password_env`, default `KB_DB_PASSWORD`). It is the
+  *only* thing you supply by hand.
+- Scope: `"scope"` in the config — `shared` (default; a local host is refused) or `single-machine`
+  (one person's brain on one machine, across all of their projects; a local host is a declared
+  choice). See [`docs/brain-setup.md`](../../../docs/brain-setup.md) §3.
+- Project: every knowledge row carries a `project` — `--project` → `$AGENT_KIT_PROJECT` → the
+  current git repo's directory name → `global` (the kit's own checkout is `global`). Writes stamp
+  it; reads and searches return the current project **plus `global`**; `--project all` reads every
+  project.
 
 The three auth modes, so the tracked file never carries a credential:
 
@@ -92,9 +103,10 @@ kb schema --raw | psql "$KB_DATABASE_URL"           # or with your own client
 ```
 
 **A wrong brain fails LOUDLY, never silently.** There is no local default: an empty
-`database_url` with no `KB_DATABASE_URL` is an error, and a DSN whose host is loopback or a unix
-socket — a brain only that one machine can reach — is **refused** (non-zero exit) instead of being
-connected to. A silent fallback to a local database returns `ok:true` while the lesson reaches no
+`database_url` with no `KB_DATABASE_URL` is an error, and under `scope: shared` a DSN whose host is
+loopback or a unix socket — a brain only that one machine can reach — is **refused** (non-zero exit)
+instead of being connected to. A config that declares `"scope": "single-machine"` names a local brain
+on purpose and is allowed. A silent fallback to a local database returns `ok:true` while the lesson reaches no
 one; that is a lost lesson, not a degraded mode. For deliberate offline work, set
 `KB_ALLOW_UNSHARED=1` **and** name the local DSN explicitly (`--db …` or `KB_DATABASE_URL`).
 Rows written that way live on that machine only and never reach the shared brain — treat it as a
@@ -113,6 +125,9 @@ so fall back to the explicit path rather than skipping the call:
 `{"ok": false, "error": "..."}` with a non-zero exit on failure. Parse the JSON; don't scrape text.
 (The one exception is `kb schema --raw`, which prints SQL for piping.)
 
+Every read/write/search/propose/forget verb (and bless/reject/quarantine/metric/status) takes
+`--project <name>`; `--project all` lifts the read filter and is refused on a write.
+
 | Verb | Purpose | Example |
 |---|---|---|
 | `write app_map` | upsert a selector/route/area-tag (AI writes autonomously) | `kb write app_map --kind selector --area invoices --key submit_button --value '{"selector":"[data-test=invoice-submit]"}' --source qa-repro --ticket PROJ-123` |
@@ -128,8 +143,13 @@ so fall back to the explicit path rather than skipping the call:
 | `quarantine flakiness` | mark/unmark a flaky test (R7) | `kb quarantine flakiness --spec "invoices.test > submits" --on --reason "..."` |
 | `write fix_lessons` | record a fix lesson — called by the **recipe** once `qa-verify` passes, never by `dev-fix` itself. **Two dedup guards:** an *exact* duplicate (same normalized symptom + area) bumps `occurrences` with **no embedder** (`dedup_by:"hash"`); a *near*-duplicate bumps via the vector guard (`dedup_by:"vector"`) (R10) | `kb write fix_lessons --area invoices --symptom "..." --root-cause "..." --fix-shape "..." --source dev-fix --ticket PROJ-123` |
 | `search fix_lessons` | **semantic** recall by symptom — "have we fixed this shape before?" | `kb search fix_lessons --query "success toast but state unchanged" --k 3` |
+| `write lesson` | record a **general, non-defect lesson** — a tooling fact, a preference, a workflow or project fact. Lands `proposed` unless `--status active`; `--kind` is free text (`tooling`, `preference`, `workflow`, `project-fact`, …). An exact repeat bumps by hash (`dedup_by:"hash"`), a near-duplicate in the **same project** (cosine ≥ 0.92, `--dup-threshold`) bumps `occurrences`/`last_seen_at` by vector | `kb write lesson --text "Port 8000 is taken on this machine; run the API on 8010" --kind tooling --source qa-explore` |
+| `search lessons` | **semantic** recall over **active** lessons only (current project + `global`); each result carries `similarity` and the same value as `score` | `kb search lessons "which port should the API use" --k 5 --min-score 0.5` |
+| `read lessons` | non-vector list — the review queue, and the degraded path when the embedder is down | `kb read lessons --status proposed` · `kb read lessons --kind preference` |
+| `bless lesson` / `reject lesson` | `proposed` → `active` / `rejected` (`--expect-version` for optimistic concurrency) | `kb bless lesson --id 7 --by <human>` · `kb reject lesson --id 8 --reason "one-off"` |
+| `status` | which brain this process resolves to: config file + source, `scope`, `project`, target `host/db` (never a credential), schema present/current, row counts per store (total, visible, by project), embedding model/dim. Answers even when unreachable (`ok:false`) | `kb status` · `kb status --project my-app` |
 | `reembed` | re-embed rows the embedder was down for (`embed_status='pending'`); reports a now-visible `similar_to` but **never auto-merges** | `kb reembed --store all --limit 50` · `kb reembed --dry-run` |
-| `forget` | soft (status→forgotten) or `--hard` delete (R1). `--source` is a real **bulk selector** when no `--id`/`--key`/`--spec` is given: it plans first and applies only with `--yes` | `kb forget expectations --id 42 --soft` · `kb forget app_map --source qa-dream` (plan) · `… --source qa-dream --yes` |
+| `forget` | soft (status→forgotten) or `--hard` delete (R1); `flakiness`/`fix_lessons`/`lessons` are hard-only. Selectors other than `--id` are scoped to the **current project exactly** (`--project all` widens them). `--source` is a real **bulk selector** when no `--id`/`--key`/`--spec` is given: it plans first and applies only with `--yes` | `kb forget expectations --id 42 --soft` · `kb forget app_map --source qa-dream` (plan) · `… --source qa-dream --yes` |
 | `undo` | **reverse a whole run from the `kb_writes` ledger** — rows the run created are removed (expectations **soft**-forgotten), a fix-lesson bump is decremented, and anything whose prior value the ledger never recorded is reported `skipped_unreversible`. **Dry run is the DEFAULT**; `--yes` applies. Idempotent, and it never selects its own reversal rows | `kb undo --run-id dream-<run>` (plan) · `kb undo --source qa-dream --since 7d --yes` |
 | `decay` | brain-audit: report stale + near-duplicate-canonical conflicts + `stale_app_map` (unconfirmed selectors, report-only); `--apply` to prune (R1) | `kb decay --stale-days 30` |
 | `pause` | the global kill switch (R9) — set/clear/read | `kb pause --on --reason "incident" --by <human>` · `kb pause --status` |
@@ -139,7 +159,7 @@ so fall back to the explicit path rather than skipping the call:
 | `history` | prior-attempt memory for routing: attempts, writes-by-store, escalations, last outcome, areas. Safe on a cold ticket (empty structures, `ok:true`) | `kb history --ticket PROJ-123` |
 | `state` | durable key/value shared across machines (e.g. the dream watermark) | `kb state --key dream.watermark` · `kb state --key dream.watermark --set '{"ts":"2000-01-01T00:00:00Z"}'` |
 | `outbox` | the queued-write spool a DB outage fills — inspect / drain / discard | `kb outbox --status` · `kb outbox --replay --limit 50` · `kb outbox --clear --yes` |
-| `schema` | render the schema for an embedding dimension, or apply it (admin, idempotent) | `kb schema --dim 1536` · `kb schema --apply` · `kb schema --raw` |
+| `schema` | render the schema for an embedding dimension, or apply it (admin, idempotent). Applying it is **also the in-place migration** of an older brain (adds `project` everywhere, swaps the app_map/flakiness unique keys to include it, creates `lessons`; existing rows become `global`) | `kb schema --dim 1536` · `kb schema --apply` · `kb schema --raw` |
 
 ### Cross-cutting contract (what the verbs guarantee)
 
@@ -206,9 +226,14 @@ so fall back to the explicit path rather than skipping the call:
   run down to the floor of 1. Vector dedupe makes this the ordinary case, not a corner: when
   near-duplicate symptoms bump instead of inserting, most of a real run's undo plan is
   decrements.
-- **Every write names the brain it landed in:** mutating verbs add `"brain": "<host>/<dbname>"`
-  to the envelope (never a credential), so a write to the wrong target is visible in the output
-  callers already parse.
+- **Every write names the brain it landed in:** mutating verbs add `"brain": "<host>/<dbname>"`,
+  `"scope"` and `"project"` to the envelope (never a credential), so a write to the wrong target —
+  or stamped with the wrong project — is visible in the output callers already parse.
+- **Project scoping:** writes stamp the current project (the `kb_writes` ledger records it too);
+  reads/searches return the current project + `global` and add a `projects` key saying which filter
+  ran. The same `app_map` key or flakiness test id can exist once per project, and a project write
+  never edits the `global` row of the same key — it shadows it (the project row sorts first). Dedupe
+  bumps never cross projects. Write knowledge that applies everywhere with `--project global`.
 - **Compressed lessons only:** statements/signatures/values hold distilled, actionable knowledge.
 
 ## Who writes what (do not cross these lines)
@@ -219,6 +244,7 @@ so fall back to the explicit path rather than skipping the call:
 | `expectations` | **semantic** | AI **proposes** (`qa-repro`, `qa-explore`, `qa-dream`); human **blesses** (`human-explore`) |
 | `flakiness` | counters (+ semantic later) | AI autonomously (`qa-regression`, `qa-verify`, `qa-dream`) |
 | `fix_lessons` | **semantic** (by symptom) | AI autonomously — the **recipe** writes one after `qa-verify` passes (never `dev-fix` itself); `qa-dream` consolidates the ones a run never got to write |
+| `lessons` | **semantic** (active only) | AI writes `proposed`; a human (or an explicit `--status active` from a caller told to) makes it `active` — general working knowledge, never a defect fix or an oracle |
 
 `app_map`, `flakiness`, and `fix_lessons` are mechanical/experiential — write them with confidence.
 `expectations` are judgment — never write one straight to `canonical`. A fix lesson is *experience*
@@ -269,6 +295,11 @@ is explicit and *recoverable*, and the caller's job is to surface it, never to s
   `dedup_skipped: true` means only that the **vector** (near-duplicate) guard could not run, so a
   *paraphrase* may still slip through until the row is re-embedded. **Recover with `kb reembed`**
   (the `qa-dream` pass runs it first thing, so a day's pending rows land that night).
+- **Brain not migrated for projects (no `project` column / no `lessons` table)** → reads still
+  answer, unfiltered, with `projects.warning: "project_column_missing"`; a write to a store without
+  the column is **queued** to the outbox (`error: "schema_outdated: …"`, `queued:true`) with its
+  `--project` pinned in the queued argv. Run `kb schema --apply` (admin), then `kb outbox --replay`.
+  `lessons` verbs fail with `schema_outdated` until then. `kb status` shows `schema.current`.
 - **Brain not migrated (no `symptom_hash`/`statement_hash` column)** → the write still lands and the
   response carries `warning: "hash_dedupe_unavailable: … re-apply scripts/schema.sql"`; only the exact-
   duplicate guard is missing. Re-apply the schema (`kb schema --apply` — an **admin action on the
@@ -302,8 +333,10 @@ is explicit and *recoverable*, and the caller's job is to surface it, never to s
 
 ## Files
 
-- `scripts/kb.py` — the CLI (the contract above). Reads `.claude/loops/kb.config.json`
-  (`KB_HOME` overrides the directory) and the secret env file beside it.
+- `scripts/kb.py` — the CLI (the contract above). Reads the first of `$KB_CONFIG`,
+  `$AGENT_KIT_OVERLAY/projects/<project>/kb.config.json`, `$AGENT_KIT_OVERLAY/kb.config.json`,
+  `.claude/loops/kb.config.json` (`KB_HOME` overrides that directory), and the secret env file
+  beside the chosen one.
 - `scripts/schema.sql.in` — the schema **template**; `scripts/schema.sql` — the rendered default
   (1536 dims, `text-embedding-3-small`). Re-render with `kb schema --dim N --model M --out scripts/schema.sql`
   when the embedder changes. Idempotent.

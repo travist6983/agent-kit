@@ -61,27 +61,31 @@ def _preview(value, n=80):
 
 
 def plan_app_map(cur):
-    """app_map is the only store where normalization can COLLIDE: UNIQUE (kind, area, key).
+    """app_map is the only store where normalization can COLLIDE: UNIQUE (project, kind, area,
+    key) — (kind, area, key) on a brain whose schema predates projects.
 
-    Group every row by the target it would normalize to. A group of >1 means two spellings
-    of the same logical row exist; the newest `updated_at` wins and the rest are dropped."""
+    Group every row by the target it would normalize to, WITHIN its project (the same key in two
+    projects is two rows, never a merge). A group of >1 means two spellings of the same logical
+    row exist; the newest `updated_at` wins and the rest are dropped."""
+    has_project = _has_col(cur, "app_map", "project")
     cur.execute("""SELECT id, kind, area, key, value, source, ticket, confidence,
-                          last_confirmed_at, updated_at, version
-                   FROM app_map ORDER BY id""")
+                          last_confirmed_at, updated_at, version{}
+                   FROM app_map ORDER BY id""".format(", project" if has_project else ""))
     rows = [dict(r) for r in cur.fetchall()]
     groups = {}
     for r in rows:
-        target = (kb.norm_kind(r["kind"]), kb.norm_area(r["area"]), r["key"])
+        target = (r.get("project") or "global", kb.norm_kind(r["kind"]), kb.norm_area(r["area"]),
+                  r["key"])
         groups.setdefault(target, []).append(r)
 
     updates, merges, delete_ids = [], [], []
-    for (nkind, narea, key), members in sorted(groups.items()):
+    for (project, nkind, narea, key), members in sorted(groups.items()):
         # Newest wins. `updated_at` is NOT NULL, so this ordering is total once id breaks ties.
         members = sorted(members, key=lambda r: (r["updated_at"], r["id"]), reverse=True)
         keeper, losers = members[0], members[1:]
         if losers:
             merges.append({
-                "target": {"kind": nkind, "area": narea, "key": key},
+                "target": {"kind": nkind, "area": narea, "key": key, "project": project},
                 "kept": {"id": keeper["id"], "kind": keeper["kind"], "area": keeper["area"],
                          "updated_at": keeper["updated_at"], "source": keeper["source"],
                          "version": keeper["version"], "value_preview": _preview(keeper["value"])},

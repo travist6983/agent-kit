@@ -12,7 +12,8 @@
 
 Every loop reads and writes a small, compressed memory: selectors and routes (`app_map`), how a
 feature *should* behave (`expectations`), per-test flake rates (`flakiness`), and symptom →
-root-cause → fix-shape experience (`fix_lessons`), plus the `kb_control` flags (the R9 kill switch,
+root-cause → fix-shape experience (`fix_lessons`), general working knowledge that is not a defect —
+tooling facts, preferences, workflow and project facts (`lessons`) — plus the `kb_control` flags (the R9 kill switch,
 the `staging_only` posture), the loop-health metrics, the `kb_writes` provenance ledger and the
 `kb_state` key/value store. That memory is the whole point of the design — *self-improvement is loop
 evolution, not model evolution* ([`loop-engineering.md`](loop-engineering.md)) — and it only compounds
@@ -78,6 +79,54 @@ this file. Do not localize it, do not re-point it at a local database, and do no
 environment is an error, not a cue to guess. The CLI resolves the DSN in this order:
 `kb --db <dsn>` → `KB_DATABASE_URL` → (for `auth.mode: url_env`, the variable `auth.env` names) →
 `kb.config.json` `database_url`. Leave the overrides unset and you land on the shared brain.
+
+### Where the config file lives — the kit, or an overlay
+
+The kit's own `.claude/loops/kb.config.json` is the default and the tracked example. A config can
+instead live in an **overlay** folder outside the kit, so one checkout of the kit can serve several
+setups without editing it. `kb` uses the **first** of:
+
+1. `$KB_CONFIG` — an explicit path (it must exist; a typo is an error, not a fallback);
+2. `$AGENT_KIT_OVERLAY/projects/<project>/kb.config.json` — if it exists (`<project>` is the
+   project identity below; the folder may also be spelled exactly like the repo directory);
+3. `$AGENT_KIT_OVERLAY/kb.config.json` — if it exists;
+4. the kit's `.claude/loops/kb.config.json`.
+
+The secret env file (`secret_env_file`, default `kb.secret.env`) is resolved **next to whichever
+config was chosen**, so an overlay keeps its own gitignored secrets. Every "no target" or "refused"
+error names the file that was actually chosen, and `kb status` prints it (`config`,
+`config_source`: `KB_CONFIG` | `overlay-project` | `overlay` | `kit`).
+
+### Projects — one brain, many projects
+
+Every knowledge row carries a `project`. The project of a `kb` call is the first of:
+`--project <name>` → `$AGENT_KIT_PROJECT` → the basename of `git rev-parse --show-toplevel` in the
+current directory → `global`. Inside the kit's own checkout it is `global`. Names are normalized like
+areas (`My_App` → `my-app`).
+
+- **Writes** are stamped with the current project (and the `kb_writes` ledger records it).
+- **Reads and searches** return the current project's rows **plus `global` ones** — so knowledge that
+  applies everywhere is written once with `--project global`. `--project all` returns every project
+  (reads only; a write with `--project all` is refused).
+- The same `app_map` key, or the same flakiness test id, can exist once per project.
+- Dedupe bumps (`fix_lessons`, `lessons`) and destructive selectors (`forget --key/--spec/--source`)
+  stay inside the current project; an `--id` is an exact handle and is never project-filtered.
+- `kb_control` (the kill switch and posture flags) and `kb_state` are global on purpose: a pause
+  pauses everything. `metrics` are stamped with the project but read globally unless you pass
+  `kb metrics --project <name>`.
+
+### Scope — `shared` or `single-machine`
+
+`scope` in the config declares who the brain is for:
+
+| `scope` | Meaning | A loopback / unix-socket host |
+|---|---|---|
+| `shared` (default) | one brain for every developer, machine and CI runner — the team setup this page describes | **refused** (§7) |
+| `single-machine` | one person's brain on one machine, used across all of that person's projects (separated by `project`) | **allowed** — the config names the local DSN *and* the scope, so it is a declared choice, not a fallback |
+
+Set `single-machine` only in a config that points at a local database on purpose (typically an
+overlay config, not the kit's tracked one). `kb status` and every write report the scope
+(`"scope": …`) next to the target (`"brain": "<host>/<db>"`).
 
 ### The auth modes
 
@@ -173,14 +222,29 @@ kb schema --raw | psql "$KB_DATABASE_URL"           # or with your own client
 Applying the schema is an **admin / migration action** — done once per brain, for everyone, and again
 when a schema change lands. It is not a per-developer setup step, and a loop never performs it.
 
+**The schema is also the migration.** Re-applying it to a brain created by an older version upgrades
+it in place: it adds `project` (default `'global'`, indexed) to every knowledge store, `metrics` and
+`kb_writes`; swaps `app_map`'s `UNIQUE (kind, area, key)` for `UNIQUE (project, kind, area, key)` and
+flakiness's `UNIQUE (spec, signature)` for `UNIQUE (project, spec, signature)`; and creates the
+`lessons` store. Existing rows keep their data and become `project = 'global'`, so every project
+still sees them. `kb schema --apply` refuses if the brain's existing vectors have a different
+dimension than the one it would render. Until the upgrade runs, an older brain still answers reads
+(unfiltered, with a `project_column_missing` warning) and **queues** writes to the outbox as
+`schema_outdated` — with their project pinned — so `kb outbox --replay` lands them after the upgrade.
+`kb status` reports `schema.present` / `schema.current`.
+
 ---
 
 ## 6. Verify you are on the shared brain
 
 ```bash
+kb status                         # config file, scope, project, target host/db, schema, row counts
 kb pause --status                 # cheapest real round-trip: connects, authenticates, reads kb_control
 kb read app_map --area invoices   # rows other people's runs wrote (any area your team has worked in)
 ```
+
+`kb status` never writes and never queues; it answers even when the brain is unreachable
+(`ok:false`, `reachable:false`), still naming the config, scope, project and target it resolved.
 
 Two things to look for:
 
@@ -211,8 +275,9 @@ only by that source, and it fingerprints the rows it did not write to prove it l
 ## 7. The unshared-brain guard — `KB_ALLOW_UNSHARED`
 
 A silent fallback to a local database is the worst failure the brain can have: it returns `ok:true`
-while the lesson reaches no one. So the CLI **refuses**, non-zero, when the resolved DSN's host is a
-loopback name or address, or a unix socket — a brain only that one machine can reach.
+while the lesson reaches no one. So under `scope: shared` the CLI **refuses**, non-zero, when the
+resolved DSN's host is a loopback name or address, or a unix socket — a brain only that one machine
+can reach. (A config that declares `scope: single-machine` is the deliberate exception — §3.)
 
 A refusal means something re-pointed you: a stray `KB_DATABASE_URL` in your shell, a `--db` argument,
 or a locally edited `kb.config.json`. Fix the source rather than working around it:
@@ -276,7 +341,8 @@ extension is not installed on the server (§2). That is an admin step; the CLI w
   local Postgres happened to be running, committed, and returned `ok:true` would be a lost lesson
   that looked exactly like a successful one.
 - **An unshared host is refused.** Being on the wrong brain fails **loudly** and non-zero, and going
-  local is an explicit, deliberate act (`KB_ALLOW_UNSHARED=1`), never an accident.
+  local is an explicit, deliberate act (`scope: single-machine` in the config, or
+  `KB_ALLOW_UNSHARED=1` for offline work), never an accident.
 - **An unreachable brain defers, it does not drop.** A transport failure queues mutating writes to
   the outbox for `kb outbox --replay`, so an expired token or a blocked network costs a delay, not a
   lesson.

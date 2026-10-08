@@ -1,7 +1,9 @@
 {
-  "_comment": "The shared-brain pointer. TRACKED IN GIT, holds no secret. Fill in database_url once, for everyone, and commit it; a fresh clone then lands on the same brain. Keys starting with _comment are ignored.",
+  "_comment": "The brain pointer. Holds no secret. This file is the kit's tracked EXAMPLE and default: fill in database_url once, for everyone, and commit it, so a fresh clone lands on the same brain. Alternatively keep the real config OUTSIDE the kit: kb.py uses the first of $KB_CONFIG (explicit path), $AGENT_KIT_OVERLAY/projects/<project>/kb.config.json, $AGENT_KIT_OVERLAY/kb.config.json, then this file. <project> is $AGENT_KIT_PROJECT, else the cwd's git repo name, else 'global'. `kb status` prints which file was chosen. Keys starting with _comment are ignored.",
   "database_url": "",
-  "_comment_database_url": "Explicit libpq DSN of the shared Postgres + pgvector brain, e.g. 'host=db.example.com port=5432 dbname=loop_kb user=loop_rw sslmode=require'. Never defaulted: an empty value is an error. KB_DATABASE_URL in the environment (or kb --db) overrides it. A loopback / unix-socket host is refused unless KB_ALLOW_UNSHARED=1.",
+  "_comment_database_url": "Explicit libpq DSN of the Postgres + pgvector brain, e.g. 'host=db.example.com port=5432 dbname=loop_kb user=loop_rw sslmode=require'. Never defaulted: an empty value is an error. KB_DATABASE_URL in the environment (or kb --db) overrides it. A loopback / unix-socket host is refused unless scope is single-machine or KB_ALLOW_UNSHARED=1.",
+  "scope": "shared",
+  "_comment_scope": "Who the brain is for. shared (default): one brain for every developer and machine; a local host is refused. single-machine: one person's brain on this machine, used across all of their projects (rows are separated by project); a local host is allowed as a declared choice. Set it only in a config that names a local database on purpose.",
   "auth": {
     "mode": "password"
   },
@@ -14,5 +16,5 @@
   },
   "_comment_embedding": "provider: openai | openai-compatible (set embedding.base_url for a self-hosted or gateway endpoint) | stub (TEST-ONLY, never for real rows). api_key_env NAMES the env var holding the key; the key itself lives in the secret env file. Changing dim means re-rendering the schema: kb schema --dim N --apply.",
   "secret_env_file": "kb.secret.env",
-  "_comment_secret_env_file": "Gitignored, per machine, next to this file: the embedding key (the variable api_key_env names) and, for auth.mode password, KB_DB_PASSWORD."
+  "_comment_secret_env_file": "Gitignored, per machine, NEXT TO whichever kb.config.json was chosen (the kit's or an overlay's): the embedding key (the variable api_key_env names) and, for auth.mode password, KB_DB_PASSWORD."
 }

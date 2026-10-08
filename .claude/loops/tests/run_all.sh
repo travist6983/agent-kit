@@ -12,6 +12,10 @@
 #   test_emit             contracts/emit.py never lands a contract violation on disk
 #   test_kb_durability    a knowledge write is never silently dropped, and the artifact's
 #                         claim about it is falsifiable (validate.py --receipts)
+#   test_kb_projects      one brain, many projects: project identity + isolation, the lessons
+#                         store, scope (shared vs single-machine), overlay config lookup, and
+#                         the in-place migration of a pre-project brain. Runs in scratch
+#                         Postgres schemas it creates and drops; stub embedder only.
 #   test_dream_harvest    the dream brief is reproducible, bounded, and honest — run against
 #                         a synthetic fixture, never the user's live transcripts
 #   test_dream_runner     dream.sh survives being unattended: single-instance lock + stale
@@ -41,6 +45,9 @@
 #   test_pr_thread_bar · test_prod_signal · test_prune · test_r6_denylist ·
 #   test_recipe_router · test_sandbox · test_standards_check · test_verify_gate
 # Usage:  bash run_all.sh
+# Tests never use an owner's overlay: it points at a real brain. Point brain suites at a test
+# database with KB_CONFIG (a config naming a throwaway DB) or KB_DATABASE_URL instead.
+unset AGENT_KIT_OVERLAY AGENT_KIT_PROJECT
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SK="$(cd "$HERE/../../skills" && pwd)"
 echo "════════════ loop framework — regression suite ════════════"

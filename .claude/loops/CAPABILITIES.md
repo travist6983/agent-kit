@@ -35,7 +35,7 @@ between steps; workflow variables are not a seam.
 
 | Skill | Kind | Purpose | Emits contract | Brain stores |
 |---|---|---|---|---|
-| `qa-kb` | atomic | The only interface to the brain: the `kb` CLI over four stores, control flags, metrics and the provenance ledger | — | all |
+| `qa-kb` | atomic | The only interface to the brain: the `kb` CLI over five project-scoped stores, control flags, metrics and the provenance ledger | — | all |
 | `dev-intake` | atomic | Front door: fetch via `issue_tracker`, sanitize (R6), sufficiency gate, risk + tier, route to exactly one recipe | `dev-intake.json` → `intake.json`; `context-pack.json` → `context.json` | reads `app_map`, `flakiness`, `expectations` |
 | `qa-repro` | atomic | Reproduce live, record the before-video, emit the deterministic replay oracle + verbatim expected/actual | `qa-repro.json` → `repro.json` | writes `app_map`; proposes `expectations` |
 | `dev-fix` | atomic | One root-cause candidate change that turns the replay green; R6 denylist scan before emit | `dev-fix.json` → `fix.json` | reads `fix_lessons` |
@@ -78,10 +78,10 @@ never a silent skip and never an unclassified retry.
 
 **`qa-kb`**
 - Purpose: the single read / write / search / propose → bless / forget interface to the brain, via the `kb` CLI, never raw SQL. Storage-agnostic so the brain can lift into its own service.
-- Inputs: a verb (`read`, `write`, `search`, `propose`, `bless`, `reject`, `forget`, `decay`, `receipt`, `undo`, `pause`, `flag`, `state`, `metric`, `outbox`) plus store, key or query, `--source`, and `--expect-version` on writes.
+- Inputs: a verb (`read`, `write`, `search`, `propose`, `bless`, `reject`, `forget`, `decay`, `receipt`, `undo`, `pause`, `flag`, `state`, `metric`, `outbox`, `status`) plus store, key or query, `--source`, `--expect-version` on writes, and `--project` (default: `$AGENT_KIT_PROJECT`, else the cwd's git repo name, else `global`).
 - Outputs: JSON per verb; every write returns a receipt id that `kb undo` reverses.
-- Brain: `app_map` (keyed), `expectations` (semantic; propose-only for AI), `flakiness` (counters + quarantine), `fix_lessons` (semantic by symptom); plus `kb_control` (`global_pause`, `staging_only`), `metrics`, `kb_writes` (provenance ledger), `kb_state` (durable key/value), and a write outbox for retry.
-- Stops: `database_url` empty → error (never defaulted); loopback host without `KB_ALLOW_UNSHARED=1` → refused; `pause` answers fail-closed — a ship may proceed only on an explicit `paused:false`; a version mismatch on `--expect-version` → conflict, never last-write-wins.
+- Brain: `app_map` (keyed), `expectations` (semantic; propose-only for AI), `flakiness` (counters + quarantine), `fix_lessons` (semantic by symptom), `lessons` (general non-defect knowledge; proposed → active, semantic over active) — every knowledge row carries `project`, reads see the current project + `global`; plus `kb_control` (`global_pause`, `staging_only`), `metrics`, `kb_writes` (provenance ledger), `kb_state` (durable key/value), and a write outbox for retry.
+- Stops: `database_url` empty → error (never defaulted); loopback host without `scope: single-machine` in the config or `KB_ALLOW_UNSHARED=1` → refused; a write to a brain whose schema predates projects → queued as `schema_outdated` until `kb schema --apply`; `pause` answers fail-closed — a ship may proceed only on an explicit `paused:false`; a version mismatch on `--expect-version` → conflict, never last-write-wins.
 
 ### The defect spine
 

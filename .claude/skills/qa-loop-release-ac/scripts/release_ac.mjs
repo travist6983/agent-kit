@@ -68,8 +68,23 @@ function run(cmd, argv, opts = {}) {
 
 // ---------------------------------------------------------------- stack.config
 
-/** Same resolution as lib/adapters/config.py: $LOOPS_STACK_CONFIG, else <root>/.claude/loops/stack.config.json. */
+/**
+ * Same resolution as lib/adapters/config.py, by asking it: $LOOPS_STACK_CONFIG, the overlay
+ * ($AGENT_KIT_OVERLAY/projects/<project>/ then the overlay root), else the kit's example.
+ */
 let STACK = null;
+let STACK_META = null;
+function stackMeta() {
+  if (STACK_META) return STACK_META;
+  const py = 'import json,sys; sys.path.insert(0, sys.argv[1]); from lib.adapters import config as C; '
+    + 'p = C.default_config_path(); c = C.load_config() if p.exists() else None; '
+    + 'print(json.dumps({"path": str(p), "root": str(c.root) if c else None, "is_overlay": bool(c and c.is_overlay), '
+    + '"repo_dir": str(c.repo_dir()) if c and c.repo_dir() else None}))';
+  const r = spawnSync('python3', ['-c', py, REPO_ROOT], { encoding: 'utf8' });
+  if (r.status !== 0) fail(`could not resolve stack.config.json through lib/adapters/config.py: ${(r.stderr || '').trim()}`, 2);
+  STACK_META = JSON.parse(r.stdout);
+  return STACK_META;
+}
 function stripComments(node) {
   if (Array.isArray(node)) return node.map(stripComments);
   if (node && typeof node === 'object') {
@@ -79,7 +94,7 @@ function stripComments(node) {
 }
 function stack() {
   if (STACK) return STACK;
-  const f = process.env.LOOPS_STACK_CONFIG || path.join(REPO_ROOT, '.claude', 'loops', 'stack.config.json');
+  const f = stackMeta().path;
   if (!fs.existsSync(f)) fail(`stack.config.json not found at ${f} (set LOOPS_STACK_CONFIG or create it from .claude/loops/stack.config.example.json)`, 2);
   STACK = stripComments(readJson(f));
   return STACK;
@@ -95,13 +110,21 @@ function cfg(dotted, dflt = null) {
   }
   return cur === undefined ? dflt : cur;
 }
-function resolvePath(p) { return path.isAbsolute(p) ? p : path.resolve(REPO_ROOT, p); }
+function resolvePath(p) {
+  if (path.isAbsolute(p)) return p;
+  const meta = stackMeta();
+  const local = path.resolve(meta.root || REPO_ROOT, p);
+  // An overlay carries only what it overrides; everything else is the kit's.
+  if (meta.is_overlay && !fs.existsSync(local) && fs.existsSync(path.resolve(REPO_ROOT, p))) return path.resolve(REPO_ROOT, p);
+  return local;
+}
 function defaultBranch(args) { return args.base || cfg('project.default_branch', 'main'); }
 function evidenceRoot() { return resolvePath(cfg('evidence.root', 'runs')); }
 
 /** The target app's checkout: --repo, else app.repo_dir from stack.config. Never a guessed sibling. */
 function appRepo(args, { optional = false } = {}) {
   const tried = [args.repo, cfg('app.repo_dir')].filter(Boolean).map(resolvePath);
+  if (stackMeta().is_overlay && stackMeta().repo_dir && !cfg('app.repo_dir')) tried.push(stackMeta().repo_dir);
   for (const p of tried) if (fs.existsSync(path.join(p, '.git'))) return p;
   if (optional) return null;
   fail(`target app repo not found. Pass --repo <path> or set app.repo_dir in stack.config.json. Tried:\n  ${tried.join('\n  ') || '(nothing configured)'}`, 2);

@@ -25,18 +25,26 @@ Durability guarantees (a lost write is a lost lesson):
     TRANSACTION, and returns it as "receipt" — so `kb receipt --ticket K` is a
     falsifiable record of what a run wrote.
 
-The brain is SHARED and there is no local default. The target is the DSN named in the tracked
-config (`database_url`) or in KB_DATABASE_URL (or `--db`); a missing DSN is an error, never a
-cue to guess. A loopback / unix-socket host is REFUSED (see _assert_shared_brain) unless
+There is no local default. The target is the DSN named in the config (`database_url`) or in
+KB_DATABASE_URL (or `--db`); a missing DSN is an error, never a cue to guess. A loopback /
+unix-socket host is REFUSED (see _assert_shared_brain) unless the config DECLARES
+`"scope": "single-machine"` (one person, one machine, a brain on purpose) or
 KB_ALLOW_UNSHARED=1 says offline work is intended — rows written that way reach no one else.
 
 Backend: Postgres + pgvector, on any host. Database auth is one of the modes in
          kb.config.json `auth.mode`: password | url_env | token_command.
          Embeddings: per kb.config.json `embedding` (provider / model / dim / api_key_env).
-Config:  <repo>/.claude/loops/kb.config.json  — TRACKED IN GIT, holds no secret;
-         it is what makes every clone and every machine write to the same brain.
-Secret:  <repo>/.claude/loops/kb.secret.env — the embedding key named by
-         `embedding.api_key_env`, plus a DB password for `auth.mode: password` — gitignored.
+Config:  the first of  $KB_CONFIG (explicit path)
+                       → $AGENT_KIT_OVERLAY/projects/<project>/kb.config.json (if it exists)
+                       → $AGENT_KIT_OVERLAY/kb.config.json (if it exists)
+                       → <repo>/.claude/loops/kb.config.json (the kit's tracked example)
+         Holds no secret. `scope` there is `shared` (default) or `single-machine`.
+Secret:  `secret_env_file` (default kb.secret.env) resolved NEXT TO the chosen config — the
+         embedding key named by `embedding.api_key_env`, plus a DB password for
+         `auth.mode: password` — gitignored.
+Project: every knowledge row carries `project` (see resolve_project): $AGENT_KIT_PROJECT, else
+         the basename of the cwd's git toplevel, else 'global' (and 'global' inside the kit
+         itself). Reads see <project> + 'global'; `--project all` sees everything.
 Schema:  `kb schema --dim N` renders scripts/schema.sql.in for the configured embedding
          dimension (scripts/schema.sql is the rendered default); `kb schema --apply` applies
          it through the configured auth mode.
@@ -93,7 +101,87 @@ def load_secret_env(path):
                 v = v[1:-1]
             os.environ.setdefault(k, v)
 
-CONFIG_PATH = os.path.join(BRAIN_DIR, "kb.config.json")
+# ── project identity ─────────────────────────────────────────────────────────
+# One person can point many of their own projects at ONE brain; every knowledge row carries the
+# project it was learned in, and reads see <project> + 'global'. The project is resolved here,
+# before the config, because an overlay may hold a per-project kb.config.json.
+
+GLOBAL_PROJECT = "global"
+ALL_PROJECTS = "all"           # read-side only: `--project all` lifts the project filter
+_KIT_ROOT_CACHE = []
+
+
+def _git_toplevel(cwd):
+    try:
+        out = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=cwd,
+                             capture_output=True, text=True, timeout=5)
+    except Exception:
+        return None
+    if out.returncode != 0 or not out.stdout.strip():
+        return None
+    return os.path.realpath(out.stdout.strip())
+
+
+def kit_root():
+    """The kit's own checkout: the git toplevel that holds this script (else four levels up)."""
+    if not _KIT_ROOT_CACHE:
+        here = os.path.dirname(os.path.realpath(__file__))
+        _KIT_ROOT_CACHE.append(_git_toplevel(here) or os.path.realpath(
+            os.path.join(here, "..", "..", "..", "..")))
+    return _KIT_ROOT_CACHE[0]
+
+
+def norm_project(name):
+    """Projects are compared normalized ('My App' -> 'my-app'), like areas. '' -> 'global'."""
+    s = (name or "").strip().lower()
+    s = re.sub(r"[\s_/\\]+", "-", s)
+    s = re.sub(r"-{2,}", "-", s).strip("-")
+    return s or GLOBAL_PROJECT
+
+
+def resolve_project(override=None, cwd=None):
+    """(project, how, raw). `--project` > $AGENT_KIT_PROJECT > basename of `git rev-parse
+    --show-toplevel` in the cwd > 'global'. The kit's own checkout is 'global': knowledge learned
+    while working ON the kit is not about any one project."""
+    if override:
+        return norm_project(override), "flag", override.strip()
+    env = (os.environ.get("AGENT_KIT_PROJECT") or "").strip()
+    if env:
+        return norm_project(env), "env", env
+    top = _git_toplevel(cwd or os.getcwd())
+    if not top:
+        return GLOBAL_PROJECT, "default", None
+    if top == kit_root():
+        return GLOBAL_PROJECT, "kit", None
+    return norm_project(os.path.basename(top)), "git", os.path.basename(top)
+
+
+# ── config lookup (kit default or an external overlay) ───────────────────────
+
+KIT_CONFIG_PATH = os.path.join(BRAIN_DIR, "kb.config.json")
+
+
+def resolve_config_path(project, raw_project=None):
+    """(path, how). $KB_CONFIG > $AGENT_KIT_OVERLAY/projects/<project>/kb.config.json >
+    $AGENT_KIT_OVERLAY/kb.config.json > the kit's .claude/loops/kb.config.json. Overlay files
+    count only when they exist; an explicit $KB_CONFIG must exist (checked at use time)."""
+    explicit = (os.environ.get("KB_CONFIG") or "").strip()
+    if explicit:
+        return os.path.abspath(os.path.expanduser(explicit)), "KB_CONFIG"
+    overlay = (os.environ.get("AGENT_KIT_OVERLAY") or "").strip()
+    if overlay:
+        overlay = os.path.expanduser(overlay)
+        names = [project]
+        if raw_project and raw_project not in names:
+            names.append(raw_project)          # an overlay folder spelled like the repo dir
+        for name in names:
+            cand = os.path.join(overlay, "projects", name, "kb.config.json")
+            if os.path.isfile(cand):
+                return cand, "overlay-project"
+        cand = os.path.join(overlay, "kb.config.json")
+        if os.path.isfile(cand):
+            return cand, "overlay"
+    return KIT_CONFIG_PATH, "kit"
 
 # Defaults for the two sections a config may leave out. `database_url` has NO default on
 # purpose (see NO_TARGET_MSG). The embedding defaults match kb.config.json as shipped; an
@@ -102,16 +190,20 @@ DEFAULT_EMBEDDING = {"provider": "openai", "model": "text-embedding-3-small", "d
                      "api_key_env": "OPENAI_API_KEY"}
 DEFAULT_AUTH = {"mode": "password"}
 AUTH_MODES = ("password", "url_env", "token_command")
+# `scope` declares who the brain is for. shared (default): a loopback / socket host is refused.
+# single-machine: one person's brain on this machine — a local host is a declared choice.
+SCOPES = ("shared", "single-machine")
+DEFAULT_SCOPE = "shared"
 
 NO_TARGET_MSG = (
     "no brain target configured — refusing to guess. Expected a non-empty `database_url` in "
-    "{path}, or KB_DATABASE_URL in the environment (or --db). That file is TRACKED IN GIT and "
-    "holds no credentials (those come from `auth.mode` and the gitignored secret env file), so "
-    "an empty target means this checkout has not been pointed at a brain yet: set "
-    "`database_url` once, for everyone, and commit it. Setup: docs/brain-setup.md. There is "
-    "deliberately NO local default — a silent fallback to a host-less DSN builds a private "
-    "brain on one machine, with writes returning ok:true while the lesson reaches no one."
-).format(path=CONFIG_PATH)
+    "{path}, or KB_DATABASE_URL in the environment (or --db). That file holds no credentials "
+    "(those come from `auth.mode` and the gitignored secret env file), so an empty target means "
+    "this checkout has not been pointed at a brain yet: set `database_url` once (in the kit's "
+    "tracked config, or in an overlay config named by AGENT_KIT_OVERLAY / KB_CONFIG). Setup: "
+    "docs/brain-setup.md. There is deliberately NO local default — a silent fallback to a "
+    "host-less DSN builds a private brain on one machine, with writes returning ok:true while "
+    "the lesson reaches no one.")
 
 
 class BrainConfigError(RuntimeError):
@@ -131,7 +223,7 @@ class _Config(dict):
 
     def __missing__(self, key):
         if key == "database_url":
-            raise BrainConfigError(NO_TARGET_MSG)
+            raise BrainConfigError(NO_TARGET_MSG.format(path=CONFIG_PATH))
         raise KeyError(key)
 
 
@@ -145,16 +237,18 @@ def _strip_comments(obj):
     return obj
 
 
-def load_config():
+def load_config(path=None):
     # NOTE: no "database_url" default. The brain named in kb.config.json (or KB_DATABASE_URL)
     # is the only target; if the config supplies no usable target we fail closed.
+    path = path or CONFIG_PATH
     cfg = _Config({
         "auth": dict(DEFAULT_AUTH),
         "embedding": dict(DEFAULT_EMBEDDING),
         "secret_env_file": "kb.secret.env",
+        "scope": DEFAULT_SCOPE,
     })
-    if os.path.exists(CONFIG_PATH):
-        with open(CONFIG_PATH) as fh:
+    if os.path.exists(path):
+        with open(path) as fh:
             raw = _strip_comments(json.load(fh))   # deliberately unwrapped: a malformed config must raise
         emb = dict(DEFAULT_EMBEDDING)
         emb.update(raw.pop("embedding", None) or {})
@@ -168,17 +262,39 @@ def load_config():
         cfg.pop("database_url", None)
     return cfg
 
-CONFIG = load_config()
-load_secret_env(os.path.join(BRAIN_DIR, CONFIG.get("secret_env_file", "kb.secret.env")))
-EMB_MODEL = CONFIG["embedding"]["model"]
-EMB_DIM = int(CONFIG["embedding"]["dim"])
-EMB_KEY_ENV = CONFIG["embedding"].get("api_key_env") or DEFAULT_EMBEDDING["api_key_env"]
+
+def init_config(project, raw_project=None):
+    """Choose the config file for `project`, load it and the secret env file beside it, and
+    (re)set the module globals every verb reads. Called at import and again by main() when
+    `--project` names a different project (an overlay may hold a per-project config)."""
+    global CONFIG_PATH, CONFIG_SOURCE, CONFIG, EMB_MODEL, EMB_DIM, EMB_KEY_ENV, PROJECT
+    CONFIG_PATH, CONFIG_SOURCE = resolve_config_path(project, raw_project)
+    CONFIG = load_config(CONFIG_PATH)
+    # The secret env file lives NEXT TO whichever config was chosen (an overlay keeps its own).
+    load_secret_env(os.path.join(os.path.dirname(CONFIG_PATH),
+                                 CONFIG.get("secret_env_file", "kb.secret.env")))
+    EMB_MODEL = CONFIG["embedding"]["model"]
+    EMB_DIM = int(CONFIG["embedding"]["dim"])
+    EMB_KEY_ENV = CONFIG["embedding"].get("api_key_env") or DEFAULT_EMBEDDING["api_key_env"]
+    PROJECT = project
+
+
+CONFIG_PATH = KIT_CONFIG_PATH
+PROJECT, PROJECT_HOW, _PROJECT_RAW = resolve_project()
+_IMPORT_PROJECT = (PROJECT, PROJECT_HOW, _PROJECT_RAW)
+init_config(PROJECT, _PROJECT_RAW)
+
+
+def brain_scope():
+    return CONFIG.get("scope") or DEFAULT_SCOPE
 
 
 def resolve_dsn(override=None):
     """THE one DSN resolver, shared by main(), harness.py and migrate_normalize.py:
     `--db` > KB_DATABASE_URL > (auth.mode url_env: the variable `auth.env` names) > config.
     Raises BrainConfigError when nothing names a target — never returns a guess."""
+    if CONFIG_SOURCE == "KB_CONFIG" and not os.path.isfile(CONFIG_PATH):
+        raise BrainConfigError("KB_CONFIG names {} but no such file exists".format(CONFIG_PATH))
     if override:
         return override
     env = os.environ.get("KB_DATABASE_URL")
@@ -199,6 +315,12 @@ def resolve_dsn(override=None):
 
 def validate_auth_config():
     """A config error, not a transport error: never queued, never guessed."""
+    if CONFIG_SOURCE == "KB_CONFIG" and not os.path.isfile(CONFIG_PATH):
+        raise BrainConfigError("KB_CONFIG names {} but no such file exists".format(CONFIG_PATH))
+    scope = CONFIG.get("scope") or DEFAULT_SCOPE
+    if scope not in SCOPES:
+        raise BrainConfigError("unknown scope {!r} in {} — one of: {}".format(
+            scope, CONFIG_PATH, ", ".join(SCOPES)))
     mode = CONFIG["auth"].get("mode") or "password"
     if mode not in AUTH_MODES:
         raise BrainConfigError("unknown auth.mode {!r} in {} — one of: {}".format(
@@ -295,13 +417,18 @@ def _match_verdict(vs, got, rows):
         return "normalized_scan"   # matched only via norm_sql() — migrate_normalize.py pending
     return "none"
 
-def fetch_by_area(cur, table, area, order_sql):
-    """`--area` read shared by every store: exact variants OR a normalized match.
+def fetch_by_area(cur, table, area, order_sql, a=None):
+    """`--area` read shared by every store: exact variants OR a normalized match, within the
+    invocation's project scope (current + 'global', or every project for `--project all`).
     Returns (rows, normalization_report)."""
     av = area_variants(area)
-    cur.execute("SELECT * FROM {} WHERE {} ORDER BY (area=%s) DESC, {}".format(
-                    table, norm_pred("area"), order_sql),
-                (av, av[0], av[0]))
+    pw, pp, po, pop = "TRUE", [], "", []
+    if a is not None:
+        pw, pp = proj_where(cur, a, table)
+        po, pop = proj_order(cur, a, table)
+    cur.execute("SELECT * FROM {} WHERE {} AND {} ORDER BY {}(area=%s) DESC, {}".format(
+                    table, norm_pred("area"), pw, po, order_sql),
+                tuple([av, av[0]] + pp + pop + [av[0]]))
     rows = cur.fetchall()
     return rows, {"area": match_info(av, rows, "area")}
 
@@ -409,7 +536,9 @@ def heal_hash(cur, table, hash_col, row, text):
 
 # The human-readable column each store is identified BY, for plans/receipts/undo summaries.
 STORE_LABEL = {"app_map": "key", "expectations": "statement", "flakiness": "spec",
-               "fix_lessons": "symptom", "metrics": "metric"}
+               "fix_lessons": "symptom", "metrics": "metric", "lessons": "text"}
+# Stores whose rows have no 'forgotten' status — forget is always a hard delete there.
+NO_SOFT_FORGET = ("flakiness", "fix_lessons", "lessons")
 
 # ── embeddings ───────────────────────────────────────────────────────────────
 
@@ -602,7 +731,12 @@ def _assert_shared_brain(dsn):
     host = _dsn_host(dsn)
     if not _is_unshared_host(host):
         return
-    # The ONLY escape hatch, for OFFLINE / LOCAL DEVELOPMENT ONLY. Rows written under it live
+    # A DECLARED single-machine brain: the config says, on purpose, that this brain is one
+    # person's on one machine (e.g. one brain across all of that person's own projects). Not a
+    # fallback — the config had to name both the local DSN and the scope.
+    if brain_scope() == "single-machine":
+        return
+    # The escape hatch, for OFFLINE / LOCAL DEVELOPMENT ONLY. Rows written under it live
     # on that machine alone and never reach the shared brain — a scratch pad, not the brain.
     # It is loud on every single invocation on purpose: an unnoticed local brain is the bug.
     if os.environ.get("KB_ALLOW_UNSHARED") == "1":
@@ -614,7 +748,8 @@ def _assert_shared_brain(dsn):
         "refusing to use a non-shared brain: resolved host {!r} is loopback / a local socket, "
         "which only this machine can reach. The brain is shared across every developer and "
         "every machine (configured target: {}). Point --db / KB_DATABASE_URL / {} at the shared "
-        "brain, or set KB_ALLOW_UNSHARED=1 for offline local development only. "
+        "brain, set \"scope\": \"single-machine\" in that config if a one-machine brain is the "
+        "intent, or set KB_ALLOW_UNSHARED=1 for offline local development only. "
         "See docs/brain-setup.md.".format(
             host or "(none — local unix socket)",
             CONFIG.get("database_url") or "unset, see kb.config.json", CONFIG_PATH))
@@ -654,7 +789,50 @@ def set_brain_target(dsn):
 def _with_target(kw):
     if _BRAIN_TARGET and "brain" not in kw:
         kw["brain"] = _BRAIN_TARGET
+        kw.setdefault("scope", brain_scope())     # additive: which kind of brain it landed in
+        kw.setdefault("project", PROJECT)         # additive: which project the write was stamped with
     return kw
+
+# ── project scoping helpers ──────────────────────────────────────────────────
+# Every handler reads the invocation's project from `a._project` (set by main()); `a._all` is
+# true for `--project all`, which lifts the READ filter. Writes always stamp a single project.
+# A brain whose schema predates the project column (schema.sql not yet re-applied) still
+# answers reads — unfiltered, with a warning — and queues writes (see main()).
+
+def cur_project(a):
+    return getattr(a, "_project", None) or PROJECT
+
+def all_projects(a):
+    return bool(getattr(a, "_all", False))
+
+def visible_projects(a):
+    p = cur_project(a)
+    return [p] if p == GLOBAL_PROJECT else [p, GLOBAL_PROJECT]
+
+def has_project_col(cur, table):
+    return has_col(cur, table, "project")
+
+def proj_where(cur, a, table, col="project"):
+    """(sql, params) — the default read scope: rows of the current project + 'global'.
+    `--project all` (or a brain without the column yet) returns ("TRUE", [])."""
+    if all_projects(a) or not has_project_col(cur, table):
+        return "TRUE", []
+    return "{} = ANY(%s)".format(col), [visible_projects(a)]
+
+def proj_order(cur, a, table):
+    """(sql, params) — current-project rows sort ahead of 'global' ones in a mixed read."""
+    if all_projects(a) or not has_project_col(cur, table):
+        return "", []
+    return "(project = %s) DESC, ", [cur_project(a)]
+
+def proj_report(cur, a, table):
+    """The additive `projects` key on a read: what scope was applied."""
+    if not has_project_col(cur, table):
+        return {"filter": "none", "warning": "project_column_missing: re-apply the schema "
+                "(kb schema --apply) to scope reads by project"}
+    if all_projects(a):
+        return {"filter": "all"}
+    return {"filter": visible_projects(a), "current": cur_project(a)}
 
 def ok(**kw):
     kw.setdefault("ok", True)
@@ -687,6 +865,10 @@ def warnings_of(*ws):
 LEDGER_SQL = """INSERT INTO kb_writes
                   (verb, store, action, row_id, source, ticket, loop_id, run_id, area, summary)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id"""
+LEDGER_PROJECT_SQL = """INSERT INTO kb_writes
+                  (verb, store, action, row_id, source, ticket, loop_id, run_id, area, summary,
+                   project)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id"""
 
 # The loop runner tags every write for free by exporting these; a CLI flag always wins.
 TAG_ENV = {"ticket": "LOOP_TICKET", "loop_id": "LOOP_ID", "run_id": "LOOP_RUN_ID"}
@@ -702,7 +884,7 @@ def _flag_or_env(a, attr, env):
 def _tag(a, attr):
     return _flag_or_env(a, attr, TAG_ENV[attr])
 
-def ledger(cur, a, verb, store, action, row_id=None, area="", summary=""):
+def ledger(cur, a, verb, store, action, row_id=None, area="", summary="", project=None):
     """Insert ONE kb_writes row in the caller's transaction and return the receipt.
 
     Wrapped in a SAVEPOINT so a ledger-side fault (e.g. schema.sql not yet applied on this
@@ -712,9 +894,13 @@ def ledger(cur, a, verb, store, action, row_id=None, area="", summary=""):
     params = (verb, store, action, row_id, src,
               _tag(a, "ticket"), _tag(a, "loop_id"), _tag(a, "run_id"),
               norm_area(area), (summary or "")[:200])
+    sql = LEDGER_SQL
+    if has_project_col(cur, "kb_writes"):          # provenance records the project too
+        sql = LEDGER_PROJECT_SQL
+        params = params + (project or cur_project(a),)
     cur.execute("SAVEPOINT kb_ledger")
     try:
-        cur.execute(LEDGER_SQL, params)
+        cur.execute(sql, params)
         rid = cur.fetchone()["id"]
         cur.execute("RELEASE SAVEPOINT kb_ledger")
         return {"id": rid, "store": store, "row_id": row_id}
@@ -725,16 +911,20 @@ def ledger(cur, a, verb, store, action, row_id=None, area="", summary=""):
 
 # ── verb handlers ────────────────────────────────────────────────────────────
 
-def _app_map_lookup(cur, kind, area, key):
+def _app_map_lookup(cur, kind, area, key, project=None):
     """(row, matched) — the row this (kind, area, key) means, whatever casing it was stored
-    under. Preference order: exact normalized pair → exact raw pair → anything that
-    normalizes to the same pair (newest first). Finding the pre-migration row is what stops
-    a normalized write from silently forking a duplicate."""
+    under, IN THIS PROJECT (a 'global' row with the same key is a different row — a project
+    write shadows it, never edits it). Preference order: exact normalized pair → exact raw
+    pair → anything that normalizes to the same pair (newest first). Finding the
+    pre-migration row is what stops a normalized write from silently forking a duplicate."""
     kv, av = kind_variants(kind), area_variants(area)
-    cur.execute("""SELECT * FROM app_map WHERE {} AND {} AND key=%s
+    psql, pparams = "", []
+    if project is not None and has_project_col(cur, "app_map"):
+        psql, pparams = " AND project = %s", [project]
+    cur.execute("""SELECT * FROM app_map WHERE {} AND {} AND key=%s{}
                    ORDER BY (kind=%s AND area=%s) DESC, (kind=%s AND area=%s) DESC,
-                            updated_at DESC LIMIT 1""".format(norm_pred("kind"), norm_pred("area")),
-                (kv, kv[0], av, av[0], key, kv[0], av[0], kv[-1], av[-1]))
+                            updated_at DESC LIMIT 1""".format(norm_pred("kind"), norm_pred("area"), psql),
+                tuple([kv, kv[0], av, av[0], key] + pparams + [kv[0], av[0], kv[-1], av[-1]]))
     row = cur.fetchone()
     if row is None:
         return None, None
@@ -770,7 +960,8 @@ def cmd_write(cur, a, embed):
             return fail("bad --value JSON: {}".format(e))
         nkind, narea = norm_kind(a.kind), norm_area(a.area)
         w_kind = None if nkind in KNOWN_KINDS else "unknown_kind"
-        existing, matched = _app_map_lookup(cur, a.kind, a.area, a.key)
+        proj = cur_project(a)
+        existing, matched = _app_map_lookup(cur, a.kind, a.area, a.key, proj)
         # A row found only under its RAW (kind, area) is updated IN PLACE — renaming it here
         # could collide with an already-normalized twin. migrate_normalize.py owns renaming.
         w_raw = ("unnormalized_row: matched on the raw (kind, area); run "
@@ -779,10 +970,10 @@ def cmd_write(cur, a, embed):
         warning, all_w = warnings_of(w_kind, w_raw)
 
         if existing is None:
-            cur.execute("""INSERT INTO app_map(kind,area,key,value,source,confidence,ticket)
-                           VALUES(%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
+            cur.execute("""INSERT INTO app_map(kind,area,key,value,source,confidence,ticket,project)
+                           VALUES(%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
                         (nkind, narea, a.key, Json(val), a.source, a.confidence,
-                         _tag(a, "ticket")))
+                         _tag(a, "ticket"), proj))
             row = cur.fetchone()
             rec = ledger(cur, a, "write", "app_map", "insert", row["id"], narea, a.key)
             return ok(action="insert", row=sanitize(row), matched="new", receipt=rec,
@@ -827,16 +1018,17 @@ def cmd_write(cur, a, embed):
             derived = bool(area)
         warning, all_w = warnings_of(
             None if area else "flakiness_area_empty: pass --area so the R7 slice can find this row")
-        cur.execute("""INSERT INTO flakiness(spec, area, signature, runs, failures, source, last_seen_at)
-                       VALUES(%s,%s,%s,1,%s,%s,now())
-                       ON CONFLICT (spec, signature) DO UPDATE
+        cur.execute("""INSERT INTO flakiness(spec, area, signature, runs, failures, source, last_seen_at,
+                                             project)
+                       VALUES(%s,%s,%s,1,%s,%s,now(),%s)
+                       ON CONFLICT (project, spec, signature) DO UPDATE
                          SET runs = flakiness.runs + 1,
                              failures = flakiness.failures + EXCLUDED.failures,
                              area = CASE WHEN flakiness.area = '' THEN EXCLUDED.area ELSE flakiness.area END,
                              last_seen_at = now(), updated_at = now(),
                              version = flakiness.version + 1
                        RETURNING *""",
-                    (a.spec, area, a.signature or "", failed, a.source))
+                    (a.spec, area, a.signature or "", failed, a.source, cur_project(a)))
         row = cur.fetchone()
         rec = ledger(cur, a, "write", "flakiness", "upsert", row["id"], row["area"], a.spec)
         return ok(action="upsert", row=sanitize(row), receipt=rec,
@@ -846,6 +1038,8 @@ def cmd_write(cur, a, embed):
         if not a.symptom:
             return fail("fix_lessons write requires --symptom")
         area = norm_area(a.area)
+        proj = cur_project(a)
+        dup_threshold = a.dup_threshold if a.dup_threshold is not None else 0.45
         try:
             meta = json.loads(a.metadata) if a.metadata else {}
         except ValueError as e:
@@ -857,7 +1051,8 @@ def cmd_write(cur, a, embed):
         w_hash = None if hashing else HASH_UNAVAILABLE.format("fix_lessons", "symptom_hash")
         shash = text_hash(a.symptom)
         if hashing:
-            hit = hash_dup_lookup(cur, "fix_lessons", "symptom_hash", shash, a.area)
+            hit = hash_dup_lookup(cur, "fix_lessons", "symptom_hash", shash, a.area,
+                                  extra_sql="AND project = %s", extra_params=(proj,))
             if hit is not None:
                 row = bump_fix_lesson(cur, a, hit["id"])
                 rec = ledger(cur, a, "write", "fix_lessons", "bump", row["id"], row["area"], a.symptom)
@@ -877,13 +1072,13 @@ def cmd_write(cur, a, embed):
             cur.execute("""INSERT INTO fix_lessons
                              (area, symptom, root_cause, fix_shape, signature_tag,
                               embedding, embedding_model, embedding_dim, embed_status,
-                              source, ticket, metadata{hc})
-                           VALUES (%s,%s,%s,%s,%s,NULL,'',%s,'pending',%s,%s,%s{hv})
+                              source, ticket, metadata, project{hc})
+                           VALUES (%s,%s,%s,%s,%s,NULL,'',%s,'pending',%s,%s,%s,%s{hv})
                            RETURNING *""".format(hc=", symptom_hash" if hashing else "",
                                                  hv=", %s" if hashing else ""),
                         (area, a.symptom, a.root_cause or "", a.fix_shape or "",
                          a.signature_tag or "", EMB_DIM, a.source,
-                         _tag(a, "ticket"), Json(meta))
+                         _tag(a, "ticket"), Json(meta), proj)
                         + ((shash,) if hashing else ()))
             row = cur.fetchone()
             rec = ledger(cur, a, "write", "fix_lessons", "insert_pending", row["id"], area, a.symptom)
@@ -894,11 +1089,13 @@ def cmd_write(cur, a, embed):
         ev = vlit(vec)
         # ── GUARD 2: near-duplicate symptom → bump occurrences (accumulated experience),
         # don't insert a clone (R10). Only reachable when the hash guard found nothing.
+        # Scoped to THIS project: a bump edits the row, and another project's lesson is not
+        # this project's to edit.
         cur.execute("""SELECT id, occurrences, 1-(embedding <=> %s::vector) AS similarity
-                       FROM fix_lessons WHERE embedding IS NOT NULL
-                       ORDER BY embedding <=> %s::vector LIMIT 1""", (ev, ev))
+                       FROM fix_lessons WHERE embedding IS NOT NULL AND project = %s
+                       ORDER BY embedding <=> %s::vector LIMIT 1""", (ev, proj, ev))
         near = cur.fetchone()
-        if near and near["similarity"] >= a.dup_threshold:
+        if near and near["similarity"] >= dup_threshold:
             row = bump_fix_lesson(cur, a, near["id"])
             if hashing:                      # heal the older row's NULL hash while we are here
                 row = heal_hash(cur, "fix_lessons", "symptom_hash", row, row["symptom"])
@@ -910,13 +1107,13 @@ def cmd_write(cur, a, embed):
         cur.execute("""INSERT INTO fix_lessons
                          (area, symptom, root_cause, fix_shape, signature_tag,
                           embedding, embedding_model, embedding_dim, embed_status,
-                          source, ticket, metadata{hc})
-                       VALUES (%s,%s,%s,%s,%s,%s::vector,%s,%s,'ok',%s,%s,%s{hv})
+                          source, ticket, metadata, project{hc})
+                       VALUES (%s,%s,%s,%s,%s,%s::vector,%s,%s,'ok',%s,%s,%s,%s{hv})
                        RETURNING *""".format(hc=", symptom_hash" if hashing else "",
                                              hv=", %s" if hashing else ""),
                     (area, a.symptom, a.root_cause or "", a.fix_shape or "", a.signature_tag or "",
                      ev, embed.model, EMB_DIM, a.source,
-                     _tag(a, "ticket"), Json(meta))
+                     _tag(a, "ticket"), Json(meta), proj)
                     + ((shash,) if hashing else ()))
         row = cur.fetchone()
         rec = ledger(cur, a, "write", "fix_lessons", "insert", row["id"], area, a.symptom)
@@ -924,12 +1121,26 @@ def cmd_write(cur, a, embed):
         return ok(action="insert", row=sanitize(row), receipt=rec, embed_status="ok",
                   dedup_by=None, dedup_skipped=False, warning=warning, warnings=all_w)
 
+    if a.store in ("lesson", "lessons"):
+        return write_lesson(cur, a, embed)
+
     return fail("write: unsupported store {}".format(a.store))
 
 def cmd_read(cur, a, embed):
     """Non-vector reads — the documented degraded path when the embedder is down.
     `area`/`kind` are normalized on the READ side too, and a row stored under any other
-    casing/spacing still matches (see norm_pred); `normalization.matched` says how."""
+    casing/spacing still matches (see norm_pred); `normalization.matched` says how.
+    Every slice read is scoped to the current project + 'global' (`--project all` lifts it);
+    an `--id` read is an exact handle and is never project-filtered."""
+    table = {"fix_lesson": "fix_lessons", "lesson": "lessons"}.get(a.store, a.store)
+    if table == "lessons":
+        return read_lessons(cur, a)
+    if table in ("app_map", "expectations", "flakiness", "fix_lessons"):
+        pw, pp = proj_where(cur, a, table)
+        po, pop = proj_order(cur, a, table)
+        preport = proj_report(cur, a, table)
+        if getattr(a, "id", None):
+            preport = {"filter": "id"}
     if a.store == "app_map":
         if a.id:
             cur.execute("SELECT * FROM app_map WHERE id=%s", (a.id,))
@@ -943,8 +1154,8 @@ def cmd_read(cur, a, embed):
             # row from the slice. A brain read that quietly answers a different question than
             # it was asked is worse than one that errors.
             av = area_variants(a.area)
-            where = [norm_pred("area"), "key=%s"]
-            params = [av, av[0], a.key]
+            where = [norm_pred("area"), "key=%s", pw]
+            params = [av, av[0], a.key] + pp
             order = ["(area=%s) DESC"]
             oparams = [av[0]]
             kv = None
@@ -954,51 +1165,58 @@ def cmd_read(cur, a, embed):
                 params = [kv, kv[0]] + params
                 order.insert(0, "(kind=%s) DESC")
                 oparams = [kv[0]] + oparams
-            cur.execute("SELECT * FROM app_map WHERE {} ORDER BY {}, updated_at DESC".format(
-                            " AND ".join(where), ", ".join(order)),
-                        tuple(params + oparams))
+            # the current project's row sorts ahead of a 'global' row with the same key
+            cur.execute("SELECT * FROM app_map WHERE {} ORDER BY {}{}, updated_at DESC".format(
+                            " AND ".join(where), po, ", ".join(order)),
+                        tuple(params + pop + oparams))
             rows_raw = cur.fetchall()
             norm = {"area": match_info(av, rows_raw, "area")}
             if kv is not None:
                 norm["kind"] = match_info(kv, rows_raw, "kind")
             return ok(count=len(rows_raw), rows=[sanitize(r) for r in rows_raw],
-                      normalization=norm)
+                      normalization=norm, projects=preport)
         elif a.area:
-            rows_raw, report = fetch_by_area(cur, "app_map", a.area, "kind, key")
-            return ok(count=len(rows_raw), rows=[sanitize(r) for r in rows_raw], normalization=report)
+            rows_raw, report = fetch_by_area(cur, "app_map", a.area, "kind, key", a)
+            return ok(count=len(rows_raw), rows=[sanitize(r) for r in rows_raw],
+                      normalization=report, projects=preport)
         else:
             return fail("app_map read requires --id, (--kind --key), or --area")
     elif a.store == "expectations":
         if a.id:
             cur.execute("SELECT * FROM expectations WHERE id=%s", (a.id,))
         elif a.area:
-            rows_raw, report = fetch_by_area(cur, "expectations", a.area, "status, id")
-            return ok(count=len(rows_raw), rows=[sanitize(r) for r in rows_raw], normalization=report)
+            rows_raw, report = fetch_by_area(cur, "expectations", a.area, "status, id", a)
+            return ok(count=len(rows_raw), rows=[sanitize(r) for r in rows_raw],
+                      normalization=report, projects=preport)
         else:
             return fail("expectations read requires --id or --area (use `search` for semantic)")
     elif a.store == "flakiness":
         if a.spec:
-            cur.execute("SELECT * FROM flakiness WHERE spec=%s ORDER BY signature", (a.spec,))
+            cur.execute("SELECT * FROM flakiness WHERE spec=%s AND {} ORDER BY {}signature".format(pw, po),
+                        tuple([a.spec] + pp + pop))
         elif a.area:
-            rows_raw, report = fetch_by_area(cur, "flakiness", a.area, "spec")
-            return ok(count=len(rows_raw), rows=[sanitize(r) for r in rows_raw], normalization=report)
+            rows_raw, report = fetch_by_area(cur, "flakiness", a.area, "spec", a)
+            return ok(count=len(rows_raw), rows=[sanitize(r) for r in rows_raw],
+                      normalization=report, projects=preport)
         else:
             return fail("flakiness read requires --spec or --area")
     elif a.store in ("fix_lessons", "fix_lesson"):
         if a.id:
             cur.execute("SELECT * FROM fix_lessons WHERE id=%s", (a.id,))
         elif a.area:
-            rows_raw, report = fetch_by_area(cur, "fix_lessons", a.area, "occurrences DESC, id")
-            return ok(count=len(rows_raw), rows=[sanitize(r) for r in rows_raw], normalization=report)
+            rows_raw, report = fetch_by_area(cur, "fix_lessons", a.area, "occurrences DESC, id", a)
+            return ok(count=len(rows_raw), rows=[sanitize(r) for r in rows_raw],
+                      normalization=report, projects=preport)
         else:
             return fail("fix_lessons read requires --id or --area (use `search` for semantic)")
     else:
         return fail("read: unsupported store {}".format(a.store))
     rows = [sanitize(r) for r in cur.fetchall()]
-    return ok(count=len(rows), rows=rows)
+    return ok(count=len(rows), rows=rows, projects=preport)
 
 def cmd_propose(cur, a, embed):
     area = norm_area(a.area)
+    proj = cur_project(a)
     try:
         meta = json.loads(a.metadata) if a.metadata else {}
     except ValueError as e:
@@ -1016,7 +1234,8 @@ def cmd_propose(cur, a, embed):
         # fresh proposal. A 'rejected'/'canonical' hit DOES return, and its status is the
         # caller's signal that this exact statement has already been judged.
         hit = hash_dup_lookup(cur, "expectations", "statement_hash", shash, a.area,
-                              extra_sql="AND status <> 'forgotten'")
+                              extra_sql="AND status <> 'forgotten' AND project = %s",
+                              extra_params=(proj,))
         if hit is not None:
             warning, all_w = warnings_of("duplicate_proposal", w_hash)
             return ok(action="duplicate", row=sanitize(hit), duplicate_of=hit["id"],
@@ -1032,11 +1251,11 @@ def cmd_propose(cur, a, embed):
         warning, all_w = warnings_of(emb_w, w_hash)
         cur.execute("""INSERT INTO expectations
                          (area, statement, embedding, embedding_model, embedding_dim,
-                          embed_status, status, source, confidence, metadata{hc})
-                       VALUES (%s,%s,NULL,'',%s,'pending','proposed',%s,%s,%s{hv})
+                          embed_status, status, source, confidence, metadata, project{hc})
+                       VALUES (%s,%s,NULL,'',%s,'pending','proposed',%s,%s,%s,%s{hv})
                        RETURNING *""".format(hc=", statement_hash" if hashing else "",
                                              hv=", %s" if hashing else ""),
-                    (area, a.statement, EMB_DIM, a.source, a.confidence, Json(meta))
+                    (area, a.statement, EMB_DIM, a.source, a.confidence, Json(meta), proj)
                     + ((shash,) if hashing else ()))
         new = cur.fetchone()
         rec = ledger(cur, a, "propose", "expectations", "propose_pending",
@@ -1048,19 +1267,22 @@ def cmd_propose(cur, a, embed):
     ev = vlit(vec)
     cur.execute("""INSERT INTO expectations
                      (area, statement, embedding, embedding_model, embedding_dim,
-                      embed_status, status, source, confidence, metadata{hc})
-                   VALUES (%s,%s,%s::vector,%s,%s,'ok','proposed',%s,%s,%s{hv})
+                      embed_status, status, source, confidence, metadata, project{hc})
+                   VALUES (%s,%s,%s::vector,%s,%s,'ok','proposed',%s,%s,%s,%s{hv})
                    RETURNING *""".format(hc=", statement_hash" if hashing else "",
                                          hv=", %s" if hashing else ""),
-                (area, a.statement, ev, embed.model, EMB_DIM, a.source, a.confidence, Json(meta))
+                (area, a.statement, ev, embed.model, EMB_DIM, a.source, a.confidence, Json(meta), proj)
                 + ((shash,) if hashing else ()))
     new = cur.fetchone()
     # ── GUARD 2: near-duplicate WARNING (never a merge — a human judges expectations).
-    cur.execute("""SELECT id, area, statement, status, 1-(embedding <=> %s::vector) AS similarity
+    # Neighbours come from what this project can SEE (its own rows + 'global').
+    cur.execute("""SELECT id, area, statement, status, project,
+                          1-(embedding <=> %s::vector) AS similarity
                    FROM expectations
                    WHERE id <> %s AND embedding IS NOT NULL AND status <> 'forgotten'
+                     AND project = ANY(%s)
                    ORDER BY embedding <=> %s::vector LIMIT %s""",
-                (ev, new["id"], ev, a.k))
+                (ev, new["id"], visible_projects(a), ev, a.k))
     neighbors = cur.fetchall()
     w_dup = "possible_duplicate" if neighbors and neighbors[0]["similarity"] >= a.dup_threshold else None
     warning, all_w = warnings_of(w_dup, w_hash)
@@ -1078,10 +1300,13 @@ def cmd_search(cur, a, embed):
             return fail("search app_map requires --query")
         k = a.k if a.k is not None else 20
         pat = "%{}%".format(a.query)
+        pw, pp = proj_where(cur, a, "app_map")
         sql = ["""SELECT id, kind, area, key, value, source, confidence, status, ticket,
-                         last_confirmed_at, updated_at, version FROM app_map
-                  WHERE (key ILIKE %s OR area ILIKE %s OR value::text ILIKE %s)"""]
-        params = [pat, pat, pat]
+                         last_confirmed_at, updated_at, version{} FROM app_map
+                  WHERE (key ILIKE %s OR area ILIKE %s OR value::text ILIKE %s)""".format(
+                      ", project" if has_project_col(cur, "app_map") else ""),
+               "AND " + pw]
+        params = [pat, pat, pat] + pp
         norm = {}
         if a.area:
             av = area_variants(a.area)
@@ -1094,7 +1319,8 @@ def cmd_search(cur, a, embed):
         rows = [sanitize(r) for r in cur.fetchall()]
         for field in list(norm):
             norm[field] = match_info(norm[field]["tried"], rows, field)
-        return ok(count=len(rows), results=rows, normalization=norm or None)
+        return ok(count=len(rows), results=rows, normalization=norm or None,
+                  projects=proj_report(cur, a, "app_map"))
 
     if a.store == "expectations":
         if not a.query:
@@ -1106,10 +1332,12 @@ def cmd_search(cur, a, embed):
             return fail("embedder_unavailable: {}".format(emb_err),
                         degraded_path="kb read expectations --area <area> (non-vector)")
         ev = vlit(vec)
+        pw, pp = proj_where(cur, a, "expectations")
         sql = ["SELECT id, area, statement, status, source, confidence, embed_status,",
+               ("project, " if has_project_col(cur, "expectations") else ""),
                "1-(embedding <=> %s::vector) AS similarity FROM expectations",
-               "WHERE embedding IS NOT NULL AND status <> 'forgotten'"]
-        params = [ev]
+               "WHERE embedding IS NOT NULL AND status <> 'forgotten'", "AND " + pw]
+        params = [ev] + pp
         if a.status:
             sql.append("AND status = ANY(%s)"); params.append(a.status.split(","))
         if a.area:
@@ -1120,23 +1348,24 @@ def cmd_search(cur, a, embed):
         rows = cur.fetchall()
         if a.min_similarity is not None:
             rows = [r for r in rows if r["similarity"] >= a.min_similarity]
-        return ok(count=len(rows), results=rows)
+        return ok(count=len(rows), results=rows, projects=proj_report(cur, a, "expectations"))
 
     if a.store == "flakiness":
+        pw, pp = proj_where(cur, a, "flakiness")
         if a.spec:
-            cur.execute("SELECT * FROM flakiness WHERE spec ILIKE %s ORDER BY flake_rate DESC",
-                        ("%{}%".format(a.spec),))
+            cur.execute("SELECT * FROM flakiness WHERE spec ILIKE %s AND " + pw +
+                        " ORDER BY flake_rate DESC", tuple(["%{}%".format(a.spec)] + pp))
         elif a.signature:
-            cur.execute("SELECT * FROM flakiness WHERE signature ILIKE %s ORDER BY flake_rate DESC",
-                        ("%{}%".format(a.signature),))
+            cur.execute("SELECT * FROM flakiness WHERE signature ILIKE %s AND " + pw +
+                        " ORDER BY flake_rate DESC", tuple(["%{}%".format(a.signature)] + pp))
         elif a.area:
             av = area_variants(a.area)
-            cur.execute("SELECT * FROM flakiness WHERE " + norm_pred("area") +
-                        " ORDER BY flake_rate DESC", (av, av[0]))
+            cur.execute("SELECT * FROM flakiness WHERE " + norm_pred("area") + " AND " + pw +
+                        " ORDER BY flake_rate DESC", tuple([av, av[0]] + pp))
         else:
             return fail("search flakiness requires --spec, --signature, or --area")
         rows = [sanitize(r) for r in cur.fetchall()]
-        return ok(count=len(rows), results=rows)
+        return ok(count=len(rows), results=rows, projects=proj_report(cur, a, "flakiness"))
 
     if a.store in ("fix_lessons", "fix_lesson"):
         if not a.query:
@@ -1147,11 +1376,13 @@ def cmd_search(cur, a, embed):
             return fail("embedder_unavailable: {}".format(emb_err),
                         degraded_path="kb read fix_lessons --area <area> (non-vector)")
         ev = vlit(vec)
+        pw, pp = proj_where(cur, a, "fix_lessons")
         sql = ["SELECT id, area, symptom, root_cause, fix_shape, signature_tag, occurrences,",
                "source, ticket, embed_status,",
+               ("project, " if has_project_col(cur, "fix_lessons") else ""),
                "1-(embedding <=> %s::vector) AS similarity FROM fix_lessons",
-               "WHERE embedding IS NOT NULL"]
-        params = [ev]
+               "WHERE embedding IS NOT NULL", "AND " + pw]
+        params = [ev] + pp
         if a.area:
             av = area_variants(a.area)
             sql.append("AND " + norm_pred("area")); params += [av, av[0]]
@@ -1160,7 +1391,10 @@ def cmd_search(cur, a, embed):
         rows = cur.fetchall()
         if a.min_similarity is not None:
             rows = [r for r in rows if r["similarity"] >= a.min_similarity]
-        return ok(count=len(rows), results=rows)
+        return ok(count=len(rows), results=rows, projects=proj_report(cur, a, "fix_lessons"))
+
+    if a.store in ("lessons", "lesson"):
+        return search_lessons(cur, a, embed)
 
     return fail("search: unsupported store {}".format(a.store))
 
@@ -1188,13 +1422,16 @@ def cmd_reembed(cur, a, embed):
     exits 0 with a summary. Reports a now-visible `similar_to` neighbour but NEVER
     auto-merges: a human (or the dream) decides what is really a duplicate."""
     stores = ["expectations", "fix_lessons"] if a.store in (None, "all") else [a.store]
-    text_col = {"expectations": "statement", "fix_lessons": "symptom"}
-    default_dup = {"expectations": 0.70, "fix_lessons": 0.45}
+    if a.store in (None, "all") and _table_exists(cur, "lessons"):
+        stores.append("lessons")
+    text_col = {"expectations": "statement", "fix_lessons": "symptom", "lessons": "text"}
+    default_dup = {"expectations": 0.70, "fix_lessons": 0.45, "lessons": LESSON_DUP_THRESHOLD}
     results, receipts, embedded, failed, scanned = [], [], 0, 0, 0
 
     for store in stores:
         col = text_col[store]
-        sql = ["SELECT id, area, {} AS text FROM {}".format(col, store),
+        sql = ["SELECT id, {} AS area, {} AS text FROM {}".format(
+                   "''" if store == "lessons" else "area", col, store),
                "WHERE (embed_status = 'pending' OR embedding IS NULL)"]
         params = []
         if a.filter_source:
@@ -1251,6 +1488,10 @@ def cmd_reembed(cur, a, embed):
               warning=warning, auto_merge=False)
 
 def cmd_bless(cur, a, embed):
+    if a.store in ("lesson", "lessons"):
+        return set_lesson_status(cur, a, "active")
+    if not a.by:
+        return fail("bless expectations requires --by <human> (the bless is a human judgment)")
     if a.expect_version is not None:
         cur.execute("""UPDATE expectations SET status='canonical', blessed_by=%s, blessed_at=now(),
                        last_confirmed_at=now(), updated_at=now(), version=version+1
@@ -1264,10 +1505,15 @@ def cmd_bless(cur, a, embed):
     row = cur.fetchone()
     if row is None:
         return fail("bless_failed", detail="not found, not in 'proposed' state, or version conflict", id=a.id)
-    rec = ledger(cur, a, "bless", "expectations", "bless", row["id"], row["area"], row["statement"])
+    rec = ledger(cur, a, "bless", "expectations", "bless", row["id"], row["area"], row["statement"],
+                 project=row.get("project"))
     return ok(action="bless", row=sanitize(row), receipt=rec)
 
 def cmd_reject(cur, a, embed):
+    if a.store in ("lesson", "lessons"):
+        return set_lesson_status(cur, a, "rejected")
+    if not a.by:
+        return fail("reject expectations requires --by <human>")
     cur.execute("""UPDATE expectations SET status='rejected', updated_at=now(), version=version+1,
                    metadata = metadata || %s
                    WHERE id=%s AND status='proposed' RETURNING *""",
@@ -1275,19 +1521,22 @@ def cmd_reject(cur, a, embed):
     row = cur.fetchone()
     if row is None:
         return fail("reject_failed", detail="not found or not in 'proposed' state", id=a.id)
-    rec = ledger(cur, a, "reject", "expectations", "reject", row["id"], row["area"], row["statement"])
+    rec = ledger(cur, a, "reject", "expectations", "reject", row["id"], row["area"], row["statement"],
+                 project=row.get("project"))
     return ok(action="reject", row=sanitize(row), receipt=rec)
 
 def cmd_quarantine(cur, a, embed):
     if a.on == a.off:
         return fail("quarantine requires exactly one of --on / --off")
     val = bool(a.on)
+    pw, pp = proj_where(cur, a, "flakiness")     # the rows this project can see
     if a.signature is not None:
         cur.execute("""UPDATE flakiness SET quarantined=%s, updated_at=now(), version=version+1
-                       WHERE spec=%s AND signature=%s RETURNING *""", (val, a.spec, a.signature))
+                       WHERE spec=%s AND signature=%s AND {} RETURNING *""".format(pw),
+                    tuple([val, a.spec, a.signature] + pp))
     else:
         cur.execute("""UPDATE flakiness SET quarantined=%s, updated_at=now(), version=version+1
-                       WHERE spec=%s RETURNING *""", (val, a.spec))
+                       WHERE spec=%s AND {} RETURNING *""".format(pw), tuple([val, a.spec] + pp))
     rows = [sanitize(r) for r in cur.fetchall()]
     if not rows:
         return fail("not_found", spec=a.spec)
@@ -1298,32 +1547,40 @@ def cmd_quarantine(cur, a, embed):
 
 def cmd_forget(cur, a, embed):
     hard = a.hard or not a.soft
-    table = a.store
+    table = {"lesson": "lessons"}.get(a.store, a.store)
     bulk = False
+    # A selector other than --id is a DESTRUCTIVE match, so it is scoped to the current project
+    # EXACTLY (not current + 'global'): forgetting from project A never reaches a 'global' row
+    # or another project's. `--project all` widens it on purpose. --id is an exact handle.
+    if all_projects(a) or not has_project_col(cur, table):
+        pscope, pparams = "", ()
+    else:
+        pscope, pparams = " AND project = %s", (cur_project(a),)
     if a.id:
         where, params, selected_by = "id=%s", (a.id,), "id"
     elif table == "app_map" and a.kind and a.key:
-        where = "kind = ANY(%s) AND area = ANY(%s) AND key=%s"
-        params = (kind_variants(a.kind), area_variants(a.area), a.key)
+        where = "kind = ANY(%s) AND area = ANY(%s) AND key=%s" + pscope
+        params = (kind_variants(a.kind), area_variants(a.area), a.key) + pparams
         selected_by = "kind+key"
     elif table == "flakiness" and a.spec:
-        where, params, selected_by = "spec=%s", (a.spec,), "spec"
+        where, params, selected_by = "spec=%s" + pscope, (a.spec,) + pparams, "spec"
     elif a.source:
         # `--source` is a real ROW SELECTOR when nothing else names a row (it stays the
         # ledger's provenance either way). This is the "undo one writer's whole contribution"
         # path qa-dream documents. Bulk by nature, so it PLANS FIRST: without --yes nothing
         # changes and the plan comes back ok:true.
-        where, params = "source = ANY(%s)", (source_variants(a.source),)
+        where, params = "source = ANY(%s)" + pscope, (source_variants(a.source),) + pparams
         selected_by, bulk = "source", True
     else:
         return fail("forget requires --id (or --kind/--key for app_map, --spec for flakiness, "
                     "or --source to select every row one writer wrote)")
 
     if bulk:
-        if not hard and table in ("flakiness", "fix_lessons"):
+        if not hard and table in NO_SOFT_FORGET:
             return fail("{} has no soft-forget; use --hard".format(table))
-        cols = ["id", "area", "source", "{} AS summary".format(STORE_LABEL[table])]
-        if table in ("app_map", "expectations"):
+        cols = ["id", "{} AS area".format("''" if table == "lessons" else "area"), "source",
+                "{} AS summary".format(STORE_LABEL[table])]
+        if table in ("app_map", "expectations", "lessons"):
             cols.append("status")
         cur.execute("SELECT {} FROM {} WHERE {} ORDER BY id".format(
                         ", ".join(cols), table, where), params)
@@ -1342,7 +1599,7 @@ def cmd_forget(cur, a, embed):
         receipts = [ledger(cur, a, "forget", table, "forget_hard", i) for i in ids]
         return ok(action="forget_hard", deleted=ids,
                   receipt=receipts[0] if receipts else None, receipts=receipts)
-    if table in ("flakiness", "fix_lessons"):
+    if table in NO_SOFT_FORGET:
         return fail("{} has no soft-forget; use --hard".format(table))
     cur.execute("UPDATE {} SET status='forgotten', updated_at=now(), version=version+1 "
                 "WHERE {} RETURNING id".format(table, where), params)
@@ -1363,7 +1620,9 @@ def cmd_forget(cur, a, embed):
 # DRY RUN IS THE DEFAULT (it is destructive): `--yes` applies. Idempotent and re-runnable —
 # a row already gone counts as `skipped_missing`, never an error.
 
-UNDO_STORES = ("app_map", "expectations", "flakiness", "fix_lessons", "metrics")
+UNDO_STORES = ("app_map", "expectations", "flakiness", "fix_lessons", "metrics", "lessons")
+# Stores whose dedupe guard BUMPS occurrences — an undo reverses a bump by decrementing.
+BUMP_STORES = ("fix_lessons", "lessons")
 # Ledger actions that mean "this write brought the row into existence".
 UNDO_CREATED = ("insert", "insert_pending", "propose", "propose_pending")
 UNDO_APPLIED_MODES = ("delete", "soft_forget", "decrement")
@@ -1420,6 +1679,8 @@ def _undo_one(cur, lrow, apply_it):
         res.update(mode="skipped_missing", reason="row already gone")
         return res
     res["label"] = str(row.get(STORE_LABEL[store]) or "")[:120]
+    if row.get("project"):
+        res["project"] = row["project"]
 
     created = action in UNDO_CREATED
     if store == "flakiness" and action == "upsert":
@@ -1428,7 +1689,7 @@ def _undo_one(cur, lrow, apply_it):
         created = row["created_at"] == lrow["recorded_at"]
 
     if not created:
-        if store == "fix_lessons" and action == "bump":
+        if store in BUMP_STORES and action == "bump":
             if apply_it:
                 # LOCK THE ROW BEFORE READING THE RECEIPT. Every other mode re-checks itself in
                 # the write (`DELETE … RETURNING`, `UPDATE … WHERE status <> 'forgotten'
@@ -1439,7 +1700,8 @@ def _undo_one(cur, lrow, apply_it):
                 # receipt yet" (neither has committed), then both decrement: 3 → 1. Taking the
                 # row lock first serialises them, and the loser's receipt read runs in a
                 # statement snapshot taken AFTER the winner committed, so it sees the receipt.
-                cur.execute("SELECT occurrences FROM fix_lessons WHERE id=%s FOR UPDATE", (row_id,))
+                cur.execute("SELECT occurrences FROM {} WHERE id=%s FOR UPDATE".format(store),
+                            (row_id,))
                 locked = cur.fetchone()
                 if locked is None:                     # deleted while we waited for the lock
                     res.update(mode="skipped_missing", reason="row already gone")
@@ -1456,15 +1718,17 @@ def _undo_one(cur, lrow, apply_it):
                                   "below its pre-run value".format(prior))
                 return res
             if apply_it:
-                cur.execute("""UPDATE fix_lessons SET occurrences = GREATEST(occurrences - 1, 1),
+                cur.execute("""UPDATE {} SET occurrences = GREATEST(occurrences - 1, 1),
                                  updated_at = now(), version = version + 1
-                               WHERE id=%s RETURNING occurrences""", (row_id,))
+                               WHERE id=%s RETURNING occurrences""".format(store), (row_id,))
                 res["occurrences"] = cur.fetchone()["occurrences"]
             else:
                 res["occurrences"] = max(row["occurrences"] - 1, 1)
             res.update(mode="decrement", partial=True,
-                       reason="occurrences decremented; the root_cause/fix_shape/ticket that "
-                              "bump COALESCEd in are not recorded in the ledger and remain")
+                       reason=("occurrences decremented; the root_cause/fix_shape/ticket that "
+                               "bump COALESCEd in are not recorded in the ledger and remain")
+                       if store == "fix_lessons" else
+                       "occurrences decremented; last_seen_at is not restored")
             return res
         res.update(mode="skipped_unreversible",
                    reason="'{}' modified a row this run did not create, and the ledger does "
@@ -1515,6 +1779,9 @@ def cmd_undo(cur, a, embed):
         where.append("loop_id = %s"); params.append(a.loop_id); selector["loop_id"] = a.loop_id
     if a.store:
         where.append("store = %s"); params.append(a.store); selector["store"] = a.store
+    if getattr(a, "project", None) and not all_projects(a) and has_project_col(cur, "kb_writes"):
+        # an explicit --project narrows the ledger selection (never a selector on its own)
+        where.append("project = %s"); params.append(cur_project(a)); selector["project"] = cur_project(a)
     if a.since:
         iv = parse_since(a.since)
         if not iv:
@@ -1550,7 +1817,7 @@ def cmd_undo(cur, a, embed):
         for r in results:
             if r["mode"] in UNDO_APPLIED_MODES:
                 receipts.append(ledger(cur, tags, "undo", r["store"], "undo_" + r["mode"],
-                                       r["row_id"], "",
+                                       r["row_id"], "", project=r.get("project"), summary=
                                        "undo {} of {}#{} {}: {}".format(
                                            r["mode"], r["store"], r["row_id"],
                                            _undo_marker(r["ledger_id"]),
@@ -1659,10 +1926,14 @@ def cmd_metric(cur, a, embed):
     except ValueError as e:
         return fail("bad --metadata JSON: {}".format(e))
     area = norm_area(a.area)
-    cur.execute("""INSERT INTO metrics(metric, value, unit, area, loop_id, ticket, metadata)
-                   VALUES(%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
+    # metrics are loop health, read globally by default — but stamped with the project so
+    # `kb metrics --project X` can split them.
+    stamp = has_project_col(cur, "metrics")
+    cur.execute("""INSERT INTO metrics(metric, value, unit, area, loop_id, ticket, metadata{})
+                   VALUES(%s,%s,%s,%s,%s,%s,%s{}) RETURNING *""".format(
+                    ", project" if stamp else "", ", %s" if stamp else ""),
                 (a.name, a.value, a.unit, area, a.loop_id,
-                 _tag(a, "ticket"), Json(meta)))
+                 _tag(a, "ticket"), Json(meta)) + ((cur_project(a),) if stamp else ()))
     row = cur.fetchone()
     rec = ledger(cur, a, "metric", "metrics", "insert", row["id"], area,
                  "{}={} {}".format(a.name, a.value, a.unit))
@@ -1679,6 +1950,8 @@ def cmd_metrics(cur, a, embed):
     if a.area:
         av = area_variants(a.area)
         where.append(norm_pred("area")); params += [av, av[0]]
+    if getattr(a, "project", None) and not all_projects(a) and has_project_col(cur, "metrics"):
+        where.append("project = %s"); params.append(cur_project(a))   # explicit only
     if a.since:
         iv = parse_since(a.since)
         if not iv:
@@ -1800,6 +2073,283 @@ def cmd_state(cur, a, embed):
         return ok(action="state_get", key=a.key, found=False, value=None)
     return ok(action="state_get", key=a.key, found=True, value=row["value"], row=dict(row))
 
+# ── lessons: general, non-defect knowledge (store 5) ─────────────────────────
+# "port 8000 is taken on this machine, run the API on 8010", "the user prefers multiple-choice
+# questions" — durable working knowledge that is not a defect fix (fix_lessons), not an oracle
+# (expectations) and not a selector (app_map). AI writes them `proposed` by default; `bless`
+# makes one `active`, and only active lessons come back from `search`. Same durability and
+# dedupe shape as fix_lessons: an exact repeat bumps by hash with no embedder, a near-duplicate
+# (cosine >= 0.92 by default, same project) bumps by vector, an embedder outage stores the row
+# as embed_status='pending' for `kb reembed` to heal.
+
+LESSON_DUP_THRESHOLD = 0.92
+LESSON_STATUSES = ("proposed", "active", "rejected")
+LESSON_WRITE_STATUSES = ("proposed", "active")
+
+_LESSON_BUMP_SQL = """UPDATE lessons SET occurrences = occurrences + 1, last_seen_at = now(),
+                        updated_at = now(), version = version + 1,
+                        ticket = COALESCE(%s, ticket)
+                      WHERE id=%s RETURNING *"""
+
+
+def _table_exists(cur, table):
+    cur.execute("SELECT to_regclass(%s) AS t", (table,))
+    return cur.fetchone()["t"] is not None
+
+
+def _lessons_missing():
+    return fail("schema_outdated: the lessons store does not exist on this brain — "
+                "re-apply the schema (kb schema --apply)", queued=False)
+
+
+def bump_lesson(cur, a, row_id):
+    cur.execute(_LESSON_BUMP_SQL, (_tag(a, "ticket"), row_id))
+    return cur.fetchone()
+
+
+def write_lesson(cur, a, embed):
+    if not a.text:
+        return fail("lesson write requires --text")
+    status = a.status or "proposed"
+    if status not in LESSON_WRITE_STATUSES:
+        return fail("lesson write --status must be one of: {} (reject with `kb reject lesson`)"
+                    .format(", ".join(LESSON_WRITE_STATUSES)))
+    if not _table_exists(cur, "lessons"):
+        return _lessons_missing()
+    try:
+        meta = json.loads(a.metadata) if a.metadata else {}
+    except ValueError as e:
+        return fail("bad --metadata JSON: {}".format(e))
+    kind = norm_kind(a.kind) or "general"
+    proj = cur_project(a)
+    threshold = a.dup_threshold if a.dup_threshold is not None else LESSON_DUP_THRESHOLD
+    thash = text_hash(a.text)
+
+    # GUARD 1: exact duplicate in this project, by hash — before any embedding attempt.
+    cur.execute("SELECT * FROM lessons WHERE text_hash = %s AND project = %s ORDER BY id LIMIT 1",
+                (thash, proj))
+    hit = cur.fetchone()
+    if hit is not None:
+        row = bump_lesson(cur, a, hit["id"])
+        rec = ledger(cur, a, "write", "lessons", "bump", row["id"], "", a.text, project=proj)
+        return ok(action="bump", similarity=1.0, row=sanitize(row), receipt=rec,
+                  dedup_by="hash", dedup_skipped=True, existing_status=row["status"],
+                  embed_status=row.get("embed_status"), warning=None, warnings=[])
+
+    vec, emb_err = try_embed(embed, a.text)
+    if vec is None:
+        # DURABILITY: the lesson lands without a vector; `kb reembed` makes it searchable.
+        warning, all_w = warnings_of("embedder_unavailable: {}".format(emb_err))
+        cur.execute("""INSERT INTO lessons (project, kind, text, text_hash, embedding,
+                                            embedding_model, embedding_dim, embed_status,
+                                            status, source, ticket, metadata)
+                       VALUES (%s,%s,%s,%s,NULL,'',%s,'pending',%s,%s,%s,%s) RETURNING *""",
+                    (proj, kind, a.text, thash, EMB_DIM, status, a.source, _tag(a, "ticket"),
+                     Json(meta)))
+        row = cur.fetchone()
+        rec = ledger(cur, a, "write", "lessons", "insert_pending", row["id"], "", a.text, project=proj)
+        return ok(action="insert", row=sanitize(row), receipt=rec, embed_status="pending",
+                  dedup_by=None, dedup_skipped=True, warning=warning, warnings=all_w)
+
+    ev = vlit(vec)
+    # GUARD 2: near-duplicate in THIS project → bump (a bump edits the row; another project's
+    # lesson, or a 'global' one, is not this project's to edit).
+    cur.execute("""SELECT id, 1-(embedding <=> %s::vector) AS similarity FROM lessons
+                   WHERE embedding IS NOT NULL AND project = %s
+                   ORDER BY embedding <=> %s::vector LIMIT 1""", (ev, proj, ev))
+    near = cur.fetchone()
+    if near and near["similarity"] >= threshold:
+        row = bump_lesson(cur, a, near["id"])
+        if row.get("text_hash") is None:
+            cur.execute("UPDATE lessons SET text_hash=%s WHERE id=%s RETURNING *",
+                        (text_hash(row["text"]), row["id"]))
+            row = cur.fetchone() or row
+        rec = ledger(cur, a, "write", "lessons", "bump", row["id"], "", a.text, project=proj)
+        return ok(action="bump", similarity=near["similarity"], row=sanitize(row), receipt=rec,
+                  dedup_by="vector", dedup_skipped=False, existing_status=row["status"],
+                  embed_status="ok", warning=None, warnings=[])
+    cur.execute("""INSERT INTO lessons (project, kind, text, text_hash, embedding,
+                                        embedding_model, embedding_dim, embed_status,
+                                        status, source, ticket, metadata)
+                   VALUES (%s,%s,%s,%s,%s::vector,%s,%s,'ok',%s,%s,%s,%s) RETURNING *""",
+                (proj, kind, a.text, thash, ev, embed.model, EMB_DIM, status, a.source,
+                 _tag(a, "ticket"), Json(meta)))
+    row = cur.fetchone()
+    rec = ledger(cur, a, "write", "lessons", "insert", row["id"], "", a.text, project=proj)
+    return ok(action="insert", row=sanitize(row), receipt=rec, embed_status="ok",
+              dedup_by=None, dedup_skipped=False, warning=None, warnings=[])
+
+
+def _status_list(raw, allowed):
+    vals = [v.strip() for v in (raw or "").split(",") if v.strip()]
+    bad = [v for v in vals if v not in allowed]
+    return vals, bad
+
+
+def read_lessons(cur, a):
+    """Non-vector read of the lessons store — the review queue (`--status proposed`) and the
+    degraded path while the embedder is down. Scoped like every read: current + 'global'."""
+    if not _table_exists(cur, "lessons"):
+        return _lessons_missing()
+    if a.id:
+        cur.execute("SELECT * FROM lessons WHERE id=%s", (a.id,))
+        rows = [sanitize(r) for r in cur.fetchall()]
+        return ok(count=len(rows), rows=rows, projects={"filter": "id"})
+    statuses, bad = _status_list(a.status, LESSON_STATUSES)
+    if bad:
+        return fail("bad --status {} — one of: {}".format(",".join(bad), ", ".join(LESSON_STATUSES)))
+    pw, pp = proj_where(cur, a, "lessons")
+    po, pop = proj_order(cur, a, "lessons")
+    where, params = [pw], list(pp)
+    if statuses:
+        where.append("status = ANY(%s)"); params.append(statuses)
+    if a.kind:
+        kv = kind_variants(a.kind)
+        where.append(norm_pred("kind")); params += [kv, kv[0]]
+    cur.execute("SELECT * FROM lessons WHERE {} ORDER BY {}status, occurrences DESC, id".format(
+                    " AND ".join(where), po), tuple(params + pop))
+    rows = [sanitize(r) for r in cur.fetchall()]
+    return ok(count=len(rows), rows=rows, projects=proj_report(cur, a, "lessons"))
+
+
+def search_lessons(cur, a, embed):
+    """Semantic recall over ACTIVE lessons only (proposed ones wait for a bless; rejected ones
+    never come back). Every result carries `similarity` (cosine, 1 = identical) and the same
+    value as `score`."""
+    if not a.query:
+        return fail("search lessons requires a query (positional or --query)")
+    if not _table_exists(cur, "lessons"):
+        return _lessons_missing()
+    k = a.k if a.k is not None else 5
+    vec, emb_err = try_embed(embed, a.query)
+    if vec is None:
+        return fail("embedder_unavailable: {}".format(emb_err),
+                    degraded_path="kb read lessons --status active (non-vector)")
+    ev = vlit(vec)
+    pw, pp = proj_where(cur, a, "lessons")
+    sql = ["SELECT id, project, kind, text, status, occurrences, source, embed_status,",
+           "last_seen_at, 1-(embedding <=> %s::vector) AS similarity FROM lessons",
+           "WHERE embedding IS NOT NULL AND status = 'active' AND", pw]
+    params = [ev] + pp
+    if a.kind:
+        kv = kind_variants(a.kind)
+        sql.append("AND " + norm_pred("kind")); params += [kv, kv[0]]
+    sql.append("ORDER BY embedding <=> %s::vector LIMIT %s"); params += [ev, k]
+    cur.execute(" ".join(sql), params)
+    rows = [dict(r) for r in cur.fetchall()]
+    if a.min_similarity is not None:
+        rows = [r for r in rows if r["similarity"] >= a.min_similarity]
+    for r in rows:
+        r["score"] = r["similarity"]
+    return ok(count=len(rows), results=rows, projects=proj_report(cur, a, "lessons"))
+
+
+def set_lesson_status(cur, a, target):
+    """bless: proposed → active · reject: proposed → rejected. Optimistic concurrency via
+    --expect-version, exactly like `bless expectation`."""
+    if not _table_exists(cur, "lessons"):
+        return _lessons_missing()
+    by = a.by or a.source or ""
+    vsql, vparams = "", []
+    if getattr(a, "expect_version", None) is not None:
+        vsql, vparams = " AND version=%s", [a.expect_version]
+    if target == "active":
+        cur.execute("""UPDATE lessons SET status='active', blessed_by=%s, blessed_at=now(),
+                         updated_at=now(), version=version+1
+                       WHERE id=%s AND status='proposed'{} RETURNING *""".format(vsql),
+                    tuple([by or None, a.id] + vparams))
+        verb = "bless"
+    else:
+        cur.execute("""UPDATE lessons SET status='rejected', updated_at=now(), version=version+1,
+                         metadata = metadata || %s
+                       WHERE id=%s AND status='proposed'{} RETURNING *""".format(vsql),
+                    tuple([Json({"rejected_by": by, "reject_reason": getattr(a, "reason", "")}),
+                           a.id] + vparams))
+        verb = "reject"
+    row = cur.fetchone()
+    if row is None:
+        return fail("{}_failed".format(verb),
+                    detail="not found, not in 'proposed' state, or version conflict", id=a.id)
+    rec = ledger(cur, a, verb, "lessons", verb, row["id"], "", row["text"], project=row["project"])
+    return ok(action=verb, row=sanitize(row), receipt=rec)
+
+
+# ── status: which brain, which scope, which project — and is the schema there ─
+
+KNOWLEDGE_STORES = ("app_map", "expectations", "flakiness", "fix_lessons", "lessons")
+OPS_TABLES = ("kb_control", "metrics", "kb_writes", "kb_state")
+
+
+def cmd_status(a):
+    """Never queues, never writes. Reports even when the brain is unreachable (ok:false then),
+    so `kb status` is the first thing to run when a write lands somewhere unexpected."""
+    info = dict(action="status", scope=brain_scope(), project=cur_project(a),
+                project_source=getattr(a, "_project_how", PROJECT_HOW),
+                config=CONFIG_PATH, config_source=CONFIG_SOURCE,
+                embedding={"provider": CONFIG["embedding"].get("provider"),
+                           "model": EMB_MODEL, "dim": EMB_DIM},
+                allow_unshared_env=os.environ.get("KB_ALLOW_UNSHARED") == "1")
+    try:
+        dsn = resolve_dsn(a.db)
+        validate_auth_config()
+    except BrainConfigError as e:
+        return fail(str(e), queued=False, **info)
+    info["target"] = _target_label(dsn)
+    info["brain"] = info["target"]
+    info["local_host"] = _is_unshared_host(_dsn_host(dsn))
+    try:
+        conn = connect(dsn)
+    except Exception as e:                                    # noqa: BLE001
+        return fail("{}: {}".format(type(e).__name__, str(e).strip()), reachable=False, **info)
+    try:
+        with conn.cursor() as cur:
+            tables = dict((t, _table_exists(cur, t)) for t in KNOWLEDGE_STORES + OPS_TABLES)
+            counts, visible, by_project = {}, {}, {}
+            for t in KNOWLEDGE_STORES:
+                if not tables[t]:
+                    continue
+                cur.execute("SELECT count(*) AS n FROM {}".format(t))
+                counts[t] = cur.fetchone()["n"]
+                if has_project_col(cur, t):
+                    cur.execute("SELECT project, count(*) AS n FROM {} GROUP BY project "
+                                "ORDER BY project".format(t))
+                    by_project[t] = dict((r["project"], r["n"]) for r in cur.fetchall())
+                    visible[t] = sum(n for p, n in by_project[t].items()
+                                     if p in visible_projects(a))
+            schema_dim = None
+            if tables["fix_lessons"]:
+                cur.execute("""SELECT format_type(atttypid, atttypmod) AS t FROM pg_attribute
+                               WHERE attrelid = to_regclass('fix_lessons')
+                                 AND attname = 'embedding'""")
+                r = cur.fetchone()
+                m = re.search(r"\((\d+)\)", (r or {}).get("t") or "")
+                schema_dim = int(m.group(1)) if m else None
+            core = ("app_map", "expectations", "flakiness", "fix_lessons") + OPS_TABLES
+            schema = {
+                "present": all(tables[t] for t in core),
+                "current": all(tables[t] for t in core) and tables["lessons"]
+                           and all(has_project_col(cur, t) for t in
+                                   ("app_map", "expectations", "flakiness", "fix_lessons",
+                                    "kb_writes")),
+                "tables": tables,
+                "embedding_dim": schema_dim,
+            }
+        conn.rollback()
+    finally:
+        conn.close()
+    info["embedding"]["schema_dim"] = schema_dim
+    warning = None
+    if not schema["present"]:
+        warning = "schema_missing: run `kb schema --apply` (admin action)"
+    elif not schema["current"]:
+        warning = "schema_outdated: run `kb schema --apply` to add projects + lessons (idempotent)"
+    elif schema_dim is not None and schema_dim != EMB_DIM:
+        warning = "embedding_dim_mismatch: config says {}, brain columns are {}".format(EMB_DIM, schema_dim)
+    return ok(reachable=True, schema=schema, row_counts=counts,
+              row_counts_visible=visible, row_counts_by_project=by_project,
+              warning=warning, **info)
+
+
 HANDLERS = {
     "write": cmd_write, "read": cmd_read, "propose": cmd_propose, "search": cmd_search,
     "bless": cmd_bless, "reject": cmd_reject, "quarantine": cmd_quarantine,
@@ -1815,6 +2365,19 @@ HANDLERS = {
 
 MUTATING_VERBS = {"write", "propose", "metric", "quarantine", "confirm"}
 _NO_QUEUE = False   # set while draining, so a replay can never re-queue into itself
+
+def _queue(argv, args, err):
+    """Append a mutating verb to the outbox. Its project is pinned into the queued argv, so a
+    replay run from another directory (another project) still stamps the original one."""
+    qargv = list(argv)
+    if (args.verb in PROJECT_STAMPED_VERBS and "--project" not in qargv
+            and not any(t.startswith("--project=") for t in qargv)):
+        qargv += ["--project", cur_project(args)]
+    try:
+        path = outbox_append(qargv, err, args.verb)
+        return fail(err, queued=True, outbox=path)
+    except Exception as qe:  # noqa: BLE001 — say so loudly, never pretend it queued
+        return fail(err, queued=False, outbox_error="{}: {}".format(type(qe).__name__, qe))
 
 def is_mutating(args):
     if args.verb in MUTATING_VERBS:
@@ -2024,6 +2587,18 @@ def cmd_schema(a):
     try:
         conn = connect(dsn)
         with conn.cursor() as cur:
+            # The schema is also the MIGRATION (projects + lessons are added in place), so it is
+            # applied to brains that already hold vectors. A new vector store at a different
+            # dimension than the existing ones would split the brain — refuse instead.
+            cur.execute("""SELECT format_type(atttypid, atttypmod) AS t FROM pg_attribute
+                           WHERE attrelid = to_regclass('fix_lessons') AND attname = 'embedding'""")
+            r = cur.fetchone()
+            m = re.search(r"\((\d+)\)", (r or {}).get("t") or "")
+            if m and int(m.group(1)) != int(dim):
+                conn.rollback()
+                return fail("embedding_dim_mismatch: this brain's vectors are {} dims but the schema "
+                            "was rendered for {} — pass --dim {} (or re-embed the brain first)".format(
+                                m.group(1), int(dim), m.group(1)), queued=False)
             cur.execute(sql)
             cur.execute("""INSERT INTO kb_writes(verb, store, action, row_id, source, summary)
                            VALUES('schema', 'schema', 'apply', NULL, %s, %s) RETURNING id""",
@@ -2031,7 +2606,8 @@ def cmd_schema(a):
             rid = cur.fetchone()["id"]
         conn.commit()
         return ok(action="schema_apply", dim=int(dim), embedding_model=model,
-                  brain=_target_label(dsn), receipt={"id": rid, "store": "schema", "row_id": None})
+                  brain=_target_label(dsn), scope=brain_scope(),
+                  receipt={"id": rid, "store": "schema", "row_id": None})
     except Exception as e:                                    # noqa: BLE001
         if conn:
             conn.rollback()
@@ -2049,48 +2625,64 @@ def _tag_args(p):
     p.add_argument("--loop-id")
     p.add_argument("--run-id")
 
+PROJECT_HELP = ("project scope (default: $AGENT_KIT_PROJECT, else the cwd's git repo name, else "
+                "'global'). Reads see <project> + 'global'; 'all' = every project (reads only)")
+
+def _project_arg(p):
+    p.add_argument("--project", help=PROJECT_HELP)
+
 def build_parser():
     p = argparse.ArgumentParser(prog="kb", description="the loop knowledge brain interface")
     p.add_argument("--db", help="override DSN (else config/env)")
+    p.add_argument("--project", dest="project_global", help=PROJECT_HELP)
     p.add_argument("--embedder", choices=sorted(EMBEDDERS),
                    help="force embedder (default: kb.config embedding.provider; a missing key in "
                         "the env var embedding.api_key_env names fails clearly — stub is TEST-ONLY, "
                         "NEVER auto-selected, and stamps stub provenance)")
     sub = p.add_subparsers(dest="verb", required=True)
 
-    w = sub.add_parser("write"); w.add_argument("store", choices=["app_map", "flakiness", "fix_lesson", "fix_lessons"])
+    w = sub.add_parser("write"); w.add_argument("store", choices=["app_map", "flakiness", "fix_lesson", "fix_lessons", "lesson", "lessons"])
     w.add_argument("--kind"); w.add_argument("--area", default=""); w.add_argument("--key")
     w.add_argument("--value"); w.add_argument("--source", required=True)
     w.add_argument("--confidence", type=float, default=1.0); w.add_argument("--expect-version", type=int)
     w.add_argument("--spec"); w.add_argument("--signature", default=""); w.add_argument("--failed", action="store_true")
     w.add_argument("--symptom"); w.add_argument("--root-cause", default=""); w.add_argument("--fix-shape", default="")
     w.add_argument("--signature-tag", default=""); w.add_argument("--metadata")
-    w.add_argument("--dup-threshold", type=float, default=0.45)  # calibrated: same-lesson paraphrases ~0.57, distinct ~0.26
-    _tag_args(w)
+    w.add_argument("--dup-threshold", type=float, default=None,
+                   help="near-duplicate bump threshold (default 0.45 fix_lessons — calibrated: "
+                        "same-lesson paraphrases ~0.57, distinct ~0.26 — and 0.92 lessons)")
+    w.add_argument("--text", help="lesson text (write lesson)")
+    w.add_argument("--status", choices=list(LESSON_WRITE_STATUSES),
+                   help="lesson status on insert (default proposed; bless makes it active)")
+    _tag_args(w); _project_arg(w)
 
-    r = sub.add_parser("read"); r.add_argument("store", choices=["app_map", "flakiness", "expectations", "fix_lessons", "fix_lesson"])
+    r = sub.add_parser("read"); r.add_argument("store", choices=["app_map", "flakiness", "expectations", "fix_lessons", "fix_lesson", "lessons", "lesson"])
     r.add_argument("--kind"); r.add_argument("--area"); r.add_argument("--key")
     r.add_argument("--spec"); r.add_argument("--id", type=int)
+    r.add_argument("--status", help="lessons: comma list of proposed,active,rejected (default: all)")
+    _project_arg(r)
 
     pr = sub.add_parser("propose"); pr.add_argument("store", choices=["expectation", "expectations"])
     pr.add_argument("--area", default=""); pr.add_argument("--statement", required=True)
     pr.add_argument("--source", required=True); pr.add_argument("--confidence", type=float, default=0.5)
     pr.add_argument("--metadata"); pr.add_argument("--k", type=int, default=5); pr.add_argument("--dup-threshold", type=float, default=0.70)
-    _tag_args(pr)
+    _tag_args(pr); _project_arg(pr)
 
-    s = sub.add_parser("search"); s.add_argument("store", choices=["app_map", "expectations", "flakiness", "fix_lessons", "fix_lesson"])
+    s = sub.add_parser("search"); s.add_argument("store", choices=["app_map", "expectations", "flakiness", "fix_lessons", "fix_lesson", "lessons", "lesson"])
+    s.add_argument("query_pos", nargs="?", metavar="QUERY", help="the query (same as --query)")
     s.add_argument("--query"); s.add_argument("--area"); s.add_argument("--kind"); s.add_argument("--status")
     s.add_argument("--spec"); s.add_argument("--signature")
     s.add_argument("--k", type=int, default=None,
                    help="result cap (default 5 for the semantic stores, 20 for app_map ILIKE)")
-    s.add_argument("--min-similarity", type=float)
+    s.add_argument("--min-similarity", "--min-score", dest="min_similarity", type=float)
+    _project_arg(s)
 
     c = sub.add_parser("confirm"); c.add_argument("store", choices=["app_map"])
     c.add_argument("--id", type=int, required=True); c.add_argument("--source")
     _tag_args(c)
 
     re_ = sub.add_parser("reembed")
-    re_.add_argument("--store", choices=["expectations", "fix_lessons", "all"], default="all")
+    re_.add_argument("--store", choices=["expectations", "fix_lessons", "lessons", "all"], default="all")
     re_.add_argument("--limit", type=int, default=100); re_.add_argument("--dry-run", action="store_true")
     re_.add_argument("--dup-threshold", type=float, default=None,
                      help="similar_to reporting threshold (default 0.70 expectations / 0.45 fix_lessons)")
@@ -2099,20 +2691,25 @@ def build_parser():
     re_.add_argument("--source", default="kb-reembed")
     _tag_args(re_)
 
-    b = sub.add_parser("bless"); b.add_argument("store", choices=["expectation", "expectations"])
-    b.add_argument("--id", type=int, required=True); b.add_argument("--by", required=True); b.add_argument("--expect-version", type=int)
-    _tag_args(b)
+    b = sub.add_parser("bless"); b.add_argument("store", choices=["expectation", "expectations", "lesson", "lessons"])
+    b.add_argument("--id", type=int, required=True)
+    b.add_argument("--by", help="who blessed it (REQUIRED for expectations — a human judgment)")
+    b.add_argument("--expect-version", type=int); b.add_argument("--source", default="")
+    _tag_args(b); _project_arg(b)
 
-    rj = sub.add_parser("reject"); rj.add_argument("store", choices=["expectation", "expectations"])
-    rj.add_argument("--id", type=int, required=True); rj.add_argument("--by", required=True); rj.add_argument("--reason", default="")
-    _tag_args(rj)
+    rj = sub.add_parser("reject"); rj.add_argument("store", choices=["expectation", "expectations", "lesson", "lessons"])
+    rj.add_argument("--id", type=int, required=True)
+    rj.add_argument("--by", help="who rejected it (REQUIRED for expectations)")
+    rj.add_argument("--reason", default=""); rj.add_argument("--expect-version", type=int)
+    rj.add_argument("--source", default="")
+    _tag_args(rj); _project_arg(rj)
 
     q = sub.add_parser("quarantine"); q.add_argument("store", choices=["flakiness"])
     q.add_argument("--spec", required=True); q.add_argument("--signature")
     q.add_argument("--on", action="store_true"); q.add_argument("--off", action="store_true"); q.add_argument("--reason", default="")
-    q.add_argument("--source", default=""); _tag_args(q)
+    q.add_argument("--source", default=""); _tag_args(q); _project_arg(q)
 
-    f = sub.add_parser("forget"); f.add_argument("store", choices=["app_map", "expectations", "flakiness", "fix_lessons"])
+    f = sub.add_parser("forget"); f.add_argument("store", choices=["app_map", "expectations", "flakiness", "fix_lessons", "lessons", "lesson"])
     f.add_argument("--id", type=int); f.add_argument("--key"); f.add_argument("--kind")
     f.add_argument("--area", default=""); f.add_argument("--spec")
     f.add_argument("--hard", action="store_true"); f.add_argument("--soft", action="store_true")
@@ -2121,7 +2718,7 @@ def build_parser():
                         "SELECTOR: every row written by that source (plan first; --yes applies)")
     f.add_argument("--yes", action="store_true",
                    help="apply a bulk --source forget (without it you get the plan, ok:true)")
-    _tag_args(f)
+    _tag_args(f); _project_arg(f)
 
     un = sub.add_parser("undo", description=(
         "Reverse what one run wrote, driven by the kb_writes ledger. DRY RUN BY DEFAULT — "
@@ -2137,6 +2734,7 @@ def build_parser():
     un.add_argument("--dry-run", action="store_true",
                     help="explicit no-op (already the default; wins over --yes)")
     un.add_argument("--yes", action="store_true", help="APPLY the reversal")
+    un.add_argument("--project", help="extra narrowing filter on the ledger's project (never a selector on its own)")
 
     d = sub.add_parser("decay"); d.add_argument("--apply", action="store_true")
     d.add_argument("--stale-days", type=int, default=30); d.add_argument("--dup-threshold", type=float, default=0.9)
@@ -2155,10 +2753,12 @@ def build_parser():
     m.add_argument("--unit", default="count"); m.add_argument("--area", default="")
     m.add_argument("--metadata"); m.add_argument("--source", default="")
     m.add_argument("--loop-id"); m.add_argument("--ticket"); m.add_argument("--run-id")
+    _project_arg(m)
 
     ms = sub.add_parser("metrics"); ms.add_argument("--summary", action="store_true")
     ms.add_argument("--metric"); ms.add_argument("--since"); ms.add_argument("--loop-id")
     ms.add_argument("--ticket"); ms.add_argument("--area")
+    ms.add_argument("--project", help="filter to one project (default: every project — metrics are loop health)")
 
     rc = sub.add_parser("receipt"); rc.add_argument("--ticket", required=True)
     rc.add_argument("--loop-id"); rc.add_argument("--run-id"); rc.add_argument("--since")
@@ -2169,6 +2769,11 @@ def build_parser():
     st.add_argument("--set", dest="set_value", help="JSON value to store")
     st.add_argument("--delete", action="store_true")
     st.add_argument("--source", default=""); _tag_args(st)
+
+    stt = sub.add_parser("status", description=(
+        "Which brain this process resolves to and how: config file, scope, project, target "
+        "(host/db, never a credential), schema present/current, row counts per store, embedding."))
+    _project_arg(stt)
 
     ob = sub.add_parser("outbox")
     ob.add_argument("--status", action="store_true"); ob.add_argument("--replay", action="store_true")
@@ -2186,14 +2791,54 @@ def build_parser():
     sc.add_argument("--source", default="kb-schema")
     return p
 
+# Verbs whose writes are stamped with a project. A queued entry of one of these carries its
+# project in the argv, so a replay from another directory still stamps the right one.
+PROJECT_STAMPED_VERBS = {"write", "propose", "metric"}
+# The table a stamped write needs the `project` column on (else: schema_outdated → queued).
+def _stamp_table(args):
+    if args.verb == "propose":
+        return "expectations"
+    if args.verb == "write":
+        return {"fix_lesson": "fix_lessons", "lesson": "lessons"}.get(args.store, args.store)
+    return None
+
+
+def apply_project(args):
+    """Resolve this invocation's project onto args (`_project`, `_all`, `_project_how`) and,
+    when it differs from the one the module was loaded for, re-select the config (an overlay
+    may hold a per-project kb.config.json). Returns an error string or None."""
+    raw = getattr(args, "project", None) or getattr(args, "project_global", None)
+    args._all = False
+    if raw and raw.strip().lower() == ALL_PROJECTS:
+        args._all = True
+        proj, how, praw = _IMPORT_PROJECT
+    elif raw:
+        proj, how, praw = resolve_project(raw)
+    else:
+        proj, how, praw = _IMPORT_PROJECT
+    args._project, args._project_how = proj, ("all" if args._all else how)
+    if proj != PROJECT:
+        init_config(proj, praw)
+    if args._all and args.verb in PROJECT_STAMPED_VERBS:
+        return "--project all is read-only: a write is stamped with exactly one project"
+    return None
+
+
 def main(argv=None):
     argv = list(argv) if argv is not None else sys.argv[1:]
     args = build_parser().parse_args(argv)
+    if getattr(args, "query_pos", None) and not getattr(args, "query", None):
+        args.query = args.query_pos
 
     if args.verb == "outbox":          # never needs (or opens) a DB connection
         return cmd_outbox(args)
+    perr = apply_project(args)
+    if perr:
+        return fail(perr, queued=False)
     if args.verb == "schema":          # a renderer; connects only on --apply, never queues
         return cmd_schema(args)
+    if args.verb == "status":          # reports even when the brain is unreachable; never queues
+        return cmd_status(args)
 
     try:
         dsn = resolve_dsn(args.db)
@@ -2212,13 +2857,23 @@ def main(argv=None):
         except Exception as e:         # TRANSPORT failure — the only thing that may queue
             err = "{}: {}".format(type(e).__name__, str(e).strip())
             if is_mutating(args) and not _NO_QUEUE:
-                try:
-                    path = outbox_append(argv, err, args.verb)
-                    return fail(err, queued=True, outbox=path)
-                except Exception as qe:  # noqa: BLE001 — say so loudly, never pretend it queued
-                    return fail(err, queued=False,
-                                outbox_error="{}: {}".format(type(qe).__name__, qe))
+                return _queue(argv, args, err)
             return fail(err, queued=False)
+        stamp_table = _stamp_table(args)
+        if stamp_table:
+            # A brain whose schema predates projects cannot stamp this write. It is not a
+            # semantic failure — the write is right, the brain is behind — so it is DEFERRED to
+            # the outbox exactly like a transport failure, and lands on `outbox --replay` once
+            # an admin has run `kb schema --apply`.
+            with conn.cursor() as cur:
+                ready = has_project_col(cur, stamp_table)
+            if not ready:
+                conn.rollback()
+                err = ("schema_outdated: {}.project is missing — run `kb schema --apply` (admin, "
+                       "idempotent), then `kb outbox --replay`".format(stamp_table))
+                if not _NO_QUEUE:
+                    return _queue(argv, args, err)
+                return fail(err, queued=False)
         with conn.cursor() as cur:
             rc = HANDLERS[args.verb](cur, args, embed)
         if rc == 0:

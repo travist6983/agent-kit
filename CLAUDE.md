@@ -129,11 +129,16 @@ The full risk register (R1–R10) is in `docs/architecture.md` §7.
 > `.claude/loops/kb.config.json` (tracked in git, no secret) or `KB_DATABASE_URL` — and is
 > **never defaulted**, so a fresh clone, a second machine, a teammate, or a CI checkout lands
 > on the same brain. Auth is a mode in `kb.config.json`: `password`, `url_env` or
-> `token_command`; every credential lives in the gitignored secret env file. **There is no local brain.** A loopback or unix-socket host is
+> `token_command`; every credential lives in the gitignored secret env file. **No brain is
+> local by accident.** With the default `"scope": "shared"`, a loopback or unix-socket host is
 > **refused** — `qa-kb` fails loudly rather than write history and lessons somewhere only one
-> machine can see. The single escape hatch is `KB_ALLOW_UNSHARED=1`, for genuinely offline
-> work only; anything written under it stays off the shared brain. Setup — the database,
-> the extension, the schema, the embedding key — is [`docs/brain-setup.md`](docs/brain-setup.md).
+> machine can see. The one sanctioned exception is an owner's overlay that declares
+> `"scope": "single-machine"`: one person, one machine, on purpose (see
+> [`docs/setups.md`](docs/setups.md)). A team or client brain is always `shared`.
+> `KB_ALLOW_UNSHARED=1` remains for genuinely offline work only. The config is found in the
+> owner's overlay (`$AGENT_KIT_OVERLAY`) before the kit's example; knowledge rows carry a
+> `project`, and reads return the current project plus `global`. Setup — the database, the
+> extension, the schema, the embedding key — is [`docs/brain-setup.md`](docs/brain-setup.md).
 
 | Store | Query pattern | Who writes | Backend |
 |---|---|---|---|
@@ -194,7 +199,7 @@ default; `examples/conventions/` shows how to express a framework-specific rule 
 
 The cost of a question is near zero; the cost of a wrong autonomous build is high. **Ask
 before** inventing a skill name that isn't in the catalog, inventing a `stack.config.json`
-key, pointing the brain at anything other than the shared database `kb.config.json` names
+key, pointing the brain at anything other than the database the active `kb.config.json` names
 (the backend is decided — a per-machine brain is not a workaround, it is a lost lesson),
 changing the shape of a store or the propose→bless guard, or enabling any autonomous prod
 behavior before the safety gates exist.

@@ -151,9 +151,10 @@ small, storage-agnostic `qa-kb` skill so it can later lift into its own service.
 Postgres + `pgvector` database on any host you choose; the DSN is explicit in
 `.claude/loops/kb.config.json` (tracked, no secret) or `KB_DATABASE_URL`, and is **never
 defaulted**. Auth is a mode — `password`, `url_env` or `token_command` — with every secret in a
-gitignored env file. **There is no local brain:** a
-loopback or unix-socket host is refused unless `KB_ALLOW_UNSHARED=1`, so history and lessons
-can never silently strand on one laptop. Setup is [`docs/brain-setup.md`](./docs/brain-setup.md).
+gitignored env file. **No brain is local by accident:** a loopback or unix-socket host is
+refused unless the owner's overlay declares `"scope": "single-machine"` (one person, one machine,
+on purpose) or `KB_ALLOW_UNSHARED=1` is set, so a team's history and lessons can never silently
+strand on one laptop. Rows carry a `project`, so one brain can serve several repos. Setup is [`docs/brain-setup.md`](./docs/brain-setup.md).
 
 ---
 

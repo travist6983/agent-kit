@@ -39,7 +39,7 @@ Both run the same kit. What changes is the **overlay** (your config), the **brai
 | **Mods** | Claude Code plugins: status lines, panes, guards. The kit's mods are generic; overlay mods are owner-specific. | Kit mods yes; overlay mods no. |
 | **Claude account** | The Claude Code config folder a session runs under (`~/.claude`, or another one via `CLAUDE_CONFIG_DIR`). Plugins, settings and mod data live in it. | One per context: personal, each employer. |
 
-### How the kit finds its config (planned, phase 2)
+### How the kit finds its config
 
 The kit stays the same everywhere; only the config it reads changes. Lookup order:
 
@@ -60,7 +60,7 @@ So `kb.config.json`, `stack.config.json` and `conventions.json` for real project
 | Kit | Your clone, e.g. `~/repos/agent-kit` | `git clone git@github.com:travist6983/agent-kit` (or install the mods from GitHub only) |
 | Overlay | Your overlay repo, e.g. `~/repos/my-agents` | A new overlay from `templates/overlay/` (planned), e.g. `~/work/<client>-agents`. Keep it in the client's git, not yours. |
 | Brain host | Postgres on your machine, e.g. database `personal_brain` | Postgres + pgvector the client provides: a managed service or their server. Never your Mac. |
-| Brain `scope` | `single-machine`: a local database is allowed because you declared it. | `shared`, the default: local or socket hosts are refused, so the brain can't silently land on one laptop. |
+| Brain `scope` | `"scope": "single-machine"`: a local database is allowed because you declared it. | `shared`, the default: local or socket hosts are refused, so the brain can't silently land on one laptop. |
 | Who else uses the brain | Only you | The client's team, CI and scheduled agents. Everyone sees the same lessons. |
 | Embeddings | Your OpenAI key in the overlay's `kb.secret.env`, with a hard spend limit | The client's key, from their secret store |
 | Projects in one brain | All your own repos, separated by the `project` column, plus a `global` group for cross-project lessons | Usually one product, or a few of theirs |
@@ -163,9 +163,9 @@ Use this when the code, team and data belong to someone else.
 
 1. Clone the kit and install its mods under your personal account (`mods/README.md`).
 2. Create your overlay repo: `kb.config.json`, gitignored `kb.secret.env`, `projects/`, optional `mods/`.
-3. **(planned)** Set `AGENT_KIT_OVERLAY` in your account's `settings.json` `env` block.
+3. Set `AGENT_KIT_OVERLAY` in your account's `settings.json` `env` block.
 4. Install Postgres with pgvector and `psycopg2`. Create the database, `CREATE EXTENSION vector`, then `kb schema --apply`.
-5. In `kb.config.json`, set `"scope": "single-machine"` **(planned)** and the embedding provider. Put the embedding key in `kb.secret.env`, with a spending limit on the key.
+5. In `kb.config.json`, set `"scope": "single-machine"` and the embedding provider. Put the embedding key in `kb.secret.env`, with a spending limit on the key.
 6. **(planned)** Set up a nightly `pg_dump` backup of the brain.
 7. Onboard each project as in section 3.
 

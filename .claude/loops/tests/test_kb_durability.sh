@@ -13,6 +13,9 @@
 # Runs against the LIVE embedder, whatever state it is in. When it is down (the 429) the write
 # must STILL land as embed_status='pending' — that is the property under test, so no check here
 # needs a stub embedder, and none of them stamp stub provenance on a real row.
+# Tests never use an owner's overlay: it points at a real brain. Point brain suites at a test
+# database with KB_CONFIG (a config naming a throwaway DB) or KB_DATABASE_URL instead.
+unset AGENT_KIT_OVERLAY AGENT_KIT_PROJECT
 
 # Shared brain lock: refuse rather than corrupt a concurrent run (see lib/brain_lock.sh).
 # Nests quietly under run_all.sh, which already holds it.

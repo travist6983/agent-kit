@@ -43,6 +43,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
+
+# The harness never uses an owner's overlay: it points at a real brain. Use KB_CONFIG or
+# KB_DATABASE_URL to aim it at a throwaway database.
+os.environ.pop("AGENT_KIT_OVERLAY", None)
+os.environ.pop("AGENT_KIT_PROJECT", None)
 import threading
 
 HERE = os.path.dirname(os.path.realpath(__file__))
