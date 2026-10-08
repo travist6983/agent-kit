@@ -1,0 +1,1 @@
+{ "name": "secret-catcher", "version": "0.1.0", "description": "Catches API keys pasted into prompts, saves them to an env file and sends a placeholder instead" }

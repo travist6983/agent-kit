@@ -1,0 +1,5 @@
+{
+  "key": "PROJ-9001",
+  "expected_verbatim": "Deleting a person removes the row immediately.",
+  "actual_verbatim": "The row stays until a full page reload."
+}

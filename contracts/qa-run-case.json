@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "loops/contracts/qa-run-case.json",
+  "title": "qa-run-case case-run.json — agentic case-run receipt",
+  "version": "1.0.0",
+  "status": "ratified",
+  "description": "The ratified output of the qa-run-case skill, written to <evid_root>/<key>/case-run.json. The runner returns this object verbatim to the control plane; the control plane branches on `status`, stores the raw grade and the drift on the run record, maps `steps` to per-step rows, and PROPOSES a verdict a human disposes at the verdict gate. This file is the single source of truth for the runner and the control plane. See contracts/README.md. The case grade is the FULL five-value vocabulary PASS|FAIL|PARTIAL|BLOCKED|MANUAL, plus an orthogonal `drift[]` label-drift signal and an optional best-effort `media[]`. Vocabulary bridge (control-plane side): PASS->(passed,pass); FAIL->(failed,fail); BLOCKED->(failed + 'BLOCKED:' marker -> blocked); PARTIAL->(failed + 'PARTIAL:' marker -> needs_review); MANUAL->(error + 'MANUAL:' marker -> needs_review); off-enum->(error, needs_review). Marker precedence: BLOCKED: wins over PARTIAL:/MANUAL:. Per-step: PASS->passed, FAIL|BLOCKED->failed, INFO->skipped.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "summary", "steps"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["PASS", "FAIL", "PARTIAL", "BLOCKED", "MANUAL"],
+      "description": "The case grade — the field the control plane branches on. PASS = every verify held, mutations confirmed by an independent read, no console errors. FAIL = a verify failed or a target couldn't be found after the alternate-phrasing retry. PARTIAL = mutation succeeded but a side-assertion drifted (proposes needs_review). BLOCKED = a precondition couldn't be satisfied — the headless escape hatch for every place the source skill would have asked a human (proposes blocked). MANUAL = needs human judgment (all steps manual-check, template-only, or subjective) (proposes needs_review)."
+    },
+    "summary": {
+      "type": "string",
+      "description": "One honest line describing the outcome. For FAIL/PARTIAL, quote the mismatch verbatim (never a paraphrase). For BLOCKED, state the exact blocking reason."
+    },
+    "steps": {
+      "type": "array",
+      "description": "One row per executed step, in order. Maps to per-step rows on the control plane (status: PASS->passed, FAIL|BLOCKED->failed, INFO->skipped).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["n", "status"],
+        "properties": {
+          "n": {
+            "type": "integer",
+            "description": "The step number from the case's steps_structured (1-based)."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["PASS", "FAIL", "INFO", "BLOCKED"],
+            "description": "Per-step grade. PASS = the step's expected result held. FAIL = it did not. INFO = a non-asserting step (navigate/click/type/manual-check note) -> mapped to skipped. BLOCKED = the step couldn't run (precondition/driver)."
+          },
+          "observation": {
+            "type": "string",
+            "description": "What was actually observed on the truth channel (verbatim value, not a toast). Empty string allowed for pure action steps."
+          }
+        }
+      }
+    },
+    "failed_steps": {
+      "type": "array",
+      "description": "The `n` of every FAIL step (a convenience index; the authoritative per-step grade is in `steps`).",
+      "items": { "type": "integer" }
+    },
+    "manual_steps": {
+      "type": "array",
+      "description": "The `n` of every step classified manual-check (needs human judgment).",
+      "items": { "type": "integer" }
+    },
+    "drift": {
+      "type": "array",
+      "description": "OPTIONAL. Label-drift entries — orthogonal to `status`, a flag not a grade. One entry per step where the case source's expected label was stale but a semantic-equivalent locator matched (the case still passed functionally). Stored beside the grade on the run record.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["step", "expected_label", "observed_label"],
+        "properties": {
+          "step": { "type": "integer", "description": "The step number the drift was observed on." },
+          "expected_label": { "type": "string", "description": "The verbatim label the case expected." },
+          "observed_label": { "type": "string", "description": "The label the UI actually rendered / the locator that matched." },
+          "locator": { "type": "string", "description": "OPTIONAL. The fallback locator strategy that hit (e.g. getByText)." },
+          "verb": { "type": "string", "description": "OPTIONAL. The step verb (click | select | verify)." }
+        }
+      }
+    },
+    "media": {
+      "type": "array",
+      "description": "OPTIONAL, best-effort. Capture-time evidence media uploaded through the evidence_store adapter, each a URL the control plane fetches directly (a signed read URL or a local file:// URL — no Authorization header). Omitted entirely when upload is not configured or failed — media is NEVER required, so an artifact without this key still validates. Maps to record artifacts [{kind, name: label, url}].",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "url"],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["gif", "mp4", "screenshot"],
+            "description": "What the media is: a run recording (gif/mp4) or an uploaded screenshot."
+          },
+          "url": {
+            "type": "string",
+            "description": "The URL exactly as the evidence_store adapter returned it (a signed read URL, or a local file:// URL from the `local` provider). Fetchable with no Authorization header."
+          },
+          "label": {
+            "type": "string",
+            "description": "OPTIONAL human label, e.g. 'Full run — MP4'."
+          }
+        }
+      }
+    },
+    "notes": {
+      "type": "string",
+      "description": "OPTIONAL free-form notes (flakiness observed, environment oddities, follow-ups)."
+    }
+  }
+}

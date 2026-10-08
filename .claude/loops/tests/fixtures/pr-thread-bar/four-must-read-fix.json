@@ -1,0 +1,58 @@
+{
+  "status": "fixed",
+  "key": "PROJ-123",
+  "root_cause": "x",
+  "is_root_cause": true,
+  "confidence": 80,
+  "design_decisions": [
+    {
+      "kind": "design-decision",
+      "title": "DatePicker weekStartsOn default flips to Monday for all 14 consumers",
+      "decision": "The bug is the shared default itself; opt-in cannot fix it.",
+      "files": [
+        "src/components/DatePicker.jsx:33"
+      ],
+      "must_read": true,
+      "must_read_reason": "behavior-change-beyond-ticket",
+      "reviewer_must_confirm": "OK that every DatePicker now starts weeks on Monday?"
+    },
+    {
+      "kind": "known-gap",
+      "title": "Third symptom (export totals) not fixed",
+      "decision": "Needs a DB migration, which R6 forbids the loop to write.",
+      "files": [],
+      "must_read": true,
+      "must_read_reason": "ticket-not-fully-fixed",
+      "reviewer_must_confirm": "Ticket the migration or hold this PR?"
+    },
+    {
+      "kind": "manual-step",
+      "title": "Turn on tasks-recurring-due-dates in the feature-flag service before merge",
+      "decision": "The fix is behind the flag.",
+      "files": [
+        "src/featureFlags.js"
+      ],
+      "must_read": true,
+      "must_read_reason": "human-action-required",
+      "reviewer_must_confirm": "Flip the flag in staging before merging."
+    },
+    {
+      "kind": "design-decision",
+      "title": "Hide the button vs disable it with a tooltip",
+      "decision": "Chose hide.",
+      "files": [
+        "./src/projects/TaskCard.jsx:88"
+      ],
+      "must_read": true,
+      "must_read_reason": "product-call",
+      "reviewer_must_confirm": "Hide or disable?"
+    },
+    "a legacy string decision that can never be posted",
+    {
+      "kind": "design-decision",
+      "title": "Renamed a local variable",
+      "decision": "n/a",
+      "must_read": false
+    }
+  ]
+}

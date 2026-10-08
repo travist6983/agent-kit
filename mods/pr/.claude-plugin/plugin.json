@@ -1,0 +1,1 @@
+{ "name": "pr", "version": "0.1.0", "description": "PR, CI and review threads for the checked-out branch: status line, /ci and /threads pane, finish toasts, and a threads tool for Claude", "types": "./types/index.d.ts" }

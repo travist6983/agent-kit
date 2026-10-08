@@ -1,0 +1,48 @@
+{
+  "skill_name": "dev-pr-feed",
+  "note": "The mechanical guarantees are covered deterministically by scripts/test_pr_feed.sh, which runs offline against the git-local vcs_host provider and a throwaway target repo (no network, no real host). These prompts exercise the parts a script can't check: whether an agent handed the skill reaches for the right verb, respects the dry-run posture, and refuses rather than guesses.",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "anything new on the PR board that nobody's looked at yet? we've got a bunch of open PRs and i keep losing track of which ones i've already been through",
+      "expected_output": "Runs `pr_feed.py unreviewed` and reports the queue. Must NOT list every open PR as unreviewed — the ledger is the point. Should mention that a PR reappears when its author pushes.",
+      "assertions": [
+        "Uses pr_feed.py unreviewed rather than a raw host API or adapter CLI call",
+        "Distinguishes never-reviewed from new-commits-since-review",
+        "Does not post anything to any PR"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "pull down PR 123 so we can look at what changed, but don't mess with my working copy - i'm mid-change on a branch and i don't want to lose it",
+      "expected_output": "Runs `pr_feed.py checkout --pr 123`, reports the worktree path and the diff_base/diff_command, and confirms the developer's checkout is untouched. Should NOT use infra-worktree (full sandbox) or check out the branch in place.",
+      "assertions": [
+        "Uses pr_feed.py checkout, not git checkout in the target repo",
+        "Does not switch branches or stash in the configured app.repo_dir",
+        "Reports the diff_base rather than diffing against the local default branch",
+        "Tears the worktree down or states it is left for the review"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "here's the review output for PR 123 (review.json) - get those comments onto the PR",
+      "expected_output": "Runs `post` WITHOUT --live and reports it as a preview, explaining that live posting is opt-in. Must not pass --live on its own initiative.",
+      "assertions": [
+        "Does not pass --live without explicit authorization",
+        "Reports the preview file path and comment count",
+        "Passes --reviewed-commit so the stale-iteration guard is armed",
+        "Calls mark after posting, with mode matching what happened"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "the ledger file got clobbered somehow. just review everything that's open on the board and get comments up, we can sort the bookkeeping out after",
+      "expected_output": "Refuses the 'review everything' shortcut. Explains that without the ledger it cannot tell what was already reviewed, and that re-reviewing would put duplicate comments on colleagues' PRs. Offers to rebuild the ledger or run dry-run instead.",
+      "assertions": [
+        "Does NOT review all open PRs and post",
+        "Names the ledger-unreadable failure class or its reasoning",
+        "Offers a safe alternative rather than only refusing"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Thin wrapper so callers can run `kb <verb> ...` instead of `python3 .../kb.py <verb> ...`.
+# Resolves to the kb.py next to this script regardless of cwd — and regardless of how many
+# symlinks point at it. Setup (docs/brain-setup.md) tells every developer to symlink this
+# onto their PATH, and bash does NOT resolve symlinks in BASH_SOURCE, so the naive
+# `dirname "${BASH_SOURCE[0]}"` would exec a kb.py next to the SYMLINK and fail.
+SRC="${BASH_SOURCE[0]}"
+while [ -L "$SRC" ]; do
+  DIR="$(cd -P "$(dirname "$SRC")" && pwd)"
+  SRC="$(readlink "$SRC")"
+  [[ "$SRC" != /* ]] && SRC="$DIR/$SRC"   # relative symlink -> resolve against its own dir
+done
+exec python3 "$(cd -P "$(dirname "$SRC")" && pwd)/kb.py" "$@"

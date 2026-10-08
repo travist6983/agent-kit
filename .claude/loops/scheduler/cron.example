@@ -1,0 +1,59 @@
+# cron.example — the two scheduled loop agents as crontab lines, for a host without launchd.
+#
+# launchd (install.sh + the *.plist.template files) is the REFERENCE scheduler, and the
+# reasons are in README.md ("Why StartCalendarInterval, and not StartInterval or cron"):
+# cron is not wake-aware, it silently skips a slot the machine slept through, and it gives
+# the job a minimal environment of its own. On an always-on Linux host neither of the first
+# two matters, and the third is what this file handles explicitly. Everything else the
+# runners promise (locks, R9 pause gate, exit codes, receipts, logs) is in JOB-CONTRACT.md
+# and is identical under cron.
+#
+# HOW TO USE: fill in the five values below, then `crontab -e` and paste. Do NOT paste the
+# launchd arguments from memory — copy them out of the template they live in:
+#     grep -A12 ProgramArguments .claude/loops/scheduler/com.loops.qa-dream.plist.template
+#     grep -A12 ProgramArguments .claude/loops/scheduler/com.loops.pr-review.plist.template
+# The schedule and the arguments are decisions; the templates are where they are tracked,
+# and a second copy here that disagrees with them is exactly the stale string the README
+# warns about. The lines below mirror the templates AS SHIPPED; re-check after any edit.
+#
+# ── environment: a cron job inherits NOTHING from your shell ──────────────────────────────
+# PATH must resolve python3, git, bash and the claude binary, plus whatever the configured
+# adapters and the brain's auth mode shell out to (kb.config auth.mode token_command: the
+# first word of auth.command). HOME is load-bearing: a Python driver in a
+# user site-dir, a credential cache, and the CLAUDE_CONFIG_DIR default all hang off it.
+# NEVER put ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN here unless you mean metered billing:
+# pr_review.sh refuses a tick that sees either (exit 28) unless LOOP_PR_REVIEW_ALLOW_API_KEY=1.
+SHELL=/bin/bash
+PATH=/usr/local/bin:/usr/bin:/bin
+HOME=/home/<you>
+LANG=en_US.UTF-8
+LOOP_CLAUDE_BIN=/usr/local/bin/claude
+CLAUDE_CONFIG_DIR=/home/<you>/.claude
+REPO_DIR=/path/to/this/checkout
+
+# ── com.loops.qa-dream: nightly brain consolidation (mirrors the template's 02:00 slot) ───
+# Two passes at most, 1800s of model call each, harvesting from the brain's watermark.
+# Both launchd transcript files are reproduced with the same names, so every grep in the
+# README works unchanged; dream.sh writes its own one-line-per-event dream.log beside them.
+0 2 * * *  cd "$REPO_DIR" && /bin/bash .claude/skills/qa-dream/scripts/dream.sh --since 2d --catch-up --max-passes 2 --timeout 1800 >> .claude/loops/dream.launchd.out.log 2>> .claude/loops/dream.launchd.err.log
+
+# ── com.loops.pr-review: hourly PR sweep (mirrors the template's :00 slot) ────────────────
+# DRY-RUN and author scope OWN as shipped: no --live, no --scope pair. Going live is the
+# same deliberate edit as under launchd (README → "Going live, and widening the scope"),
+# made here instead of in the template, after the gate in FIRST-RUN-pr-review.md.
+# prs_per_tick is deliberately NOT a flag: it lives in loop-limits.json, and a --limit here
+# would override the tracked decision.
+0 * * * *  cd "$REPO_DIR" && /bin/bash .claude/skills/dev-loop-pr-review/scripts/pr_review.sh --timeout 2400 >> .claude/loops/pr-review.launchd.out.log 2>> .claude/loops/pr-review.launchd.err.log
+
+# ── what cron does NOT give you, and what to do about it ─────────────────────────────────
+# * No coalesced catch-up on wake. On a laptop, a slept-through slot is simply gone. Use
+#   launchd there.
+# * No overlap protection of its own. None is needed: both runners take their own
+#   single-instance lock and the shared cross-agent lock (lib/agent_lock.sh) before any real
+#   work, and the loser skips with exit 0. Do not wrap these in flock(1); a second lock
+#   style is a second set of edge cases.
+# * No preflight. install.sh --check still runs on a cron host and is still worth running
+#   before the first slot: it verifies the binaries under a PATH you give it with
+#   LOOP_INSTALL_PATH=..., the Python driver import, the brain gate and each job's sidecar
+#   checks, and then stops at the point where it would talk to launchd.
+# * No "is it armed" command. `crontab -l | grep loops` is the equivalent of `launchctl list`.

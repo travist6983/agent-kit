@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "loops/contracts/dev-intake.json",
+  "title": "dev-intake intake.json — ticket triage + routing decision",
+  "version": "1.2.0",
+  "status": "ratified",
+  "description": "The ratified output of the dev-intake skill, written to <evid_root>/<key>/intake.json. The runner returns it verbatim; the control plane branches on `recipe` (which loop to run). SINGLE SOURCE OF TRUTH for the runner and the control plane. See contracts/README.md. SCOPE HONESTY: dev-intake is a free-emitting LLM skill whose real output VARIES per run — a stable required CORE (8 keys, present in every observed run) plus a variable OPTIONAL tail (enrichment keys that appear situationally). This schema pins the core as required and models every OBSERVED optional key. `additionalProperties:false` is enforced, but see contracts/README.md '#dev-intake — the forward-compat flag': because the skill is not yet constrained to emit exactly this superset, a future run could emit a new situational key and FAIL — the recommended reconciliation (tighten the SKILL.md to this superset, mirroring qa-repro) is flagged for decision, not applied here. v1.1.0 (additive, backward-compatible): optional `prior_attempts` — the `kb history --ticket <KEY>` lookup SKILL.md §2c now carries into intake.json so the router is no longer stateless across runs. Both sample runs predate the key and still validate.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["key", "issue_type", "recipe", "area", "components", "risk_class", "confidence", "branch_name"],
+  "properties": {
+    "key": { "type": "string", "description": "The issue-tracker key (project.ticket_key_pattern), e.g. 'PROJ-123'." },
+    "issue_type": { "type": "string", "description": "The issue type as the tracker reports it, e.g. Bug | Defect | Story | Task | Epic. Modeled as a free string (not an enum) — the control plane branches on `recipe`, not this, and a tracker's type space is open. Observed: 'Bug'." },
+    "recipe": {
+      "type": "string",
+      "enum": ["dev-loop-defect", "dev-loop-hard-defect", "dev-loop-feature-prerelease", "dev-loop-feature-complete", "needs-info"],
+      "description": "The one loop this ticket routes to (the field the control plane branches on). 'needs-info' = the sufficiency gate failed and intake stopped."
+    },
+    "area": { "type": "string", "description": "The feature area, e.g. 'Invoices'." },
+    "components": { "type": "array", "items": { "type": "string" }, "description": "Tracker components (the surface signal, authoritative over the title)." },
+    "risk_class": { "type": "string", "enum": ["standard", "hard"], "description": "Routing risk class. 'hard' = multi-file / shared-core / migration / high-blast-radius → dev-loop-hard-defect." },
+    "confidence": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Routing confidence 0-100." },
+    "branch_name": { "type": "string", "description": "The computed branch name (project.branch_prefixes[<type>] + KEY + '-' + kebab-slug); intake emits it but does NOT create it." },
+
+    "risk_reason": { "type": "string", "description": "OPTIONAL. Why the risk_class was chosen. Observed in samples/EXAMPLE-intake-already-addressed; not in the SKILL.md-documented shape." },
+    "sensitive": { "type": "boolean", "description": "OPTIONAL. True if the ticket touches a sensitive area — the target repo's list, billing/signup/auth/payments by default (never auto-ship). Observed in samples/EXAMPLE-intake-already-addressed; not in the SKILL.md-documented shape." },
+    "sufficiency": { "type": "string", "description": "OPTIONAL. Result of the sufficiency gate, e.g. 'pass'. Observed in samples/EXAMPLE-intake-already-addressed; not in the SKILL.md-documented shape." },
+    "r6_sanitization": { "type": "string", "description": "OPTIONAL. Note on R6 injection sanitization (e.g. 'clean — no imperative content'). Observed in samples/EXAMPLE-intake-already-addressed; the SKILL.md instead documents a `flags` array for this." },
+    "expected_verbatim": { "type": "string", "description": "OPTIONAL. The verbatim expected behavior mined from the ticket. Observed in samples/EXAMPLE-intake-already-addressed; not in the SKILL.md-documented shape." },
+    "missing_info": { "type": "array", "items": { "type": "string" }, "description": "OPTIONAL. Gaps to fill when recipe='needs-info'. Documented in SKILL.md; not present in the two observed runs (both were sufficient)." },
+    "already_addressed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["detected"],
+      "description": "OPTIONAL. Present when intake ran the already-addressed check (§2b). SKILL.md documents {detected, evidence, pr, recommended_action}; the sample run emitted {detected, signal, recommended_action} — both `evidence` and `signal` are modeled so real output validates (drift flagged in contracts/README.md).",
+      "properties": {
+        "detected": { "type": "boolean" },
+        "evidence": { "type": "string" },
+        "signal": { "type": "string" },
+        "pr": { "type": "string" },
+        "recommended_action": { "type": "string" }
+      }
+    },
+    "sanitized_brief": { "type": "string", "description": "OPTIONAL. [INFERRED] Documented in SKILL.md but NOT emitted in either observed run — modeled for the documented shape; flag for removal or enforcement." },
+    "flags": { "type": "array", "items": { "type": "string" }, "description": "OPTIONAL. [INFERRED] Documented in SKILL.md (quoted injection content, R6) but NOT emitted in either observed run — item type assumed string. Flag for removal or enforcement." },
+    "prior_attempts": {
+      "type": ["object", "null"],
+      "description": "OPTIONAL (v1.1.0). The brain's memory of THIS key, carried forward verbatim from `kb history --ticket <KEY>` (SKILL.md §2c) — what stops the router being stateless across runs. Null or absent = the lookup was not run or the brain was unreachable, which must degrade to 'no prior memory', never to a stall. `additionalProperties` is deliberately TRUE here: this object is a passthrough of a kb CLI response whose contract is explicitly additive-only, so pinning it closed would re-create exactly the failure this key was added to fix.",
+      "properties": {
+        "attempts": { "type": "array", "description": "The ticket's metrics rows, newest last — one entry per recorded loop event.", "items": { "type": "object" } },
+        "attempt_count": { "type": "integer", "minimum": 0, "description": "Total metrics rows for the key (may exceed attempts[] when the response truncates)." },
+        "writes_by_store": { "type": "object", "description": "kb_writes ROLL-UP for the key, `{store: {count, last_at}}`. NOTE the shape differs from `kb receipt`'s identically-named key, which carries full ledger rows — branch on the verb you called, not the key name." },
+        "escalations": { "type": "integer", "minimum": 0, "description": "How many times this key has already been handed to a human. >0 ⇒ route more conservatively." },
+        "escalation_writes": { "type": "integer", "minimum": 0 },
+        "last_outcome": { "type": ["object", "null"], "description": "The most recent loop_outcome metric as an OBJECT — the outcome string is `last_outcome.outcome`, not the field itself." },
+        "areas": { "type": "array", "items": { "type": "string" }, "description": "Normalized areas the key has touched." },
+        "last_activity_at": { "type": ["string", "null"] },
+        "cold": { "type": "boolean", "description": "True when the brain has never seen this key — the flag a router should branch on rather than inspecting empty arrays." }
+      }
+    },
+    "tier": {
+      "type": "string",
+      "enum": ["T0", "T1", "T2"],
+      "description": "OPTIONAL (v1.2.0). The complexity tier, from scripts/assign_tier.py — assigned on EVIDENCE (Gherkin shape, layer, file estimate, area flakiness, prior attempts), never on the title. It decides node count, verify breadth, retry caps and models. Escalate-never-de-escalate: a run may move UP mid-flight on a scope surprise or a failed fix; it never moves down. Absent on a pre-tiering run, which behaves as T1."
+    },
+    "tier_reasons": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "OPTIONAL (v1.2.0). Why this tier — the evidence behind it. A tier with no reasons is a guess with a label on it."
+    },
+    "models": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "OPTIONAL (v1.2.0). Per-step model plan. The FIX stays on a strong model at every tier — T0 is cheap because it has fewer, shorter nodes, not because it thinks less about the code — and the judge runs on a model at least as strong as the producer it grades."
+    },
+    "retry_caps": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "OPTIONAL (v1.2.0). Per-stage retry caps for this tier. Measured basis: qa-repro and qa-verify almost never retry, while dev-code-review -> dev-fix iterates routinely. The caps put the budget where the iteration actually is."
+    }
+  }
+}

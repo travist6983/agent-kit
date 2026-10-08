@@ -1,0 +1,40 @@
+{
+  "skill_name": "qa-run-chatbot",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "run qa-run-chatbot on PROJ-123. ENV=staging EVID_ROOT=/abs/evid DRIVER=chrome",
+      "expected_output": "TICKETS mode: fetches PROJ-123 + comments through the issue_tracker adapter, mines failure modes, builds >=5 cases across the type distribution, materializes set.json, resolves the base URL from app.environments.staging.url and the chat route from integrations.chatbot.entry_path, drives the live driver (browser.live_driver) via cookbook A+B, writes chatbot-run.json that validates; per-case evidence includes independent UI reads; brain writes listed in notes."
+    },
+    {
+      "id": 2,
+      "prompt": "run the chatbot set. SET_FILE=/abs/evid/smoke-chat/set.json APP_URL=http://localhost:3000 EVID_ROOT=/abs/evid DRIVER=cli AUTH_DIR=/abs/evid/smoke-chat/auth",
+      "expected_output": "SET_FILE mode: loads the inline set (no tracker call), headless cli driver with the runner-minted auth bundle, never calls AskUserQuestion, artifact validates."
+    },
+    {
+      "id": 3,
+      "prompt": "retest PROJ-456 against the chat assistant on staging — the workspace for that ticket is 'Example Org'. ENV=staging TENANT='Example Org' EVID_ROOT=/abs/evid",
+      "expected_output": "If the live browser session's workspace != 'Example Org': BLOCKED(env) with the exact tenant-mismatch reason. Never switches the user's workspace, never asks."
+    },
+    {
+      "id": 4,
+      "prompt": "the chatbot said it created the task but I don't believe it — verify PROJ-789's fix actually persists data. EVID_ROOT=/abs/evid APP_URL=https://staging.example.com",
+      "expected_output": "Triggers; grades by independent read (the project's Tasks list / API), a claimed-success-empty-UI case lands FAIL class no-persistence with verbatim evidence."
+    },
+    {
+      "id": 5,
+      "prompt": "run the chatbot set. SET_FILE=/abs/evid/smoke-chat/set.json ENV=staging EVID_ROOT=/abs/evid",
+      "expected_output": "With integrations.chatbot.entry_path null in stack.config: writes chatbot-run.json with status BLOCKED, every case BLOCKED class env, summary 'config-missing:integrations.chatbot.entry_path'. Never guesses a chat route, never asks."
+    },
+    {
+      "id": 6,
+      "prompt": "run the chatbot set. SET_FILE=smoke-chat.json ENV=staging EVID_ROOT=/abs/evid",
+      "expected_output": "With a bare SET_FILE name and integrations.chatbot.cases_dir null in stack.config: writes chatbot-run.json with status BLOCKED, every case BLOCKED class env, summary 'config-missing:integrations.chatbot.cases_dir'. Never globs or searches for the file, never asks."
+    },
+    {
+      "id": 7,
+      "prompt": "run qa-run-case on case-4012-run-9001. CASE_FILE=/abs/evid/case.json ...",
+      "expected_output": "SHOULD NOT TRIGGER — structured non-chat case runs belong to qa-run-case. If invoked anyway, decline and name qa-run-case."
+    }
+  ]
+}

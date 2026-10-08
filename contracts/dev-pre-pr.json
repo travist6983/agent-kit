@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "loops/contracts/dev-pre-pr.json",
+  "title": "dev-pre-pr pre-pr.json — the branch readiness verdict",
+  "version": "1.2.0",
+  "status": "proposed",
+  "description": "The output of the dev-pre-pr skill, written to <evid_root>/<key>/pre-pr.json. The last gate before infra-ship: it consolidates the loop's existing evidence (regression.json, review.json) with a deterministic standards scan and emits one verdict the recipe router branches on. The router reads `status`: ready|warnings advance to ship, blocked routes back to dev-fix (or escalates). `sources` is the anti-stale-evidence record — every check names where its answer came from, so a PASS can always be dated against the diff.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "next_action", "checks", "blockers", "warnings", "summary"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["ready", "warnings", "blocked"],
+      "description": "ready = validations pass with no blockers and no warnings; warnings = passes with non-blocking findings (still advances — a MEDIUM that cannot block must not spin the loop); blocked = a blocker, or evidence that could not be established at all (fail closed)."
+    },
+    "next_action": {
+      "type": "string",
+      "enum": ["ship-ok", "re-fix", "escalate"],
+      "description": "escalate rather than re-fix when re-fixing cannot help: the scan could not run, the repo is in a bad state, or the same blocker already survived a fix cycle."
+    },
+    "key": { "type": "string" },
+    "branch": { "type": "string" },
+    "base": { "type": "string", "description": "The base the diff was taken against — the merge-base, not the base tip." },
+    "files_changed": { "type": "integer", "minimum": 0 },
+    "checks": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "One entry per validation. The build/lint/tests gates are keyed per layer (frontend_*, backend_*): a stack with one project uses the pair that fits and marks the other `skipped`; a stack with more projects (conventions.projects[]) may add `<project>_build|lint|tests` keys with the same enum. `skipped` is a legitimate result when the layer was not touched; it is NOT a pass.",
+      "properties": {
+        "frontend_build": { "type": "string", "enum": ["pass", "fail", "skipped", "unknown"] },
+        "frontend_lint": { "type": "string", "enum": ["pass", "fail", "skipped", "unknown"] },
+        "backend_build": { "type": "string", "enum": ["pass", "fail", "skipped", "unknown"] },
+        "backend_tests": { "type": "string", "enum": ["pass", "fail", "skipped", "unknown"] },
+        "standards_scan": { "type": "string", "enum": ["pass", "fail", "unavailable"] },
+        "code_review": { "type": "string", "enum": ["approve", "request-changes", "not-run", "unknown"] },
+        "fix_verified": { "type": "string", "enum": ["pass", "fail", "missing", "malformed", "not-applicable"], "description": "v1.1.0. Did qa-verify prove the fix works? Read from verify.json.verdict. ANY value other than `pass` or `not-applicable` is a BLOCKER at every tier — this is the mechanical form of the 'fix verification always runs' invariant, which until v1.1.0 was enforced only by the recipe advancing stage-by-stage. `missing` = no verify.json; `malformed` = present but unreadable or contract-invalid; `not-applicable` = this run legitimately has no fix to verify (a docs-only branch, or a standalone developer pre-pr check outside any loop). `not-applicable` is the ONLY non-pass value that does not block, and a loop run may never use it." }
+      }
+    },
+    "sources": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Provenance + freshness for each adopted answer — the anti-stale-evidence record. `stale` means the artifact predates a changed source file and was therefore re-run rather than trusted.",
+      "properties": {
+        "regression": { "type": "string", "enum": ["fresh", "stale", "missing", "ran-locally"] },
+        "review": { "type": "string", "enum": ["fresh", "stale", "missing", "not-run"] },
+        "verify": { "type": "string", "enum": ["fresh", "stale", "missing", "malformed", "not-applicable"], "description": "v1.1.0. Freshness of verify.json, judged the same way as regression: stale = a changed source file is newer than the artifact. Unlike regression, a STALE verify may NOT be re-run by this skill — dev-pre-pr has no Edit tool and cannot drive a browser, and a verify it could run itself would not be blind. Stale therefore routes to re-fix (re-verify), it does not degrade to ran-locally." },
+        "build": { "type": "string", "enum": ["regression.json", "ran-locally", "missing", "skipped"] }
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "critical": { "type": "integer", "minimum": 0 },
+        "high": { "type": "integer", "minimum": 0 },
+        "medium": { "type": "integer", "minimum": 0 },
+        "low": { "type": "integer", "minimum": 0 },
+        "heuristic_unconfirmed": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "violations": {
+      "type": "array",
+      "description": "Every standards finding, blocking or not — the scanner's output plus the reader-judged (Half 2) rules, in one shape. `heuristic: true` findings NEVER block unless `confirmed: true`.",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["file", "severity", "rule"],
+        "properties": {
+          "file": { "type": "string" },
+          "line": { "type": "integer", "minimum": 0 },
+          "severity": { "type": "string", "enum": ["critical", "high", "medium", "low"] },
+          "rule_id": { "type": "string" },
+          "rule": { "type": "string" },
+          "fix": { "type": "string", "description": "What to do instead — the half a developer actually reads." },
+          "snippet": { "type": "string" },
+          "heuristic": { "type": "boolean" },
+          "confirmed": { "type": "boolean", "description": "A heuristic that was read and upheld. Only a confirmed heuristic may block." },
+          "source": { "type": "string", "enum": ["standards_check", "reader", "review.json", "task.md"], "description": "standards_check = the deterministic scanner (scripts/standards_check.sh over the conventions.json rules); reader = a finding the gate confirmed by reading the file; review.json = adopted from dev-code-review; task.md = an open item rolled up from the branch's review-notes file." }
+        }
+      }
+    },
+    "blockers": {
+      "type": "array",
+      "description": "The things that must change before a human should see this as a PR. Empty on ready/warnings.",
+      "items": { "type": "string" }
+    },
+    "warnings": {
+      "type": "array",
+      "description": "Real but non-blocking: medium/low violations, unconfirmed heuristics, a skipped review stage.",
+      "items": { "type": "string" }
+    },
+    "confirmed_clear": {
+      "type": "array",
+      "description": "Heuristics that were read and cleared — recorded so the next run does not re-litigate them.",
+      "items": { "type": "string" }
+    },
+    "report_path": { "type": "string", "description": "Path to the human half (pre-pr-report.md)." },
+    "summary": { "type": "string", "description": "Why this verdict, in a sentence a developer can act on." },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "OPTIONAL (v1.2.0). Which attempt of this stage produced the artifact, 1-based. Added because the retry audit had to be reconstructed from session transcripts \u2014 no artifact recorded its own attempt number, so a retry was indistinguishable from a first pass after the fact. A retry requires transient-failure evidence; a deterministic failure escalates or changes strategy instead of repeating."
+    },
+    "retry_reason": {
+      "type": "string",
+      "description": "OPTIONAL (v1.2.0). Why this attempt happened, when attempt > 1 \u2014 the flaky-store match, infra error, timeout or oracle exit 2 that justified it."
+    },
+    "timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "OPTIONAL (v1.2.0). When this stage ran. Costs microseconds to write and is the only way to tell whether a pipeline redesign still holds months later \u2014 without it every duration has to be reconstructed from session transcripts, which do not always exist.",
+      "required": ["started_at", "ended_at"],
+      "properties": {
+        "started_at": { "type": "string", "description": "ISO-8601 UTC, e.g. 2026-01-01T00:00:00Z" },
+        "ended_at": { "type": "string", "description": "ISO-8601 UTC" },
+        "duration_s": { "type": "number", "minimum": 0 }
+      }
+    }
+  }
+}

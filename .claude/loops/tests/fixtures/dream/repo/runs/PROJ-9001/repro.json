@@ -1,0 +1,23 @@
+{
+  "status": "reproduced",
+  "surface": "presentation/DOM",
+  "symptom_quote": "The row stays until a full page reload.",
+  "replay_spec": "replay-oracle.js",
+  "app_map_writes": [
+    {
+      "kind": "selector",
+      "area": "settings-members",
+      "key": "members-add-btn"
+    },
+    {
+      "kind": "selector",
+      "area": "settings-members",
+      "key": "members-row-delete"
+    }
+  ],
+  "brain_writes": {
+    "ok": 2,
+    "failed": 0,
+    "queued": 0
+  }
+}

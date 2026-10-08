@@ -1,0 +1,122 @@
+{
+  "status": "fixed",
+  "key": "PROJ-123",
+  "root_cause": "The shared Checkbox snapshotted initialValue once at setup; the edit gate read a null permissions blob as no-rights.",
+  "is_root_cause": true,
+  "confidence": 88,
+  "design_decisions": [
+    {
+      "kind": "design-decision",
+      "title": "Fix Checkbox itself rather than add a fourth key workaround",
+      "decision": "Added a watch on initialValue in the shared Checkbox and removed the keyed-remount workarounds.",
+      "alternatives_considered": [
+        "A fourth value-bearing key"
+      ],
+      "rationale": "Three keyed-remount workarounds already existed for this missing watch; a key also discards focus. Only 3 files render <Checkbox>.",
+      "blast_radius": "3 files render Checkbox; 2 pass initialValue.",
+      "files": [
+        "src/components/Checkbox.jsx:41"
+      ],
+      "reviewer_must_confirm": "Agree the component is the right fix point?"
+    },
+    {
+      "kind": "design-decision",
+      "title": "The watch does NOT emit change",
+      "decision": "Prop sync does not emit change.",
+      "rationale": "change means the user toggled this; echoing a push would loop.",
+      "files": [
+        "src/components/Checkbox.jsx:44"
+      ],
+      "reviewer_must_confirm": "Agree?"
+    },
+    {
+      "kind": "design-decision",
+      "title": "Resolve the edit gate against an EMPTY permission set when the blob is null after loading",
+      "decision": "Null blob after load resolves through an empty permission set.",
+      "rationale": "Absent blob means no grants recorded; matches the permission service's short-circuit.",
+      "files": [
+        "src/projects/SharePermissionsModal.jsx:212"
+      ],
+      "reviewer_must_confirm": "Agree?"
+    },
+    {
+      "kind": "design-decision",
+      "title": "Add an explicit loading flag instead of overloading the null blob",
+      "decision": "New loading flag; dialog shows Loading permissions...",
+      "files": [
+        "src/projects/SharePermissionsModal.jsx:180"
+      ],
+      "reviewer_must_confirm": "Agree?"
+    },
+    {
+      "kind": "design-decision",
+      "title": "Also add !canEditPermissions to the Owners row's disabled state",
+      "decision": "Owners row now carries the same gate as its siblings.",
+      "files": [
+        "src/projects/SharePermissionsModal.jsx:96"
+      ],
+      "reviewer_must_confirm": "Agree?"
+    },
+    {
+      "kind": "design-decision",
+      "title": "Track a failed load separately (loadFailed) and fail CLOSED",
+      "decision": "A failed load keeps the dialog read-only with an error; Save not rendered.",
+      "rationale": "Treating a failure as no-grants would let an owner's full-replacement Save wipe every grant.",
+      "files": [
+        "src/projects/SharePermissionsModal.jsx:230"
+      ],
+      "reviewer_must_confirm": "Agree?"
+    },
+    {
+      "kind": "design-decision",
+      "title": "Add projects.getRevision() and express getRevisionPermissions() on top of it",
+      "decision": "New service method so the modal can tell a failed request from a grant-less revision.",
+      "files": [
+        "src/services/projects.js:118"
+      ],
+      "reviewer_must_confirm": "Agree?"
+    },
+    {
+      "kind": "design-decision",
+      "title": "Also retire PrintProjectModal's key workaround and its now-false comment",
+      "decision": "Removed the stale workaround.",
+      "files": [
+        "src/projects/PrintProjectModal.jsx:57"
+      ],
+      "reviewer_must_confirm": "Agree?"
+    },
+    {
+      "kind": "alternative-fix",
+      "title": "Give the Edit checkboxes the same value-bearing key as the View ones",
+      "decision": "Rejected.",
+      "alternatives_considered": [
+        "value-bearing key on Edit"
+      ],
+      "rationale": "Symptom-level (R3).",
+      "files": [
+        "src/projects/SharePermissionsModal.jsx:120"
+      ],
+      "reviewer_must_confirm": "Confirm the component fix over the key?"
+    },
+    {
+      "kind": "alternative-fix",
+      "title": "Switch Checkbox to a controlled checked prop",
+      "decision": "Rejected.",
+      "rationale": "Breaking API change to a widely used shared component.",
+      "files": [
+        "src/components/Checkbox.jsx:12"
+      ],
+      "reviewer_must_confirm": "Confirm?"
+    },
+    {
+      "kind": "alternative-fix",
+      "title": "Keep the empty-set fallback unconditional and rely on the server",
+      "decision": "Rejected.",
+      "rationale": "The server would NOT reject an owner's wipe.",
+      "files": [
+        "src/projects/SharePermissionsModal.jsx:230"
+      ],
+      "reviewer_must_confirm": "Confirm?"
+    }
+  ]
+}

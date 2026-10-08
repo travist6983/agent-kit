@@ -1,0 +1,10 @@
+[
+  {
+    "kind": "known-gap",
+    "title": "API must be restarted after deploy",
+    "decision": "New service registration.",
+    "must_read": true,
+    "must_read_reason": "human-action-required",
+    "reviewer_must_confirm": "Restart the API after deploy."
+  }
+]

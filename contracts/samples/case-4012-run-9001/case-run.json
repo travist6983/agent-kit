@@ -1,0 +1,50 @@
+{
+  "status": "PASS",
+  "summary": "Created comment 'E2E-SMOKE-1753214400-Q3 budget note' on task TASK-17 and confirmed it persists in the task's Comments panel and the workspace activity feed; all 4 verify steps held.",
+  "steps": [
+    {
+      "n": 1,
+      "status": "INFO",
+      "observation": "Navigated to / — dashboard rendered for workspace [Example Workspace]."
+    },
+    {
+      "n": 2,
+      "status": "INFO",
+      "observation": "Opened task TASK-17 and expanded the Comments panel via the row's Comments button."
+    },
+    {
+      "n": 3,
+      "status": "INFO",
+      "observation": "Typed comment text 'E2E-SMOKE-1753214400-Q3 budget note' and clicked Post (label drift: expected 'Add Comment', matched 'Post Comment')."
+    },
+    {
+      "n": 4,
+      "status": "PASS",
+      "observation": "Comments panel lists 'Q3 budget note' (prefix stripped); the panel's comment count incremented to 6."
+    },
+    {
+      "n": 5,
+      "status": "PASS",
+      "observation": "get_page_text on the activity feed region contains 'Q3 budget note' — persisted (not a toast read)."
+    }
+  ],
+  "failed_steps": [],
+  "manual_steps": [],
+  "drift": [
+    {
+      "step": 3,
+      "expected_label": "Add Comment",
+      "observed_label": "Post Comment",
+      "locator": "getByText",
+      "verb": "click"
+    }
+  ],
+  "media": [
+    {
+      "kind": "mp4",
+      "label": "Full run — MP4",
+      "url": "https://evidence.example.com/case-4012-run-9001/case-4012-run-9001-run.mp4?sig=REDACTED"
+    }
+  ],
+  "notes": "Comments have no /comments route (panel-only) — confirmed persistence via the panel + activity feed, never the post toast."
+}

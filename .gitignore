@@ -1,0 +1,87 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+
+# Python (skill scripts, lib/adapters)
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual envs
+.venv/
+venv/
+env/
+ENV/
+
+# Skill-creator generated artifacts
+*.skill.zip
+.claude/commands/eval-*/
+**/eval_runs/
+**/benchmark_output/
+**/*-workspace/
+
+# Node (if any tooling lands here later)
+node_modules/
+
+# Secrets / local env
+# .mcp.json is per-machine: it tends to carry local paths and live tokens, so it is never
+# shared. Register MCP servers per machine instead: `claude mcp add --scope local` (or user).
+.mcp.json
+.env
+.env.*
+!.env.example
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*~
+
+
+# Brain — SECRETS ONLY (never commit)
+# kb.config.json is deliberately NOT ignored. It is TRACKED and SHARED: it names the one
+# Postgres + pgvector brain every developer and every machine writes to, and it holds no
+# credentials — the auth mode decides where the credential comes from (a token command, an
+# env var, or the secret env file below), so there is nothing in it to leak. It has to travel
+# with every clone, or a fresh checkout has no target at all.
+# Only the secret env file (the embedding provider key, a DB password under auth.mode
+# password) stays out of git.
+.claude/loops/kb.secret.env
+.claude/loops/*.secret.env
+
+# Loop runtime state (not knowledge, not config)
+# Locks and ledgers are per-run scratch: the single-instance locks the scheduled agents and
+# the brain-touching test suites take, the PR-review seen-ledger and tick lock, the sandbox
+# registry. The LIBRARY that manages the cross-agent lock (.claude/loops/lib/agent_lock.sh)
+# is tracked and must stay so — the scheduled jobs refuse to start without it.
+.claude/loops/*.lock
+.claude/loops/*.lock/
+.claude/loops/sandboxes.json
+.claude/loops/pr-review-ledger.json
+.claude/loops/pr-review-runner-state.json
+.claude/loops/pr-review-posted.json
+
+# Runtime artifacts the scheduled agents (com.loops.qa-dream, com.loops.pr-review) write
+# into the repo: the dated dream reports, the per-tick PR-review reports, and the runner
+# logs. These churn on every tick; committing one makes `git status` permanently dirty and
+# invites a future "commit everything" from sweeping in a log.
+.claude/loops/*.log
+.claude/loops/dreams/
+.claude/loops/pr-reviews/
+
+# Loop evidence root (per-run tickets, seam files, dry-run PRs, notifications, media,
+# the sandbox registry) — output, not source
+/runs/
+# playwright-cli scratch (snapshots, console logs) the replay oracle drops into its evidence
+# dir — even under fixtures/<KEY>/
+.playwright-cli/
+
+# Claude Code writes API types beside a mod it loads from a folder
+mods/*/.claude-plugin/types/

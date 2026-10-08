@@ -1,0 +1,11 @@
+{
+  "status": "passed",
+  "summary": "NEGATIVE TEST — 'passed' is off-enum (must be PASS); this artifact MUST FAIL validation. Locks the five-value case grade and the four-value step grade.",
+  "steps": [
+    {
+      "n": 1,
+      "status": "ok",
+      "observation": "'ok' is off-enum for a step (must be PASS|FAIL|INFO|BLOCKED)."
+    }
+  ]
+}

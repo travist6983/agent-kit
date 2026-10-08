@@ -1,0 +1,163 @@
+{
+  "version": "1.0.0",
+  "project": {
+    "name": "my-app",
+    "ticket_key_pattern": "^[A-Z][A-Z0-9]+-[0-9]+$",
+    "default_branch": "main",
+    "branch_prefixes": {
+      "fix": "fix/",
+      "feature": "feature/"
+    },
+    "protected_branch_patterns": [
+      "main",
+      "release/*"
+    ]
+  },
+  "app": {
+    "repo_dir": "../my-app",
+    "url": "http://localhost:3000",
+    "api_url": null,
+    "health_path": "/",
+    "start_command": "npm run dev",
+    "environments": {
+      "local": {
+        "url": "http://localhost:3000"
+      },
+      "staging": {
+        "url": null
+      },
+      "prod": {
+        "url": null
+      }
+    }
+  },
+  "stack": {
+    "languages": [],
+    "build_command": null,
+    "lint_command": null,
+    "unit_test_command": null,
+    "test_report": {
+      "format": "junit",
+      "glob": "**/test-results/*.xml"
+    },
+    "conventions_file": ".claude/loops/conventions.json",
+    "repo_guidelines_file": "CLAUDE.md"
+  },
+  "adapters": {
+    "issue_tracker": {
+      "provider": "file",
+      "config": {
+        "dir": "runs/tickets"
+      }
+    },
+    "vcs_host": {
+      "provider": "git-local",
+      "config": {}
+    },
+    "test_management": {
+      "provider": "none",
+      "config": {}
+    },
+    "analytics": {
+      "provider": "none",
+      "config": {}
+    },
+    "auth_provider": {
+      "provider": "env-file",
+      "config": {
+        "env_file": ".env.e2e",
+        "local_env_file": ".env.e2e.local",
+        "process_env": true,
+        "roles": [
+          "owner",
+          "admin",
+          "member",
+          "observer"
+        ],
+        "credential_env_pattern": "E2E_{ROLE}_{FIELD}",
+        "login": {
+          "path": "/login",
+          "username_selector": "input[name=email]",
+          "password_selector": "input[name=password]",
+          "submit_selector": "button[type=submit]",
+          "failure_regex": "invalid|incorrect|try again",
+          "signed_in_landmark": "[data-testid=user-menu]"
+        },
+        "pre_auth": "none"
+      }
+    },
+    "ci_cd": {
+      "provider": "none",
+      "config": {}
+    },
+    "deploy": {
+      "provider": "none",
+      "config": {}
+    },
+    "notifications": {
+      "provider": "file",
+      "config": {
+        "dir": "runs/notifications"
+      }
+    },
+    "sandbox": {
+      "provider": "git-worktree",
+      "config": {
+        "port_base": 3000,
+        "port_stride": 10,
+        "db_clone_command": null,
+        "max_concurrent": 3
+      }
+    },
+    "evidence_store": {
+      "provider": "local",
+      "config": {}
+    }
+  },
+  "evidence": {
+    "root": "runs"
+  },
+  "brain": {
+    "config_file": ".claude/loops/kb.config.json"
+  },
+  "limits_file": ".claude/loops/loop-limits.json",
+  "models": {
+    "cheap": "claude-haiku-4-5-20251001",
+    "strong": "claude-fable-5-1",
+    "verifier": "claude-fable-5-1",
+    "rank": [
+      "claude-haiku-4-5-20251001",
+      "claude-sonnet-5-5",
+      "claude-opus-5-5",
+      "claude-fable-5-1"
+    ]
+  },
+  "deploy": {
+    "prod_lane_branch_patterns": [],
+    "tracks": []
+  },
+  "browser": {
+    "oracle_driver": "playwright-cli",
+    "live_driver": "claude-in-chrome"
+  },
+  "runner": {
+    "billing_posture": "subscription",
+    "claude_bin": "claude",
+    "config_dir": null
+  },
+  "integrations": {
+    "release_ac": {
+      "release_name_pattern": null
+    },
+    "chatbot": {
+      "entry_path": null,
+      "cases_dir": null
+    },
+    "ui_parity": {
+      "baseline_env": "staging",
+      "candidate_env": "local",
+      "routes": []
+    }
+  },
+  "personas_file": ".claude/loops/personas.json"
+}

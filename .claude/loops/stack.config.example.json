@@ -1,0 +1,220 @@
+{
+  "_comment": "Fully commented example of .claude/loops/stack.config.json. Every `_comment_<key>` sibling documents the key next to it; the loader strips `_comment*` keys, so this file is itself loadable (LOOPS_STACK_CONFIG=.claude/loops/stack.config.example.json). NO SECRETS: config names the ENV VAR that holds a secret, never the value. Any key can be overridden per process with LOOPS_CFG__<PATH> (dots \u2192 double underscore, upper-cased), e.g. LOOPS_CFG__APP__URL=http://localhost:4000.",
+  "_comment_version": "Schema version of this file. Bump only when keys change meaning.",
+  "version": "1.0.0",
+  "_comment_project": "Identity of the target app's repo as the loops see it.",
+  "project": {
+    "_comment_name": "Short slug. Names the sandbox directory (../<name>-sandboxes/) and the default sandbox DB (<name>_<key>).",
+    "name": "acme-shop",
+    "_comment_ticket_key_pattern": "Regex a ticket key must match before intake accepts it. A literal prefix (e.g. ^SHOP-[0-9]+$) is also what the file issue tracker allocates new keys with; a character class falls back to PROJ.",
+    "ticket_key_pattern": "^SHOP-[0-9]+$",
+    "_comment_default_branch": "Branch PRs target and sandboxes branch from.",
+    "default_branch": "main",
+    "_comment_branch_prefixes": "Ticket type \u2192 branch prefix. sandbox.provision(key, ticket_type) builds <prefix><key>; unknown types use `fix`.",
+    "branch_prefixes": {
+      "fix": "fix/",
+      "feature": "feature/",
+      "chore": "chore/"
+    },
+    "_comment_protected_branch_patterns": "fnmatch globs infra-ship refuses to push to or open a PR *from*. Pushing to one of these is a prod-lane action and needs a human.",
+    "protected_branch_patterns": [
+      "main",
+      "release/*"
+    ],
+    "_comment_deploy_branch_patterns": "Optional: globs whose merge triggers a deploy. Treated like protected branches by the ship gate.",
+    "deploy_branch_patterns": [
+      "release/*"
+    ]
+  },
+  "_comment_app": "Where the target app lives and how to reach it.",
+  "app": {
+    "_comment_repo_dir": "Path to the app's git checkout, relative to THIS repo's root (or absolute). git-local vcs and git-worktree sandbox run git here.",
+    "repo_dir": "../acme-shop",
+    "_comment_url": "The app's base URL when started locally. The sandbox adapter derives per-sandbox URLs by shifting this port by slot*port_stride.",
+    "url": "http://localhost:3000",
+    "_comment_api_url": "Optional separate API origin (null when the app serves its own API). Shifted the same way for sandboxes.",
+    "api_url": "http://localhost:3001",
+    "_comment_health_path": "GET path that returns 2xx once the app is up; the recipe polls it after starting a sandbox.",
+    "health_path": "/healthz",
+    "_comment_start_command": "Command the recipe runs inside a sandbox dir to start the app. The adapter never starts it (Sandbox.started is always false).",
+    "start_command": "PORT=$PORT npm run dev",
+    "_comment_environments": "Named environments. Names are yours (lab/uat/staging/prod\u2026); skills take them as --env arguments. null url = that environment does not exist yet.",
+    "environments": {
+      "local": {
+        "url": "http://localhost:3000"
+      },
+      "staging": {
+        "url": "https://staging.acme-shop.example.com"
+      },
+      "prod": {
+        "url": "https://acme-shop.example.com"
+      }
+    }
+  },
+  "_comment_stack": "How to build/lint/test the target app. null = the gate is skipped and *reported as skipped*, never silently passed.",
+  "stack": {
+    "_comment_languages": "Informational; the conventions file carries the actual rules.",
+    "languages": [
+      "ruby",
+      "javascript"
+    ],
+    "build_command": "bundle exec rails assets:precompile",
+    "lint_command": "bundle exec rubocop && npx eslint .",
+    "unit_test_command": "bundle exec rspec",
+    "_comment_test_report": "Where qa-regression finds machine-readable results after unit_test_command. format: junit.",
+    "test_report": {
+      "format": "junit",
+      "glob": "tmp/test-results/*.xml"
+    },
+    "_comment_conventions_file": "The standards ruleset dev-pre-pr scans added lines with (format documented in examples/conventions/).",
+    "conventions_file": ".claude/loops/conventions.json",
+    "_comment_repo_guidelines_file": "The target repo's own working agreement; dev-fix and dev-code-review read it for constraints.",
+    "repo_guidelines_file": "CLAUDE.md"
+  },
+  "_comment_adapters": "One provider per role. `none` = role absent: a skill that needs it emits blocked with reason adapter-unavailable:<role>. Built-ins: issue_tracker[file], vcs_host[git-local], test_management[none only \u2014 bring a third-party provider], auth_provider[env-file], notifications[file], sandbox[git-worktree], evidence_store[local]. Third-party: \"provider\": \"python.module.path:ClassName\" (see lib/adapters/README.md \u2192 Adding a provider).",
+  "adapters": {
+    "_comment_issue_tracker": "Here a third-party provider: the class `LinearTracker` in importable module `my_adapters.linear` (put my_adapters/ on PYTHONPATH or in lib/). Its config block is passed to the class verbatim. Secrets stay in env: api_key_env names the variable.",
+    "issue_tracker": {
+      "provider": "my_adapters.linear:LinearTracker",
+      "config": {
+        "team": "SHOP",
+        "api_key_env": "LINEAR_API_KEY"
+      }
+    },
+    "_comment_vcs_host": "git-local writes dry-run PRs to <evidence.root>/prs/<branch>.md. config.repo_dir overrides app.repo_dir; config.prs_dir overrides the output dir.",
+    "vcs_host": {
+      "provider": "git-local",
+      "config": {}
+    },
+    "_comment_test_management": "Test-case manager role (list_cases, get_case, create_run, record_result, get_run). No built-in provider ships; plug one in as \"module.path:ClassName\" with *_env keys NAMING the env vars that hold its host and credentials. none \u2192 a skill that needs it stops with adapter-unavailable:test_management.",
+    "test_management": {
+      "provider": "none",
+      "config": {}
+    },
+    "_comment_analytics": "Error-signal source for infra-prod-verify (query_error_signal, deployed_version). No built-in provider ships; none \u2192 prod-verify is blocked, which is the safe default.",
+    "analytics": {
+      "provider": "none",
+      "config": {}
+    },
+    "_comment_auth_provider": "env-file reads env_file then local_env_file (later wins), then the process env. Variables: E2E_<ROLE>_USERNAME / E2E_<ROLE>_PASSWORD (+ any E2E_<ROLE>_* extra). login_hint tells the replay oracle how to sign in \u2014 a string, or a {role: hint} map with a `default`.",
+    "auth_provider": {
+      "provider": "env-file",
+      "config": {
+        "env_file": ".env.e2e",
+        "local_env_file": ".env.e2e.local",
+        "process_env": true,
+        "roles": [
+          "owner",
+          "admin",
+          "member",
+          "observer"
+        ],
+        "credential_env_pattern": "E2E_{ROLE}_{FIELD}",
+        "login": {
+          "path": "/login",
+          "username_selector": "input[name=email]",
+          "password_selector": "input[name=password]",
+          "submit_selector": "button[type=submit]",
+          "failure_regex": "invalid|incorrect|try again",
+          "signed_in_landmark": "[data-testid=user-menu]"
+        },
+        "pre_auth": "none",
+        "prefix": "E2E",
+        "login_hint": {
+          "default": "Open /login, fill #email and #password, click 'Sign in', wait for /dashboard.",
+          "admin": "Same as default, then accept the admin MFA prompt via the E2E_ADMIN_TOTP_SECRET extra."
+        }
+      },
+      "_comment_config": "roles is the canonical role vocabulary (lower-case); credentials resolve from `credential_env_pattern` with ROLE upper-cased (E2E_OWNER_USERNAME / E2E_OWNER_PASSWORD). `login` is the recipe the replay oracle renders to sign in. pre_auth none|header_token|sso_human_once is an optional perimeter in front of the app."
+    },
+    "_comment_ci_cd": "build_status(ref), test_results(build_id), deploy_status(env). No built-in ships; none \u2192 skills that need CI evidence report it as unavailable.",
+    "ci_cd": {
+      "provider": "none",
+      "config": {}
+    },
+    "_comment_deploy": "deployed_version(env), rollback_hint(env) \u2014 rollback itself is human-only; the adapter only returns instructions.",
+    "deploy": {
+      "provider": "none",
+      "config": {}
+    },
+    "_comment_notifications": "file appends `- <utc iso> \u2014 message` to <dir>/<channel>.md.",
+    "notifications": {
+      "provider": "file",
+      "config": {
+        "dir": "runs/notifications"
+      }
+    },
+    "_comment_sandbox": "git-worktree: worktree at <repo_dir>/../<project.name>-sandboxes/<key> on branch <prefix><key>; slot 1..max_concurrent; ports = url port + slot*port_stride (port_base when the url has no port); registry <evidence.root>/sandboxes.json under an fcntl lock. db_clone_command (string or argv list) runs in the worktree with {key} {slot} {dir} {db}; db_drop_command runs on teardown. Optional: sandboxes_dir, registry_file, delete_branch_on_teardown.",
+    "sandbox": {
+      "provider": "git-worktree",
+      "config": {
+        "port_base": 3000,
+        "port_stride": 10,
+        "db_clone_command": "createdb -T acme_shop_dev {db}",
+        "db_drop_command": "dropdb --if-exists {db}",
+        "max_concurrent": 3,
+        "delete_branch_on_teardown": false
+      }
+    },
+    "_comment_evidence_store": "local keeps files under <evidence.root>/<key>/uploads/ and returns file:// urls. A remote store (S3, blob\u2026) is a third-party provider.",
+    "evidence_store": {
+      "provider": "local",
+      "config": {}
+    }
+  },
+  "_comment_evidence": "root: the gitignored directory every run writes its artifacts under (intake/repro/fix/verify JSON, media, dry-run PRs, tickets, sandbox registry).",
+  "evidence": {
+    "root": "runs"
+  },
+  "_comment_brain": "config_file: the Postgres+pgvector brain pointer (DSN comes from that file or KB_DATABASE_URL \u2014 never defaulted).",
+  "brain": {
+    "config_file": ".claude/loops/kb.config.json"
+  },
+  "_comment_limits_file": "Per-loop budget/retry caps the recipe router enforces (R5).",
+  "limits_file": ".claude/loops/loop-limits.json",
+  "models": {
+    "cheap": "claude-haiku-4-5-20251001",
+    "strong": "claude-fable-5-1",
+    "verifier": "claude-fable-5-1",
+    "rank": [
+      "claude-haiku-4-5-20251001",
+      "claude-sonnet-5-5",
+      "claude-opus-5-5",
+      "claude-fable-5-1"
+    ]
+  },
+  "deploy": {
+    "prod_lane_branch_patterns": [],
+    "tracks": []
+  },
+  "browser": {
+    "oracle_driver": "playwright-cli",
+    "live_driver": "claude-in-chrome"
+  },
+  "runner": {
+    "billing_posture": "subscription",
+    "claude_bin": "claude",
+    "config_dir": null
+  },
+  "integrations": {
+    "release_ac": {
+      "release_name_pattern": null
+    },
+    "chatbot": {
+      "entry_path": null,
+      "cases_dir": null
+    },
+    "ui_parity": {
+      "baseline_env": "staging",
+      "candidate_env": "local",
+      "routes": []
+    }
+  },
+  "personas_file": ".claude/loops/personas.json",
+  "_comment_models": "Model ids by job. `rank` orders models weakest\u2192strongest; a judge/verifier must rank >= the producer it grades. Defaults are current Claude ids; change freely.",
+  "_comment_deploy": "prod_lane_branch_patterns: branches whose PUSH is a production deploy (refused while the brain's staging_only flag is true). Empty = no push deploys. tracks: independently deployed parts [{name, path_globs, version_endpoint, deployed_version_command, ci_deploy_status?}]. ci_deploy_status:true marks the track the ci_cd environment status describes (needed only with 2+ tracks).",
+  "_comment_browser": "Documented prerequisites: playwright-cli drives the deterministic replay oracle; claude-in-chrome drives live exploration/recording.",
+  "_comment_runner": "billing_posture subscription|metered decides how the R5 cap reads spend. claude_bin/config_dir are used by the scheduler templates.",
+  "_comment_integrations": "Per-skill knobs for the release-AC, chatbot and UI-parity skills. Never tenant values: hosts and credentials come from env var NAMES in the adapter configs. release_ac.release_name_pattern: how the tracker names a release (\"{name} {version}\"); null = any release name containing the version.",
+  "_comment_personas_file": "The persona pack qa-explore/qa-repro/qa-verify draw roles and habits from. Ship your own; the default is a neutral sample."
+}

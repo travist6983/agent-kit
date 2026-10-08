@@ -1,0 +1,13 @@
+{
+  "_comment": "Configurable escalation handoff (NOT hard-coded in the skill). Edit freely. Assignee values are opaque to this skill — a user id, handle or email that the configured issue_tracker adapter understands. No tenant values belong here: project key, key pattern and the tracker itself come from .claude/loops/stack.config.json.",
+  "assignees": {
+    "_comment": "default: who gets an escalation when the area has no entry (null = leave unassigned and say so). by_area: keys are the area names dev-intake writes into intake.json (e.g. 'billing', 'invoices', 'members'); values are tracker user ids/handles or null.",
+    "default": null,
+    "by_area": {}
+  },
+  "transition_on_escalate": null,
+  "_transition_note": "transition_on_escalate: the tracker status name the ticket moves to on escalation (e.g. 'To Do' or 'Needs Human'), or null to leave the status alone. Interpreted by the issue_tracker adapter.",
+  "notification_channel": "escalations",
+  "_notification_note": "notification_channel: the channel the notifications adapter posts the handoff summary to (always, when posting is authorized). With the default 'file' provider that is runs/notifications/<channel>.md.",
+  "comment_template": "### 🤖 Defect loop handoff — {reason}\n\nThe autonomous loop ran this defect end-to-end and is handing it back with full context so you don't start cold.\n\n- **Ticket:** {key} · **Area:** {area}\n- **Failure class:** {failure_class}\n- **Best-guess root cause:** {root_cause}\n\n**What the loop tried**\n\n{attempt_log}\n\n**Reproduction**\n\n{repro_summary}\n- **Expected:** {expected}\n- **Actual:** {actual}\n\n**Verify / regression**\n\n- {verify_summary}\n- {regression_summary}\n\n**Decisions the loop made**\n\n{design_decisions}\n\n**Noticed, not changed — pre-existing, needs its own ticket**\n\n{noticed}\n\n**Evidence (before/after media)**\n\n{media}\n\n_Posted by `dev-escalate` — template in escalate.config.json._"
+}

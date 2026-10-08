@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "loops/contracts/qa-verify.repro-judge.json",
+  "title": "qa-verify verify.json \u2014 mode=repro-judge (independent reproduction confirmation)",
+  "version": "1.2.0",
+  "status": "ratified",
+  "description": "The ratified output of the qa-verify skill in mode='repro-judge', written to <repro_dir>/judge.json (v1.2.0 \u2014 renamed from verify.json so the two qa-verify modes never overwrite each other). The runner returns this object verbatim to the control plane as `judge_evidence`; the control plane branches ONLY on `verdict` and DERIVES reproduced_confirmed from it. The FOUR keys {verdict, confidence, observed_quote, masking_suspected} are REQUIRED; v1.1.0 adds one OPTIONAL additive key, `media` (capture-time evidence URLs) \u2014 any OTHER extra key is still a contract violation. The skill MUST NOT emit reproduced_confirmed. This file is the single source of truth for the runner and the control plane. See contracts/README.md. Model expectation: the `models.verifier` tier from stack.config \u2014 never trade quality for tokens on a verifier. v1.1.0 (additive, backward-compatible): `media` is OPTIONAL \u2014 a v1.0.0 four-key artifact still validates. v1.2.0: verdict gains 'inconclusive' (ran-but-cannot-rule, distinct from the real-negative 'fail') and the artifact moves to judge.json \u2014 coordinate with the control plane and the runner (they branch on verdict and read the artifact path).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "verdict",
+    "confidence",
+    "observed_quote",
+    "masking_suspected"
+  ],
+  "properties": {
+    "verdict": {
+      "type": "string",
+      "enum": [
+        "pass",
+        "fail",
+        "inconclusive"
+      ],
+      "description": "'pass' = the bug is real and the symptom independently reproduces; 'fail' = the judge RAN the confirmation and the symptom did NOT occur \u2014 a real negative (triage may treat the repro claim as refuted); 'inconclusive' = the judge ran but could NOT determine (ambiguous evidence, surface unreachable, partial observation) \u2014 must NOT be treated as a refuted repro; retry or escalate (v1.2.0). A tooling failure that prevents the judge from running at all still writes NO artifact (the runner's missing-artifact ok:false path) \u2014 'inconclusive' is for a judge that ran and cannot rule."
+    },
+    "confidence": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "How strongly the independent observation matches the described symptom. Capped < 80 when masking_suspected is true."
+    },
+    "observed_quote": {
+      "type": "string",
+      "description": "Verbatim of what the independent judge actually observed \u2014 not a paraphrase of the ticket."
+    },
+    "masking_suspected": {
+      "type": "boolean",
+      "description": "True if the symptom may be hidden/suppressed rather than truly absent (swallowed error, suppressed log, loading state hiding the value, success toast over unchanged state)."
+    },
+    "media": {
+      "type": "array",
+      "description": "OPTIONAL (v1.1.0). Capture-time evidence media uploaded through the evidence_store adapter during verification, each a URL the control plane can fetch directly (Content-Type video/mp4 | image/gif; a signed read URL or a local file:// URL \u2014 no Authorization header). Most repro-judge runs read qa-repro's existing recording and emit NO media; when the judge records a live re-observation it uploads it (the build under judgement is still buggy, so those are 'before-*'). fix-verify's fixed media is 'after-*' (shared four-kind enum). BEST-EFFORT and NEVER required \u2014 a v1.0.0 four-key artifact still validates.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "url"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "before-gif",
+              "before-mp4",
+              "after-gif",
+              "after-mp4"
+            ],
+            "description": "Which recording this is. repro-judge (buggy build) emits 'before-*'; fix-verify (fixed build) emits 'after-*'."
+          },
+          "url": {
+            "type": "string",
+            "description": "The URL exactly as the evidence_store adapter returned it (a signed read URL, or a local file:// URL from the `local` provider). Fetchable with no Authorization header."
+          },
+          "label": {
+            "type": "string",
+            "description": "OPTIONAL human label, e.g. 'Verified fixed (after) \u2014 MP4'."
+          }
+        }
+      }
+    }
+  }
+}

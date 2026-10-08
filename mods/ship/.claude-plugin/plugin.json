@@ -1,0 +1,1 @@
+{ "name": "ship", "version": "0.1.0", "description": "Repo status band plus /ship: commit, push and deploy with a saved per-repo recipe", "types": "./types/index.d.ts" }

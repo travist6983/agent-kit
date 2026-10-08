@@ -1,0 +1,51 @@
+{
+  "status": "fixed",
+  "key": "PROJ-9001",
+  "root_cause": "The export reads a denormalized total that the on-screen fix never updates.",
+  "is_root_cause": true,
+  "masking_suspected": false,
+  "confidence": 78,
+  "failure_class": null,
+  "files_changed": [
+    "web/src/invoices/InvoiceTotals.js"
+  ],
+  "design_decisions": [
+    {
+      "kind": "design-decision",
+      "title": "Fixed the totals in the shared hook, not per view",
+      "decision": "useInvoiceTotals now recomputes on every line-item change.",
+      "files": [
+        "web/src/invoices/hooks/useInvoiceTotals.js:41"
+      ],
+      "must_read": false
+    },
+    {
+      "kind": "known-gap",
+      "title": "Export totals still wrong: the fix needs a migration",
+      "decision": "The export reads a denormalized column only a migration can correct; R6 forbids the loop to write one.",
+      "files": [
+        "api/invoices/export_invoice_query.py:88"
+      ],
+      "must_read": true,
+      "must_read_reason": "ticket-not-fully-fixed",
+      "reviewer_must_confirm": "Ticket the migration and merge this, or hold the PR until it lands?"
+    },
+    "a legacy string entry still validates (and is never posted)"
+  ],
+  "noticed_not_changed": [
+    "set_project_permissions never checks can_edit (pre-existing, intra-workspace) — needs its own ticket"
+  ],
+  "plan_synthesis": {
+    "chosen": {
+      "strategy": "fix the shared hook",
+      "why": "one fix point"
+    },
+    "alternatives": [
+      {
+        "strategy": "patch each view",
+        "why_not": "three copies to keep in step"
+      }
+    ],
+    "considered": 2
+  }
+}

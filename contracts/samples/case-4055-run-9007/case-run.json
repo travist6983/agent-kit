@@ -1,0 +1,6 @@
+{
+  "status": "BLOCKED",
+  "summary": "BLOCKED: auth bundle did not authenticate — the session bounced to the auth provider's /login page after navigating to APP_URL; storage-state.json was present but the first API call returned 401. Cannot run the case without a valid session.",
+  "steps": [],
+  "notes": "run.env carried an empty session token — the control plane's token mint likely failed; recorded blocked so triage can re-mint and retry rather than grading a false FAIL."
+}

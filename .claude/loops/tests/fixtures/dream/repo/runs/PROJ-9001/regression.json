@@ -1,0 +1,28 @@
+{
+  "status": "flaky",
+  "key": "PROJ-9001",
+  "area": "settings-members",
+  "next_action": "re-fix",
+  "area_slice_run": [
+    "src/areas/settings/members/MembersList.spec.js"
+  ],
+  "smoke_slice_run": [
+    "vitest (full)"
+  ],
+  "results": {
+    "passed": 11,
+    "failed": 1,
+    "total": 12
+  },
+  "failed_specs": [
+    {
+      "spec": "src/areas/settings/members/MembersList.spec.js",
+      "class": "flaky",
+      "evidence": "passed on retry 2 of 3"
+    }
+  ],
+  "flaky_quarantined": [
+    "src/areas/settings/members/MembersSearch.spec.js"
+  ],
+  "flakiness_writes": 12
+}

@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "loops/contracts/qa-verify.json",
+  "title": "qa-verify verify.json — mode=fix-verify (the loop's fix-verification verdict)",
+  "version": "1.0.0",
+  "status": "proposed",
+  "description": "The output of qa-verify in its DEFAULT mode ('fix-verify'), written to <evid_root>/<key>/verify.json. Note the two qa-verify modes point OPPOSITE ways and have separate contracts: here `pass` means the bug is GONE (the replay went RED→GREEN against the fixed build); in contracts/qa-verify.repro-judge.json `pass` means the bug IS present. Do not validate one against the other.\n\nWHY THIS CONTRACT EXISTS. Without a schema the fix-verify artifact was the one major seam file nothing could check: run after run emitted `verdict: pass` at high confidence with masking_suspected:false, and neither the shape nor the claim was ever tested. dev-pre-pr v1.1.0 now BLOCKS on this artifact (checks.fix_verified), and the checker node reads it at the diamond's convergence point, so its shape is load-bearing for the loop's central safety property: a tier may shrink how much is verified, never whether.\n\nBLINDNESS. This artifact must be produced by an agent that did NOT write the fix — invoked with Agent, never Skill (see dev-loop-defect/references/recipe-engine.md, 'Blind judging'). `judged_blind` records whether that held; a false value is a contract-valid artifact describing an invalid verdict, and the checker treats it as such.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "verdict",
+    "confidence",
+    "masking_suspected"
+  ],
+  "properties": {
+    "verdict": {
+      "type": "string",
+      "enum": ["pass", "fail", "partial", "blocked"],
+      "description": "'pass' = the bug is GONE: the replay oracle went RED→GREEN against the fixed build AND an independent read of the app confirms it. 'fail' = the oracle ran and the bug is still there. 'partial' = the symptom changed but is not resolved. 'blocked' = NO EVIDENCE about the fix (replay-oracle.sh exit 2, app unreachable, no oracle) — this is an absent test, not a failed fix, so the router escalates rather than burning a re-fix on it. A 'pass' carrying masking_suspected:true is a fail (R3) and dev-pre-pr blocks on it."
+    },
+    "confidence": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "How strongly the evidence supports the verdict. Capped < 80 when masking_suspected is true. The checker node enforces a per-tier floor (80 at T0/T1, 85 at T2) and flags anything below it as too low to merge into a readiness verdict."
+    },
+    "masking_suspected": {
+      "type": "boolean",
+      "description": "R3. True when the replay may have gone green because the symptom was suppressed rather than the root cause fixed — a swallowed exception, a silenced log, a narrow special-case. A true value makes a 'pass' non-shippable: dev-pre-pr blocks, and the recipe must NOT write a fix_lesson (a lesson learned from a mask poisons future recall)."
+    },
+    "key": {
+      "type": "string",
+      "description": "The ticket key. The checker node compares this against the run's key to catch a cross-wired artifact — two runs sharing an evidence directory, or an agent handed the wrong path."
+    },
+    "replay": {
+      "type": "string",
+      "description": "The oracle transition in the loop's shorthand, e.g. 'red→green'. On a feature loop there is no defect to go red, so 'feature-ac:<n>/<m>' (acceptance criteria met) is used instead."
+    },
+    "replay_note": {
+      "type": "string",
+      "description": "How the replay was actually executed, including any degradation — e.g. that playwright-cli could not run locally and the assertions were executed in the sandbox browser instead. An honest note here is what stops a narrowed verification from reading as a full one."
+    },
+    "observed_quote": {
+      "type": "string",
+      "description": "What the judge independently OBSERVED, in its own words — DOM/console/network state read directly, never a success toast taken at face value."
+    },
+    "expected_verbatim": {
+      "type": "string",
+      "description": "The expected behaviour copied verbatim from qa-repro's oracle. Verbatim so the judge grades against the recorded expectation rather than a remembered paraphrase of it."
+    },
+    "judge_rationale": {
+      "type": "string",
+      "description": "Why this verdict, in one or two sentences a human can check against the evidence."
+    },
+    "must_haves": {
+      "type": "array",
+      "description": "The checks the verdict rests on, each with its own result — so a 'pass' can be audited item by item rather than trusted wholesale.",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["check", "result"],
+        "properties": {
+          "check": { "type": "string" },
+          "result": { "type": "string", "enum": ["pass", "fail", "skipped", "unknown"] },
+          "evidence": { "type": "string" }
+        }
+      }
+    },
+    "video2": {
+      "type": "string",
+      "description": "Path or URL of the AFTER recording (<KEY>-fixed.gif/.mp4), the second half of the two-video evidence pair."
+    },
+    "media": {
+      "type": "array",
+      "description": "Capture-time evidence URLs from the evidence_store adapter, same shape as qa-repro.json v1.2.0.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["url"],
+        "properties": {
+          "kind": { "type": "string", "enum": ["gif", "mp4", "png", "har", "log"] },
+          "url": { "type": "string" },
+          "label": { "type": "string" }
+        }
+      }
+    },
+    "judged_blind": {
+      "type": "boolean",
+      "description": "Did a context that had NOT written the fix produce this verdict? True only when qa-verify was invoked via Agent with a fresh context. False means the producer graded itself — the artifact may be well-formed but the verdict is not independent, and it must not be treated as verification. Absent on pre-1.0.0 artifacts, where it is unknown rather than true."
+    },
+    "model": {
+      "type": "string",
+      "description": "The model this judge ran on. The checker node enforces judge-strength: a judge weaker than the producer it grades yields an invalid verdict, not merely a weaker one."
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Which verify attempt produced this artifact, 1-based. Added because the retry audit had to be reconstructed from session transcripts — no artifact recorded its own attempt number, so a re-verify was indistinguishable from a first pass after the fact."
+    },
+    "retry_reason": {
+      "type": "string",
+      "description": "Why this attempt happened, when attempt > 1. A retry requires transient-failure evidence (flaky-store match, infra error, timeout, oracle exit 2); a deterministic failure escalates or re-fixes instead of retrying blind."
+    },
+    "timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "When this stage ran. Costs microseconds to write and is the only way to tell whether a pipeline redesign still holds months later — without it every duration has to be reconstructed from session transcripts, which do not always exist.",
+      "required": ["started_at", "ended_at"],
+      "properties": {
+        "started_at": { "type": "string", "description": "ISO-8601 UTC, e.g. 2026-01-01T00:00:00Z" },
+        "ended_at": { "type": "string", "description": "ISO-8601 UTC" },
+        "duration_s": { "type": "number", "minimum": 0 }
+      }
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "status": "blocked-slice-empty",
+  "next_action": "escalate",
+  "area": "no-such-area",
+  "area_slice_run": [],
+  "results": {
+    "passed": 0,
+    "failed": 0,
+    "total": 0
+  },
+  "detail": "0 unit tests matched area 'no-such-area' (searched every conventions.projects[] test glob for the area, e.g. web/src/no-such-area/**/__tests__/*.test.js) - a zero-test run is a blocking status, never ship-ok"
+}

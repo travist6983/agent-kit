@@ -1,0 +1,340 @@
+{
+  "version": "1.0.0",
+  "title": "QA tester personas — neutral sample pack",
+  "description": "A sample persona pack for the qa-personas skill on the neutral example domain (Workspaces, Projects, Tasks, Comments, Invoices, Members, Settings). Replace it with a pack built from YOUR product's users; keep the shape. Every persona is a fictional composite of a user category, never a real customer. Consumers refer to personas by id and role only.",
+  "format": ".claude/skills/qa-personas/references/pack-format.md",
+  "provenance": {
+    "generated_from": "hand-written sample on the example domain; no production data",
+    "anonymization": "all composites; no persona traceable to a person or an account"
+  },
+  "roles": [
+    "owner",
+    "admin",
+    "member",
+    "observer"
+  ],
+  "engagement_tiers": [
+    {
+      "id": "core",
+      "label": "core practitioner",
+      "description": "Opens the app daily and runs real work through it; past the honeymoon, intolerant of regressions.",
+      "aliases": [
+        "daily",
+        "power",
+        "practitioner"
+      ]
+    },
+    {
+      "id": "active",
+      "label": "active, lighter use",
+      "description": "Weekly use, several features, delegates the rest; cares about scale and oversight more than keystrokes.",
+      "aliases": [
+        "weekly",
+        "regular"
+      ]
+    },
+    {
+      "id": "onboarding",
+      "label": "onboarding / first weeks",
+      "description": "Still deciding whether the product is worth the time; every empty state and confusing screen is a reason to leave.",
+      "aliases": [
+        "new",
+        "started",
+        "first-run",
+        "dabbling",
+        "trial"
+      ]
+    },
+    {
+      "id": "skeptic",
+      "label": "skeptic / lapsing",
+      "description": "Low use, still runs the old process in parallel, looking for the reason to switch back; notices noise, cost and lock-in.",
+      "aliases": [
+        "lapsing",
+        "churn",
+        "atrisk",
+        "at-risk",
+        "dormant",
+        "low-use"
+      ]
+    },
+    {
+      "id": "external",
+      "label": "external reviewer",
+      "description": "Not an employee of the workspace: an auditor, client or consultant with scoped access who holds the product to an outside standard.",
+      "aliases": [
+        "auditor",
+        "consultant",
+        "reviewer",
+        "guest",
+        "expert"
+      ]
+    }
+  ],
+  "profile_sections": [
+    "goals",
+    "habits",
+    "lenses",
+    "standards",
+    "what_broken_looks_like"
+  ],
+  "overlays": [
+    {
+      "id": "adversarial",
+      "label": "adversarial overlay",
+      "habits": [
+        "Types odd inputs: empty strings, 10,000-character comments, emoji, right-to-left text, injection-shaped text ({{ }}, <script>, ' OR 1=1).",
+        "Edits rapidly: double-submits, edits while a save is in flight, opens the same Task in two tabs.",
+        "Navigates out of order: deep links, the back button mid-wizard, expired sessions."
+      ],
+      "lenses": [
+        "input validation",
+        "race conditions",
+        "stale state",
+        "error handling"
+      ]
+    },
+    {
+      "id": "marathon",
+      "label": "marathon overlay",
+      "habits": [
+        "Keeps one session open for hours across many Projects and hundreds of operations.",
+        "Never reloads; relies on live updates and in-app navigation.",
+        "Accumulates state: many filters, many open panels, a long undo history."
+      ],
+      "lenses": [
+        "memory and performance drift",
+        "stale caches",
+        "token or session expiry",
+        "list pagination at volume"
+      ]
+    }
+  ],
+  "personas": [
+    {
+      "id": 1,
+      "role": "member",
+      "tier": "core",
+      "label": "field member on a phone",
+      "summary": "Updates Tasks and leaves Comments from a phone between stops, often on a weak signal; the desk app is someone else's problem.",
+      "device": "phone, one-handed, intermittent connectivity",
+      "goals": [
+        "Mark Tasks done and add a Comment with a photo in under thirty seconds, standing up.",
+        "See only the Projects assigned to them, with today's work first.",
+        "Never lose an update because the signal dropped mid-save."
+      ],
+      "habits": [
+        "Keyboard-light: taps, long-presses, scrolls; types as little as possible.",
+        "Tests by trying to break it: taps twice, rotates the screen, backgrounds the app mid-save.",
+        "Abandons any flow that shows a spinner for more than a few seconds."
+      ],
+      "lenses": [
+        "mobile",
+        "field",
+        "phone",
+        "tap targets",
+        "offline",
+        "poor signal",
+        "speed",
+        "task updates",
+        "comments",
+        "attachments"
+      ],
+      "standards": "A feature that works only on a wide screen does not exist for this persona.",
+      "what_broken_looks_like": [
+        "A tap target smaller than a thumb, or two controls that fire together.",
+        "A save that reports success and is gone after a reload.",
+        "A layout that needs horizontal scrolling or hides the primary action below the keyboard."
+      ],
+      "profile_markdown": "## Persona 1 — field member on a phone (role: member, tier: core)\n\n**Who.** A `member` of one Workspace who does the physical work the Projects track. Opens the app on a phone a dozen times a day, almost never at a desk. Someone else set the Workspace up; this persona just needs Tasks and Comments to work.\n\n**Goals.** Mark a Task done, add a Comment (often with a photo), and see today's assignments — each in well under a minute, one-handed, sometimes with one bar of signal.\n\n**Habits.** Taps rather than types. Double-taps when nothing happens. Rotates the screen, backgrounds the app mid-save, comes back ten minutes later and expects the update to be there. No patience for onboarding tours.\n\n**Standards.** If it only works on a wide screen it does not work. A success toast is not success; the state after a reload is.\n\n**What broken looks like.** Tap targets too small or too close; the primary action hidden under the keyboard; a save that \"succeeded\" and vanished; a list that re-sorts under the thumb; a photo attachment that silently drops on a slow connection."
+    },
+    {
+      "id": 2,
+      "role": "admin",
+      "tier": "core",
+      "label": "spreadsheet-minded admin",
+      "summary": "Runs the Workspace's numbers; trusts the product only as far as its totals reconcile with the export and with the other view.",
+      "device": "desktop, two monitors, a spreadsheet always open",
+      "goals": [
+        "Invoice totals, Project rollups and Member counts that agree with each other and with the CSV export.",
+        "Filters and date ranges that mean exactly what they say.",
+        "An audit trail for who changed which number, when."
+      ],
+      "habits": [
+        "Exports to CSV and recomputes the total before believing a dashboard.",
+        "Opens the same data in two views and compares them.",
+        "Counts rows; notices when pagination changes a sum."
+      ],
+      "lenses": [
+        "data trust",
+        "reconcile",
+        "totals",
+        "rollups",
+        "export",
+        "csv",
+        "invoices",
+        "reports",
+        "filters",
+        "date ranges",
+        "rounding",
+        "currency"
+      ],
+      "standards": "A number the persona cannot reproduce by hand is a number the persona will not report upward.",
+      "what_broken_looks_like": [
+        "A dashboard total that differs from the sum of its rows or from the export.",
+        "An export that drops columns, rows or precision.",
+        "A filter that silently applies to one panel and not another."
+      ],
+      "profile_markdown": "## Persona 2 — spreadsheet-minded admin (role: admin, tier: core)\n\n**Who.** The `admin` who owns the Workspace's operational truth: Invoices, Project rollups, Member seats. Lives in the product daily but trusts a spreadsheet more.\n\n**Goals.** Every total reconciles — across views, across the export, across time. Filters mean what they say. Changes to numbers are attributable.\n\n**Habits.** Exports first, believes second. Compares two views side by side. Counts rows. Changes a date range and watches which panels move.\n\n**Standards.** A number that cannot be reproduced by hand is wrong until proven otherwise.\n\n**What broken looks like.** A rollup that disagrees with its rows; an export missing a column or rounding differently; a currency or timezone shift between two screens; a filter that applies to one widget only; a sum that changes when the page size changes."
+    },
+    {
+      "id": 3,
+      "role": "owner",
+      "tier": "active",
+      "label": "multi-workspace owner",
+      "summary": "Owns several Workspaces, each with its own Members and Settings; delegates the daily work and cares about scale, permissions and billing.",
+      "device": "laptop, many tabs, switches Workspaces constantly",
+      "goals": [
+        "Switch between Workspaces without losing context or leaking one Workspace's data into another.",
+        "Manage Members and roles in bulk; see at a glance who can do what.",
+        "Trust the Invoices and plan Settings for every Workspace."
+      ],
+      "habits": [
+        "Bulk-selects and batch-edits rather than one at a time.",
+        "Delegates to admins and checks back weekly.",
+        "Keeps one tab per Workspace and expects each to stay in its own context."
+      ],
+      "lenses": [
+        "scale",
+        "multi-workspace",
+        "workspace switching",
+        "permissions",
+        "roles",
+        "members",
+        "settings",
+        "billing",
+        "bulk actions",
+        "cross-tenant isolation",
+        "per-project rollups"
+      ],
+      "standards": "Anything that is fine for one Workspace and breaks at ten is broken.",
+      "what_broken_looks_like": [
+        "Data from one Workspace showing up in another after a switch.",
+        "A bulk action that applies to the visible page only.",
+        "A role change that takes effect in some screens and not others."
+      ],
+      "profile_markdown": "## Persona 3 — multi-workspace owner (role: owner, tier: active)\n\n**Who.** An `owner` of several Workspaces. Not in the product all day — in it weekly, decisively, across every Workspace at once.\n\n**Goals.** Switch Workspaces safely, manage Members and roles at volume, trust Settings and Invoices per Workspace.\n\n**Habits.** Bulk operations; one browser tab per Workspace; delegates and audits.\n\n**Standards.** Works at one Workspace, breaks at ten: broken. Permissions are not a suggestion.\n\n**What broken looks like.** Context bleed after a Workspace switch (wrong Members list, wrong Invoice); a bulk action that only touches the current page; a role change that is partial; a Settings save that applies to the wrong Workspace; a slow or truncated list once Projects number in the hundreds."
+    },
+    {
+      "id": 4,
+      "role": "member",
+      "tier": "onboarding",
+      "label": "first-week member",
+      "summary": "Invited last week, has not read any docs, and will decide within two confusing screens whether this is worth the time.",
+      "device": "laptop, default browser, nothing configured",
+      "goals": [
+        "Accept the invitation, find the right Project and complete one Task without asking anyone.",
+        "Understand what each empty screen wants from them.",
+        "Not break anything or look foolish in a shared Workspace."
+      ],
+      "habits": [
+        "Skims; never reads a tooltip to the end.",
+        "Clicks the most prominent button, whatever it is.",
+        "Leaves after the second confusing screen and goes back to email."
+      ],
+      "lenses": [
+        "onboarding",
+        "first run",
+        "empty states",
+        "invitations",
+        "discoverability",
+        "defaults",
+        "guidance",
+        "worth my time",
+        "error messages"
+      ],
+      "standards": "If the next step is not obvious, the product is at fault, not the user.",
+      "what_broken_looks_like": [
+        "An empty state with no call to action.",
+        "An invitation link that lands on a login wall with no explanation.",
+        "An error message that names an internal code instead of what to do."
+      ],
+      "profile_markdown": "## Persona 4 — first-week member (role: member, tier: onboarding)\n\n**Who.** A new `member`, invited by an admin, no training, no docs. Still deciding whether to bother.\n\n**Goals.** Get from the invitation to one completed Task without help, and understand what the product expects next.\n\n**Habits.** Skims. Clicks the biggest button. Two confusing screens in a row and the tab closes.\n\n**Standards.** Obviousness is the feature. Any confusion is the product's fault.\n\n**What broken looks like.** Empty states with no next step; an invitation that dead-ends on a login wall; defaults that make the first action fail; jargon in labels; an error that says \"something went wrong\" with no way forward."
+    },
+    {
+      "id": 5,
+      "role": "admin",
+      "tier": "skeptic",
+      "label": "skeptical admin running the old process",
+      "summary": "Logs in once a week, keeps the old spreadsheet and chat thread going in parallel, and is collecting reasons to switch back or leave.",
+      "device": "desktop, notifications muted, the old tool in the next tab",
+      "goals": [
+        "Prove to themselves the product saves time over the old process — or prove it does not.",
+        "Get their data out cleanly if they decide to leave.",
+        "Not be nagged."
+      ],
+      "habits": [
+        "Compares every screen with how the old tool did it.",
+        "Ignores notifications; notices when there are too many.",
+        "Tries the export and the account-deletion path early, 'just to see'."
+      ],
+      "lenses": [
+        "switching cost",
+        "low use",
+        "lapsing",
+        "notifications",
+        "noise",
+        "data export",
+        "lock-in",
+        "trust",
+        "value",
+        "cancellation",
+        "re-engagement"
+      ],
+      "standards": "A feature has to beat the old spreadsheet on the first try; there is no second try.",
+      "what_broken_looks_like": [
+        "A notification or digest that fires for things the persona did not opt into.",
+        "An export that cannot round-trip back into a spreadsheet.",
+        "A re-engagement flow that assumes context the persona has forgotten."
+      ],
+      "profile_markdown": "## Persona 5 — skeptical admin running the old process (role: admin, tier: skeptic)\n\n**Who.** An `admin` on paper, a reluctant user in practice. Weekly log-ins at best; the old spreadsheet still gets updated first.\n\n**Goals.** Decide whether the product earns its place. Keep an exit path (clean export) open. Avoid noise.\n\n**Habits.** Compares with the old way constantly. Mutes everything. Tests the export and the cancel path before trusting anything.\n\n**Standards.** First impression is the only impression; a feature that needs a second attempt has lost.\n\n**What broken looks like.** Unwanted notifications; an export that will not re-import; stale data after a long absence with no hint what changed; a re-engagement email that links somewhere that no longer exists; billing surprises in Invoices."
+    },
+    {
+      "id": 6,
+      "role": "observer",
+      "tier": "external",
+      "label": "external reviewer with read-only access",
+      "summary": "An outside auditor or client invited as an observer; must see exactly what they are entitled to and nothing more, and holds the product to a written standard.",
+      "device": "desktop, corporate browser, strict privacy settings",
+      "goals": [
+        "Review Projects, Tasks and Invoices they were granted without being able to change anything.",
+        "Confirm the product enforces the rules the Workspace claims to follow.",
+        "Leave an audit trail of what they viewed and when."
+      ],
+      "habits": [
+        "Reads permissions screens before content.",
+        "Tries the forbidden action to confirm it is blocked, not merely hidden.",
+        "Quotes the written standard back at the product."
+      ],
+      "lenses": [
+        "security",
+        "audit",
+        "privacy",
+        "permissions",
+        "read-only",
+        "access scope",
+        "standards fidelity",
+        "compliance",
+        "data exposure",
+        "role boundaries"
+      ],
+      "standards": "Hidden is not the same as forbidden; a disabled button is not an authorization check.",
+      "what_broken_looks_like": [
+        "An observer who can edit via a direct URL or an API call the UI hid.",
+        "Private Comments or Invoices visible through search, exports or notifications.",
+        "A rule the product claims to enforce that can be bypassed in a second tab."
+      ],
+      "profile_markdown": "## Persona 6 — external reviewer with read-only access (role: observer, tier: external)\n\n**Who.** Not an employee of the Workspace: an auditor, a client or a consultant granted `observer` access to specific Projects and Invoices.\n\n**Goals.** See everything they are entitled to, nothing they are not, change nothing, and prove all three.\n\n**Habits.** Permissions first, content second. Attempts the forbidden action on purpose. Checks search, export and notification surfaces for leaks.\n\n**Standards.** Hiding a control is not authorization. Any rule the product claims to enforce must hold under a direct URL, an API call and a second tab.\n\n**What broken looks like.** A write that succeeds for an observer; a private Comment surfacing in search; an Invoice from another Project in an export; an audit log that misses a view or a download; a 'standards' setting the product displays but does not enforce."
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "status": "fixed",
+  "key": "PROJ-123",
+  "root_cause": "x",
+  "is_root_cause": true,
+  "confidence": 88,
+  "design_decisions": [
+    {
+      "kind": "design-decision",
+      "title": "Fix Checkbox itself rather than add a fourth key workaround",
+      "decision": "Added a watch on initialValue in the shared Checkbox and removed the keyed-remount workarounds.",
+      "alternatives_considered": [
+        "A fourth value-bearing key"
+      ],
+      "rationale": "Three keyed-remount workarounds already existed for this missing watch; a key also discards focus. Only 3 files render <Checkbox>.",
+      "blast_radius": "3 files render Checkbox; 2 pass initialValue.",
+      "files": [
+        "src/components/Checkbox.jsx:41"
+      ],
+      "reviewer_must_confirm": "Agree the component is the right fix point?",
+      "must_read": false
+    },
+    {
+      "kind": "design-decision",
+      "title": "Track a failed load separately (loadFailed) and fail CLOSED",
+      "decision": "A failed load keeps the dialog read-only with an error; Save not rendered.",
+      "rationale": "Treating a failure as no-grants would let an owner's full-replacement Save wipe every grant.",
+      "files": [
+        "src/projects/SharePermissionsModal.jsx:230"
+      ],
+      "reviewer_must_confirm": "Agree?",
+      "must_read": false
+    }
+  ]
+}

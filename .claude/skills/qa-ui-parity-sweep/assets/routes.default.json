@@ -1,0 +1,35 @@
+{
+  "_doc": "TEMPLATE routes file for qa-ui-parity-sweep — copy it next to your stack.config, fill in your pages, and pass it with `sweep.py init --routes FILE` (or inline the `routes` array under integrations.ui_parity.routes in stack.config.json). It is never used as a silent default. `path` is joined to the baseline and candidate environment urls (app.environments.<name>.url, names from integrations.ui_parity.baseline_env / candidate_env); give `baseline` / `candidate` instead of `path` when the two sides use different paths or record ids. The baseline is the design source of truth. `roots` is the content column dumped on each side (the app shell is out of scope); the candidate root is pinned to the baseline root's measured width so boxes compare — `main` is the neutral default. `modals` lists extra dialog triggers by exact accessible name — each MUST only open a dialog (never save/create/delete); triggers that declare aria-haspopup=dialog are discovered automatically. `area` groups routes for source lookup and the brain's source map.",
+  "roots": { "baseline": "main", "candidate": "main" },
+  "routes": [
+    { "id": "home", "area": "workspace", "path": "/", "modals": [] },
+    { "id": "projects-list", "area": "projects", "path": "/projects", "modals": [] },
+    { "id": "project-overview", "area": "projects", "baseline": "/projects/example-project", "candidate": "/projects/<record-id>", "modals": ["Project details"] },
+    { "id": "tasks", "area": "tasks", "path": "/tasks", "modals": [] },
+    { "id": "members", "area": "members", "path": "/settings/members", "modals": [] }
+  ],
+  "_doc_probe": "Per-toolkit knobs for the in-page probe (served to it as /config.json). Defaults are native HTML + ARIA only. guard_allow_hosts: regexes of hosts whose non-GET traffic the read-only guard lets through — your identity provider's hosts, so session refreshes are not refused. settle_selectors: in-flight transition classes to wait out. buttons_extra / dialogs_extra / dialog_close_extra: selectors your UI toolkit uses for button-like controls, open dialogs and a dialog's close control beyond the native/ARIA ones. utility_class_prefixes: regexes of utility or state class prefixes to drop from the class chain used for source lookup (spacing, display, router state). icon_class_patterns: regexes that name an icon from an <svg> class (an icon library's prefix).",
+  "probe": {
+    "guard_allow_hosts": [],
+    "settle_selectors": ["[class*=\"-enter-active\"]", "[class*=\"-leave-active\"]", "[class*=\"-enter-from\"]"],
+    "buttons_extra": [],
+    "dialogs_extra": [],
+    "dialog_close_extra": [],
+    "utility_class_prefixes": [],
+    "icon_class_patterns": []
+  },
+  "_doc_source": "Where `sweep.py locate` looks for the file that renders an element. candidate_paths: git pathspecs inside app.repo_dir ([] = the whole tree). baseline_repo_dir: the design reference's repo when it has one (relative to the framework checkout or absolute); baseline_paths likewise. extensions: files that can render an element ([] = any non-test file); component_extensions get +1 when ranking (markup lives there); style_extensions are the files a one-file style fix may touch; logic_dirs get -1 (logic, rarely markup or style).",
+  "source": {
+    "candidate_paths": [],
+    "baseline_repo_dir": null,
+    "baseline_paths": [],
+    "extensions": [],
+    "component_extensions": [],
+    "style_extensions": [".scss", ".css", ".less", ".sass"],
+    "logic_dirs": ["services", "stores", "hooks", "utils"]
+  },
+  "_doc_console_noise": "Console messages that are known noise IN THIS STACK, merged with the framework's neutral list (assets/console-noise.json): third-party widgets, your analytics script, your identity provider's dev-instance banner, your toolkit's dev-mode notices. `pattern` is a case-insensitive regex tested against the message text. Add a pattern only when you can say what emits it — an app error hidden here is an outage nobody sees.",
+  "console_noise": [
+    { "pattern": "example-chat-widget", "why": "support chat widget (example — replace with yours)" }
+  ]
+}

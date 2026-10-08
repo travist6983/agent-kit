@@ -1,0 +1,13 @@
+{
+  "_doc": "Console messages that are KNOWN NOISE in any stack — the browser itself, extensions, generic dev tooling, common third-party analytics, the sweep's own guard. A match is reported under 'Console noise (ignored)' with its count, never graded. Stack-specific noise (your analytics vendor, your identity provider's dev banner, your UI framework's dev-mode notices, a support widget) belongs in the routes file's `console_noise` list, which is merged with this one. Add a pattern only when you can say what emits it; an app error hidden here is an outage nobody sees. `pattern` is a case-insensitive Python regex tested against the message text.",
+  "noise": [
+    { "pattern": "chrome-extension://|moz-extension://|extension context invalidated", "why": "a browser extension, not the app" },
+    { "pattern": "favicon\\.ico.*404|failed to load resource.*favicon", "why": "missing favicon" },
+    { "pattern": "qa-ui-parity-sweep guard: write blocked", "why": "the sweep's own read-only guard refusing a write" },
+    { "pattern": "resizeobserver loop (completed with undelivered notifications|limit exceeded)", "why": "benign browser ResizeObserver notice" },
+    { "pattern": "download the \\w+ devtools|devtools extension", "why": "a framework's devtools install hint" },
+    { "pattern": "\\[hmr\\]|hot module replacement|websocket connection to 'ws://localhost.*(hmr|__vite|webpack)", "why": "dev-server hot reload" },
+    { "pattern": "google-analytics|googletagmanager|gtag", "why": "Google analytics" },
+    { "pattern": "hotjar|fullstory|segment\\.(io|com)", "why": "session analytics" }
+  ]
+}

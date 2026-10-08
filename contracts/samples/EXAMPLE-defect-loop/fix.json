@@ -1,0 +1,34 @@
+{
+  "key": "PROJ-123",
+  "status": "fixed",
+  "root_cause": "InvoiceStatusBadge copied props.status into local component state once on mount and never re-synced, so when invoicesStore.sendInvoice() patched the row to 'sent' the badge kept rendering the mount-time 'Draft'. The store and the API were already correct; the stale value lived in the badge's private copy.",
+  "is_root_cause": true,
+  "masking_suspected": false,
+  "paths_enumerated": [
+    "web/src/invoices/InvoiceStatusBadge.js:9 (the decision — local copy of props.status)",
+    "web/src/invoices/InvoiceRow.js:31 (consumer — passes invoice.status from the store)",
+    "web/src/invoices/InvoiceDetailHeader.js:18 (consumer — same badge on the detail page, same bug)",
+    "web/src/invoices/invoicesStore.js:58 sendInvoice (writer — already patches status correctly)",
+    "web/src/projects/ProjectInvoicesTab.js:44 (consumer — renders the badge inside a Project; shares the fix)"
+  ],
+  "bypassers_found": [
+    "InvoiceDetailHeader.js renders the same badge from a detail-page fetch that is never re-read after Send"
+  ],
+  "bypassers_remaining": [],
+  "files_changed": [
+    "web/src/invoices/InvoiceStatusBadge.js — render straight from props.status; the local copy and its mount-only initialiser are gone",
+    "web/src/invoices/InvoiceDetailHeader.js — re-read the invoice from the store after sendInvoice resolves instead of keeping the detail-page fetch"
+  ],
+  "diff_summary": "InvoiceStatusBadge.js +3/-9; InvoiceDetailHeader.js +4/-2.",
+  "build": "pass",
+  "build_note": "The dev server hot-reloaded both changes and the Invoices page rendered correctly; the web lint command exited 0. The full build runs in qa-regression.",
+  "unit_tests": "deferred to qa-regression (the badge has a component test under web/src/invoices/__tests__/ that the area slice runs)",
+  "design_decisions": [
+    "Removed the badge's local state entirely rather than adding a prop-change effect to re-sync it, per the owner's blessed scope ('derive, don't copy') — a derived value cannot go stale.",
+    "Kept the optimistic 'Sending…' label inside InvoiceRow (it reads a transient store flag, not a copied status), so the user-visible flow is unchanged apart from the badge now updating.",
+    "Did NOT touch the mobile app's badge (a separate package with its own state model) — out of scope for this ticket; flag if it shows the same symptom."
+  ],
+  "reactivity_note": "props.status now flows straight from the store row; the component re-renders on the same store patch sendInvoice already makes, so no extra subscription or effect was needed. Empirically confirmed by the AFTER recording (the badge flips to 'Sent' within one render of the POST resolving).",
+  "confidence": 88,
+  "failure_class": null
+}

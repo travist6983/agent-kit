@@ -1,0 +1,1 @@
+{ "name": "traffic-control", "version": "0.1.0", "description": "Shows other live Claude sessions per repo and locks push/deploy so parallel sessions cannot collide", "types": "./types/index.d.ts" }

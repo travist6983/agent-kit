@@ -1,0 +1,20 @@
+{
+  "key": "PROJ-123",
+  "verdict": "approve",
+  "masking": false,
+  "critical": 0,
+  "high": 0,
+  "findings": [
+    {
+      "dimension": "framework_patterns",
+      "severity": "low",
+      "confidence": 80,
+      "file": "web/src/invoices/InvoiceDetailHeader.js",
+      "issue": "The header now re-reads the invoice from the store after sendInvoice resolves, but still seeds its first render from the detail-page fetch. Correct today because the fetch and the store agree at mount; a future change that lets the store move first would show one stale frame.",
+      "status": "non-blocking; documented in the code comment + fix.json reactivity_note",
+      "hardening_followup": "Optional: have the detail page subscribe to the store row directly and drop the one-off fetch. Not done now to avoid scope creep (the fetch also feeds the activity panel)."
+    }
+  ],
+  "summary": "Real root-cause fix, not a symptom mask. (1) InvoiceStatusBadge renders from props.status instead of a mount-time copy, so it cannot go stale by construction; (2) InvoiceDetailHeader re-reads the store row after Send rather than special-casing the sent state. No swallowed exceptions, suppressed logs or disabled tests; no test-targeting branch. No security/perf concern. Approve.",
+  "next_action": "ship-ok"
+}

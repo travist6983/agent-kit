@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- TEMPLATE. install.sh renders every double-brace placeholder for the machine it runs on and
+	     installs the result; the template itself is never installed and never hand-edited
+	     for one machine. Placeholders: REPO_DIR (this checkout), CLAUDE_BIN and CONFIG_DIR
+	     (stack.config runner.claude_bin / runner.config_dir, overridable with
+	     LOOP_INSTALL_CLAUDE_BIN / LOOP_INSTALL_CONFIG_DIR), HOME (the installing user's), and
+	     PATH (derived from where those binaries resolve, overridable with LOOP_INSTALL_PATH).
+	     Everything that is NOT a placeholder is a decision and is tracked here: the schedule,
+	     the arguments, the priority class. See JOB-CONTRACT.md for what the runner promises.
+	     NOTE for the next editor: keep double hyphens out of every comment in this file. XML
+	     forbids them inside a comment; plutil accepts them anyway, but the python plistlib
+	     pass in install.sh does not, and it is the one that gates arming. Spell flags without
+	     their leading dashes in prose. -->
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>LOOP_CLAUDE_BIN</key>
+		<string>{{CLAUDE_BIN}}</string>
+		<key>CLAUDE_CONFIG_DIR</key>
+		<string>{{CONFIG_DIR}}</string>
+		<key>HOME</key>
+		<string>{{HOME}}</string>
+		<key>LANG</key>
+		<string>en_US.UTF-8</string>
+		<key>PATH</key>
+		<string>{{PATH}}</string>
+	</dict>
+	<key>Label</key>
+	<string>com.loops.qa-dream</string>
+	<key>LowPriorityIO</key>
+	<true/>
+	<key>Nice</key>
+	<integer>5</integer>
+	<key>ProcessType</key>
+	<string>Background</string>
+	<!-- ARGUMENTS. /bin/bash is index 0 and the runner index 1 (install.sh reads index 1 to
+	     find the script it preflights); everything after is a flag or a flag's value, and a
+	     flag and its value are ALWAYS two separate string elements.
+	       since 2d        the harvest window when the brain holds no watermark yet
+	       catch-up        run another pass while the session cap leaves sessions unread
+	       max-passes 2    the catch-up bound for one night
+	       timeout 1800    wall clock for ONE model call, per pass
+	     The per-run consumption ceiling is NOT here: dream.sh reads r5_budget from
+	     loop-limits.json so there is one copy of that number. -->
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>{{REPO_DIR}}/.claude/skills/qa-dream/scripts/dream.sh</string>
+		<string>--since</string>
+		<string>2d</string>
+		<string>--catch-up</string>
+		<string>--max-passes</string>
+		<string>2</string>
+		<string>--timeout</string>
+		<string>1800</string>
+	</array>
+	<!-- Arming is never a run. -->
+	<key>RunAtLoad</key>
+	<false/>
+	<key>StandardErrorPath</key>
+	<string>{{REPO_DIR}}/.claude/loops/dream.launchd.err.log</string>
+	<key>StandardOutPath</key>
+	<string>{{REPO_DIR}}/.claude/loops/dream.launchd.out.log</string>
+	<!-- NIGHTLY, in the small hours, so a pass draws on the rate-limit window before the
+	     operator's working day rather than during it. One entry rather than several: entries
+	     a future edit can desync are entries that will eventually disagree. Hour and Minute
+	     are BOTH set on purpose: launchd reads an absent field as a wildcard, so dropping
+	     Hour would make this hourly and dropping Minute would fire it sixty times an hour.
+	     If this slot coincides with com.loops.pr-review's minute, the two are serialized by
+	     the shared cross-agent lock (lib/agent_lock.sh); the loser skips, exit 0. -->
+	<key>StartCalendarInterval</key>
+	<dict>
+		<key>Hour</key>
+		<integer>2</integer>
+		<key>Minute</key>
+		<integer>0</integer>
+	</dict>
+	<key>WorkingDirectory</key>
+	<string>{{REPO_DIR}}</string>
+</dict>
+</plist>

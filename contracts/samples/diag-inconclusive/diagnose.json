@@ -1,0 +1,8 @@
+{
+  "root_cause": "Could not determine a fix from the available evidence. The generated-code tier case failed with 'TimeoutError: waiting for selector [data-testid=\"project-task-row\"]' but context.failure carried no screenshot (the failure evidence had screenshots: []) and the output_tail was truncated before the traceback frame that names the failing line. Probing the live app READ-ONLY at context.app_url showed the Projects page renders, but without the failing step's DOM state or a full trace I cannot tell whether the task row never rendered (app_bug), the selector is stale (test_bug), or the seed project had no tasks for this workspace (data). All three are live hypotheses and the evidence does not discriminate between them.",
+  "failure_layer": "test_bug",
+  "summary": "Inconclusive: a selector-timeout with no screenshot and a truncated trace; three layers remain plausible — leaning test_bug on the stale-selector prior, but emitting no fix.",
+  "diff": "",
+  "confidence": 0.25,
+  "notes": "Give-up path (diff empty by design — headless never hangs). To determine the fix a human should: (1) re-run the case with screenshot+trace capture enabled and attach the failure screenshot; (2) confirm whether the workspace under test has a seed project with tasks (data hypothesis); (3) grep the current build for the data-testid 'project-task-row' to confirm the selector still exists (test_bug hypothesis). failure_layer is a best-guess prior, not a confident call — do not route to a code fix without the re-run evidence."
+}

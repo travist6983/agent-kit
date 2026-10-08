@@ -1,0 +1,69 @@
+{
+  "status": "warnings",
+  "next_action": "ship-ok",
+  "key": "PROJ-2403",
+  "branch": "fix/PROJ-2403-task-filter",
+  "base": "main (merge-base 9edcc3e16024)",
+  "files_changed": 3,
+  "checks": {
+    "frontend_build": "pass",
+    "frontend_lint": "pass",
+    "backend_build": "pass",
+    "backend_tests": "pass",
+    "standards_scan": "pass",
+    "code_review": "not-run",
+    "fix_verified": "pass"
+  },
+  "sources": {
+    "regression": "fresh",
+    "review": "missing",
+    "verify": "fresh",
+    "build": "regression.json"
+  },
+  "counts": {
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "low": 2,
+    "heuristic_unconfirmed": 1
+  },
+  "violations": [
+    {
+      "file": "api/tasks/task_filter.py",
+      "line": 5,
+      "severity": "low",
+      "rule_id": "todo-without-ticket",
+      "rule": "TODO / FIXME without a ticket key",
+      "fix": "Add the ticket key or resolve it. Confirm before flagging — the key may be on the preceding line.",
+      "snippet": "# TODO: collapse duplicate filter clauses",
+      "heuristic": true,
+      "confirmed": false,
+      "source": "standards_check"
+    },
+    {
+      "file": "web/src/tasks/TaskFilterBar.js",
+      "line": 9,
+      "severity": "low",
+      "rule_id": "reader-missing-import",
+      "rule": "Identifier used without an import (reader finding, not a scanner rule)",
+      "fix": "The target repo has no auto-imports — if taskService is a real module, add an explicit import. Unconfirmed: this checkout is a skeleton (no service files exist), so this may be a fixture artifact rather than a defect in your branch.",
+      "snippet": "const filters = useState(taskService.filters())",
+      "heuristic": true,
+      "confirmed": false,
+      "source": "reader"
+    }
+  ],
+  "blockers": [],
+  "warnings": [
+    "review.json missing — no dev-code-review verdict was produced for this branch (the standard defect recipe has no review stage). Non-blocking; no diff judgment was adopted.",
+    "web/src/tasks/TaskFilterBar.js:9,10 (LOW, unconfirmed) — `taskService` is referenced twice but never imported. The target repo has no auto-imports, so in the real repo this would be a missing import; in this checkout no service files exist at all, so it may be a fixture artifact. Confirm before opening the PR.",
+    "Backend build provenance — the api project's toolchain is not installed on this machine, so its build command could not be re-run independently; the backend PASS is adopted from a fresh regression.json. If qa-regression's build was not run with warnings-as-errors, CI is the first place a warning would surface."
+  ],
+  "confirmed_clear": [
+    "todo-without-ticket @ api/tasks/task_filter.py:5 — read the file: the comment on line 4 names PROJ-2403, so the TODO is tracked; the scanner matches one line at a time. Not a violation — do not re-litigate.",
+    "fix_verified — runs/PROJ-2403/verify.json is fresh (newer than every changed file): verdict pass at confidence 91, masking_suspected false, judged_blind true.",
+    "Untouched legacy code excluded by design — LegacyTaskPanel.js and task_filter_legacy.py carry ~11 pre-existing rule hits (console.log, print(), it.only, untracked TODOs). The scan reads ADDED LINES ONLY, so none of them are attributed to this branch."
+  ],
+  "report_path": "runs/PROJ-2403/pre-pr-report.md",
+  "summary": "3 files, +27/-0. Zero blockers: verify.json is fresh and `pass`; the deterministic scan found no non-heuristic violation, and the one heuristic hit was read and cleared (the TODO is tracked on the preceding line). Validations are adopted from a FRESH regression.json (green, 28/28, lint 0→0) that post-dates every changed file, so nothing was re-run. Warnings only: no review.json, an unconfirmed missing-import lead in TaskFilterBar.js, and backend build provenance (no local toolchain). Clear to open the PR."
+}

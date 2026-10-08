@@ -1,0 +1,14 @@
+{
+  "status": "fixed",
+  "key": "PROJ-125",
+  "root_cause": "x",
+  "is_root_cause": true,
+  "confidence": 80,
+  "design_decisions": [
+    {
+      "title": "No ask",
+      "must_read": true,
+      "must_read_reason": "product-call"
+    }
+  ]
+}

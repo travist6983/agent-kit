@@ -1,0 +1,13 @@
+{
+  "key": "PROJ-125",
+  "issue_type": "Bug",
+  "recipe": "dev-loop-defect",
+  "area": "Projects",
+  "components": [
+    "Projects",
+    "Tasks"
+  ],
+  "risk_class": "standard",
+  "confidence": 85,
+  "branch_name": "fix/PROJ-125-preserve-valid-assignee"
+}

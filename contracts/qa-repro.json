@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "loops/contracts/qa-repro.json",
+  "title": "qa-repro repro.json — defect-loop evaluator reproduction receipt",
+  "version": "1.5.0",
+  "status": "ratified",
+  "description": "The ratified output of the qa-repro skill, written to <evid_root>/<key>/repro.json. The runner returns this object verbatim to the control plane as `repro_evidence`; the control plane branches ONLY on `status` and stores the whole object. This file is the single source of truth for the runner and the control plane. See contracts/README.md. v1.1.0: `status` is a 3-value enum so triage can tell a real negative ('not_reproduced' → may REJECT) apart from an undetermined run ('inconclusive' → must NOT reject; retry/escalate). v1.2.0 (additive, backward-compatible): adds an OPTIONAL `media` array carrying capture-time evidence URLs (evidence_store adapter) for the before-video (GIF+MP4) so the control plane can stream evidence at capture time. `media` is never required — a v1.1.0 artifact with no `media` key still validates. v1.3.0 (additive, backward-compatible): `app_map_writes` is now CROSS-CHECKABLE — the kb CLI ledgers every write to kb_writes in the same transaction, so `contracts/validate.py --receipts <KEY>` compares this array against `kb receipt --ticket <KEY>` and reports drift in either direction (a claimed write the brain never received, or a brain write the artifact never claimed). Adds OPTIONAL `brain_writes {ok, failed, queued}` so a run that hit a dead brain or a 429 embedder says so in the artifact instead of the counts silently reading as zero. A v1.2.0 artifact with neither addition still validates. v1.4.0 (semantic narrowing, schema unchanged): `replay_spec` is always 'replay-oracle.sh' (the playwright-cli replay oracle) for a reproduced status; the old 'replay.spec.js' / 'replay-oracle.js' values still validate here, but qa-verify fix-verify refuses them with verdict blocked, reason no-oracle, and the loop escalates.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "surface", "symptom_quote", "app_map_writes", "replay_spec"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["reproduced", "not_reproduced", "inconclusive"],
+      "description": "The only field the control plane branches on. 'reproduced' = the bug is confirmed to reproduce. 'not_reproduced' = we ran the repro and the bug did NOT occur — a real negative, so triage MAY reject the ticket. 'inconclusive' = we could NOT determine (tooling failed / needs-info / environment broke) — triage must NOT reject; retry or escalate to a human. The skill's finer needs-info-vs-tooling-failed distinction rides in brief.json.outcome_detail (non-contract). The pre-1.1.0 hyphen forms ('not-reproduced') and the collapsed 'needs-info'/'tooling-failed' status values are NO LONGER valid."
+    },
+    "surface": {
+      "type": "string",
+      "description": "Defect surface class. One of: pure-backend | presentation/DOM | state-mutation | streaming-agent (a conversational / streaming-response surface)."
+    },
+    "symptom_quote": {
+      "type": "string",
+      "description": "Verbatim of the observed symptom — never a paraphrase of the ticket title."
+    },
+    "app_map_writes": {
+      "type": "array",
+      "description": "app_map rows written to the qa-kb brain this run (selectors/routes/area-tags). May be empty. CROSS-CHECKABLE (v1.3.0): the kb CLI ledgers every write into kb_writes inside the write's own transaction, so this array is no longer the agent's unverifiable recollection — `python3 contracts/validate.py --receipts <KEY>` diffs it against `kb receipt --ticket <KEY>` and reports both directions of drift. Items stay free-form objects (the row, or {kind, area, key}); the receipts check matches on the row's `key` when present and otherwise falls back to counts.",
+      "items": { "type": "object" }
+    },
+    "brain_writes": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "OPTIONAL (v1.3.0). What actually happened at the brain seam this run, so a degraded brain is visible in the artifact instead of reading as 'wrote nothing'. `queued` > 0 means the DB was unreachable and the kb CLI spooled the write to the kb outbox (outbox.jsonl) — the knowledge is NOT in the brain yet and `kb outbox --replay` (or the next qa-dream) must land it, so a receipts cross-check will legitimately show fewer ledger rows than claimed writes. `failed` > 0 means a write was refused outright (e.g. version_conflict) and is LOST unless re-attempted. Omit the object entirely rather than guess.",
+      "properties": {
+        "ok":     { "type": "integer", "minimum": 0, "description": "Writes the brain confirmed (an `ok:true` response with a receipt id)." },
+        "failed": { "type": "integer", "minimum": 0, "description": "Writes refused for a SEMANTIC reason — never queued, never retried automatically." },
+        "queued": { "type": "integer", "minimum": 0, "description": "Writes spooled to the outbox because the DB was unreachable. Durable on disk, not yet in the brain." }
+      }
+    },
+    "replay_spec": {
+      "type": "string",
+      "description": "Filename of the replay oracle relative to the evidence dir: always 'replay-oracle.sh' — a headless playwright-cli script (never a test/spec file) whose grader, replay-grader.js, sits beside it (a pure-backend oracle has no grader and no browser). Run as `APP_URL=<url> [ROLE=<a role from adapters.auth_provider.config.roles>|none] bash replay-oracle.sh`: exit 0 = correct behavior (GREEN), 1 = bug present (RED), 2 = could not run (BLOCKED, never read as red or green); it prints one JSON line {pass, observed}. qa-repro only names it after seeing exit 1 on the buggy build. Empty string when status is not 'reproduced'."
+    },
+    "media": {
+      "type": "array",
+      "description": "OPTIONAL (v1.2.0). Capture-time evidence media uploaded through the evidence_store adapter, each a URL the control plane can fetch directly (Content-Type video/mp4 | image/gif; a signed read URL, or a local file:// URL from the `local` provider — never one that needs an Authorization header). qa-repro emits the before-video pair (before-gif + before-mp4). Omitted entirely when upload is not configured or failed — media is BEST-EFFORT and NEVER required, so a v1.1.0 artifact without this key still validates. The enum is the shared four-kind vocabulary across qa-repro (before-*) and qa-verify (after-*).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "url"],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["before-gif", "before-mp4", "after-gif", "after-mp4"],
+            "description": "Which recording this is. qa-repro emits only 'before-gif' / 'before-mp4'."
+          },
+          "url": {
+            "type": "string",
+            "description": "The URL exactly as the evidence_store adapter returned it (a signed read URL, or a local file:// URL from the `local` provider). Fetchable with no Authorization header."
+          },
+          "label": {
+            "type": "string",
+            "description": "OPTIONAL human label, e.g. 'Reproduced (before) — MP4'."
+          }
+        }
+      }
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "OPTIONAL (v1.5.0). Which attempt of this stage produced the artifact, 1-based. Added because the retry audit had to be reconstructed from session transcripts \u2014 no artifact recorded its own attempt number, so a retry was indistinguishable from a first pass after the fact. A retry requires transient-failure evidence; a deterministic failure escalates or changes strategy instead of repeating."
+    },
+    "retry_reason": {
+      "type": "string",
+      "description": "OPTIONAL (v1.5.0). Why this attempt happened, when attempt > 1 \u2014 the flaky-store match, infra error, timeout or oracle exit 2 that justified it."
+    },
+    "timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "OPTIONAL (v1.5.0). When this stage ran. Costs microseconds to write and is the only way to tell whether a pipeline redesign still holds months later \u2014 without it every duration has to be reconstructed from session transcripts, which do not always exist.",
+      "required": ["started_at", "ended_at"],
+      "properties": {
+        "started_at": { "type": "string", "description": "ISO-8601 UTC, e.g. 2026-01-01T00:00:00Z" },
+        "ended_at": { "type": "string", "description": "ISO-8601 UTC" },
+        "duration_s": { "type": "number", "minimum": 0 }
+      }
+    }
+  }
+}

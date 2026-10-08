@@ -1,0 +1,5 @@
+{
+  "root_cause": "NEGATIVE TEST — this artifact MUST FAIL validation. 'wat' is off-enum for failure_layer (must be one of app_bug | test_bug | environment | data). Locks the four-value fault-layer vocabulary the control plane branches on.",
+  "failure_layer": "wat",
+  "summary": "Off-enum failure_layer — validation must reject this."
+}

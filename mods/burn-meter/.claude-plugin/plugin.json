@@ -1,0 +1,1 @@
+{ "name": "burn-meter", "version": "0.1.0", "description": "Turn time and cost in the status line, heartbeat toasts, a per-turn budget and a no-workflows switch", "types": "./types/index.d.ts" }

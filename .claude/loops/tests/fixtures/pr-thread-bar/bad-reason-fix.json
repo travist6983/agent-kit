@@ -1,0 +1,15 @@
+{
+  "status": "fixed",
+  "key": "PROJ-124",
+  "root_cause": "x",
+  "is_root_cause": true,
+  "confidence": 80,
+  "design_decisions": [
+    {
+      "title": "Important!",
+      "must_read": true,
+      "must_read_reason": "important",
+      "reviewer_must_confirm": "read it"
+    }
+  ]
+}

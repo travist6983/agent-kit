@@ -1,0 +1,15 @@
+{
+  "status": "fixed",
+  "key": "PROJ-126",
+  "root_cause": "x",
+  "is_root_cause": true,
+  "confidence": 80,
+  "design_decisions": [
+    {
+      "title": "stringly",
+      "must_read": "yes",
+      "must_read_reason": "product-call",
+      "reviewer_must_confirm": "x"
+    }
+  ]
+}

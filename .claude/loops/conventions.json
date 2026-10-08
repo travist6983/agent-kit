@@ -1,0 +1,69 @@
+{
+  "version": "1.0.0",
+  "description": "The target repo's conventions ruleset. `rules` is the MACHINE-READABLE half of the readiness gate: dev-pre-pr's scripts/standards_check.sh matches each rule against the lines a branch ADDED (git diff vs the merge-base with project.default_branch, plus untracked files), never pre-existing code. dev-code-review and dev-fix read the same file for the house rules. A rule belongs in `rules` only if a regex can decide it with near-zero false positives; anything that needs judgment goes in the guidelines file as a reader rule. Rules marked heuristic:true are reported but NEVER auto-block — the gate must open the file and confirm each one before it counts as a blocker. Format: .claude/skills/dev-pre-pr/references/violation-rules.md; a worked example pack: examples/conventions/.",
+  "guidelines_file": "CLAUDE.md",
+  "suppress_marker": "standards:allow",
+  "test_path_regex": "(\\.spec\\.|\\.test\\.|_test\\.|_spec\\.|(^|/)tests?/|(^|/)__tests__/|(^|/)spec/|(^|/)mocks?/|(^|/)fixtures?/)",
+  "rules": [
+    {
+      "id": "no-debug-console",
+      "severity": "medium",
+      "include_path": "\\.(js|jsx|mjs|cjs|ts|tsx)$",
+      "skip_tests": true,
+      "pattern": "\\bconsole\\.(log|debug|trace)\\s*\\(",
+      "rule": "Debug console output in added code",
+      "fix": "Remove it, or route it through the project's logger. A console.log that ships is noise in production and a leak waiting to happen.",
+      "heuristic": true,
+      "confirm_question": "Is this a leftover debug statement, or a deliberate user-facing CLI message in a script that owns its stdout?"
+    },
+    {
+      "id": "no-debug-print",
+      "severity": "medium",
+      "include_path": "\\.py$",
+      "exclude_path": "(^|/)(scripts?|bin|cli|tools?)/|/__main__\\.py$|/cli\\.py$",
+      "skip_tests": true,
+      "pattern": "^\\s*print\\s*\\(",
+      "rule": "Debug print() in added library code",
+      "fix": "Use the project's logger. print() is fine in a CLI entry point (those paths are excluded); in library code it is a debug leftover.",
+      "heuristic": true,
+      "confirm_question": "Is this module a CLI whose contract is stdout, or library code where print() is a leftover?"
+    },
+    {
+      "id": "no-focused-tests",
+      "severity": "high",
+      "include_path": "(\\.spec\\.|\\.test\\.|_test\\.|_spec\\.|(^|/)tests?/|(^|/)__tests__/|(^|/)spec/)",
+      "pattern": "\\b(describe|it|test|context)\\.only\\s*\\(|\\b(fdescribe|fit)\\s*\\(",
+      "rule": "Focused test (.only / fit / fdescribe)",
+      "fix": "Remove the focus. A focused test silently skips the rest of the suite, so a green run proves nothing about the code around it.",
+      "heuristic": false
+    },
+    {
+      "id": "no-secret-literals",
+      "severity": "critical",
+      "include_path": ".",
+      "exclude_path": "(\\.example|\\.sample|\\.template|\\.md|\\.lock)$|(^|/)(fixtures?|mocks?|testdata)/",
+      "skip_tests": true,
+      "pattern": "(?i)\\b(api[_-]?key|secret|passwd|password|auth[_-]?token|access[_-]?token|private[_-]?key)\\b\\s*[:=]\\s*[\"'][^\"'$<>{}]{12,}[\"']|\\bAKIA[0-9A-Z]{16}\\b|\\bsk-[A-Za-z0-9]{20,}\\b|\\bgh[pousr]_[A-Za-z0-9]{30,}\\b|\\bxox[baprs]-[A-Za-z0-9-]{10,}\\b|-----BEGIN [A-Z ]*PRIVATE KEY-----",
+      "rule": "Secret-looking literal in added code",
+      "fix": "Never commit a credential. Read it from the environment (config holds the NAME of the env var, never the value) and rotate the one you just pasted — it is in the diff now.",
+      "heuristic": true,
+      "confirm_question": "Is this a real credential, or a placeholder / documentation value that could never authenticate anything?"
+    },
+    {
+      "id": "todo-without-ticket",
+      "severity": "low",
+      "include_path": ".",
+      "exclude_path": "\\.(md|lock)$",
+      "skip_tests": false,
+      "pattern": "\\b(TODO|FIXME|HACK|XXX)\\b(?!.*{{ticket_key_pattern}})",
+      "rule": "TODO / FIXME without a ticket key",
+      "fix": "Reference the ticket that owns the follow-up (a key matching project.ticket_key_pattern, e.g. `TODO PROJ-123: …`). An unowned TODO is a lost lesson.",
+      "heuristic": false
+    }
+  ],
+  "projects": [],
+  "blast_radius_denylist_globs": [],
+  "shared_core_globs": [],
+  "app_handles": {},
+  "domain_glossary": {}
+}

@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "loops/contracts/qa-regression.json",
+  "title": "qa-regression regression.json — classified build + unit-test gate verdict",
+  "version": "2.1.0",
+  "status": "ratified",
+  "description": "The ratified output of the qa-regression skill, written to <evid_root>/<key>/regression.json. The recipe/router branches on `status` and `next_action`. HARD RULE (QA-REGRESSION-C1): status 'green' / next_action 'ship-ok' require results.total >= 1 and a non-empty area_slice_run — a zero-test run must emit blocked-slice-empty (the incident shape: area_slice_run [] + total 'n/a' + ship-ok, which once shipped a real PR). contracts/validate.py enforces that rule on every regression.json, and results counts are INTEGERS, so 'n/a' fails validation by design. v1.1.0 (additive): OPTIONAL `flakiness_writes` — a flakiness data point is written for EVERY test run, not only for a flip, because a rate computed only from flips is not a rate and the R7 quarantine threshold reads it. v2.0.0 (BREAKING): the Playwright browser-suite slice is gone — this gate drives no browser and runs no spec files. The gate is build + lint against the pre-fix baseline + the unit tests covering the fixed area + the full unit suite of every changed project. Removed: status 'drift', next_action 'heal', failed_specs class 'drift' (there is no selector healing lane), and the `preflight` key (its script was deleted).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status",
+    "area",
+    "results",
+    "next_action"
+  ],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": [
+        "green",
+        "same-area-regression",
+        "unrelated-break",
+        "flaky",
+        "blocked-build",
+        "blocked-environment",
+        "blocked-slice-empty"
+      ],
+      "description": "Worst-class-wins verdict. blocked-environment = the test runner or its dependencies broke (NOT blast radius); blocked-slice-empty = zero tests selected/executed for the area (never ship-ok)."
+    },
+    "next_action": {
+      "type": "string",
+      "enum": [
+        "ship-ok",
+        "re-fix",
+        "escalate"
+      ],
+      "description": "What the recipe should do. ship-ok is only legal with status green AND results.total >= 1."
+    },
+    "key": {
+      "type": "string"
+    },
+    "area": {
+      "type": "string",
+      "description": "The derived area whose tests ran."
+    },
+    "area_slice_run": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Test files actually run for the fixed area. Empty + status green is a contract lie — validate.py rejects it."
+    },
+    "smoke_slice_run": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "The broader runs that catch blast radius — the full unit suite of each changed project (e.g. 'web unit suite (full)', 'api unit suite (full)' \u2014 one per conventions.projects[] entry touched)."
+    },
+    "results": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "passed",
+        "failed",
+        "total"
+      ],
+      "properties": {
+        "passed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "description": "Counts matter — integers, never 'n/a'/'looks fine'."
+    },
+    "failed_specs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "spec",
+          "class"
+        ],
+        "properties": {
+          "spec": {
+            "type": "string",
+            "description": "The failing test, as '<test file> > <test name>'."
+          },
+          "class": {
+            "type": "string",
+            "enum": [
+              "environment",
+              "flaky",
+              "same-area-regression",
+              "unrelated-break"
+            ]
+          },
+          "evidence": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "flaky_quarantined": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "flakiness_writes": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "OPTIONAL (v1.1.0). How many flakiness rows this run wrote to the brain — one `kb write flakiness --spec <s> [--failed]` per test RUN, pass or fail. Writing only on a flip makes flake_rate = failures/runs meaningless (every recorded run would be a failure), and R7's quarantine threshold in .claude/loops/loop-limits.json reads that rate. So on a healthy run this equals results.total; it is lower only when a test ran but the write was refused or queued (see the kb outbox). Cross-checkable against `kb receipt --ticket <KEY>` via `contracts/validate.py --receipts`. Key absent = pre-v1.1.0 artifact, NOT 'wrote none'."
+    },
+    "baseline": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "lint_before comes from dev-fix's lint-baseline.json (the declared producer); when that file is absent set baseline_missing:true and never invent a baseline.",
+      "properties": {
+        "lint_before": {
+          "type": "string"
+        },
+        "lint_after": {
+          "type": "string"
+        },
+        "baseline_missing": {
+          "type": "boolean"
+        }
+      }
+    },
+    "detail": {
+      "type": "string",
+      "description": "OPTIONAL: human-readable blocking detail on blocked-* statuses (e.g. what the area test search looked for)."
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "OPTIONAL (v2.1.0). Which attempt of this stage produced the artifact, 1-based. Added because the retry audit had to be reconstructed from session transcripts \u2014 no artifact recorded its own attempt number, so a retry was indistinguishable from a first pass after the fact. A retry requires transient-failure evidence; a deterministic failure escalates or changes strategy instead of repeating."
+    },
+    "retry_reason": {
+      "type": "string",
+      "description": "OPTIONAL (v2.1.0). Why this attempt happened, when attempt > 1 \u2014 the flaky-store match, infra error, timeout or oracle exit 2 that justified it."
+    },
+    "timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "OPTIONAL (v2.1.0). When this stage ran. Costs microseconds to write and is the only way to tell whether a pipeline redesign still holds months later \u2014 without it every duration has to be reconstructed from session transcripts, which do not always exist.",
+      "required": ["started_at", "ended_at"],
+      "properties": {
+        "started_at": { "type": "string", "description": "ISO-8601 UTC, e.g. 2026-01-01T00:00:00Z" },
+        "ended_at": { "type": "string", "description": "ISO-8601 UTC" },
+        "duration_s": { "type": "number", "minimum": 0 }
+      }
+    }
+  }
+}

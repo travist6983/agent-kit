@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- TEMPLATE. install.sh renders every double-brace placeholder for the machine it runs on and
+	     installs the result; the template itself is never installed and never hand-edited
+	     for one machine. Placeholders: REPO_DIR (this checkout), CLAUDE_BIN and CONFIG_DIR
+	     (stack.config runner.claude_bin / runner.config_dir, overridable with
+	     LOOP_INSTALL_CLAUDE_BIN / LOOP_INSTALL_CONFIG_DIR), HOME (the installing user's), and
+	     PATH (derived from where those binaries resolve, overridable with LOOP_INSTALL_PATH).
+	     Everything that is NOT a placeholder is a decision and is tracked here: the schedule,
+	     the arguments, the priority class. See JOB-CONTRACT.md for what the runner promises.
+	     The vcs_host the sweep talks to is NOT in this file: pr_feed.py reads it from
+	     stack.config adapters.vcs_host, and the target checkout from LOOP_APP_ROOT or
+	     app.repo_dir. Add a LOOP_APP_ROOT key to EnvironmentVariables only to override that.
+	     NOTE for the next editor: keep double hyphens out of every comment in this file. XML
+	     forbids them inside a comment; plutil accepts them anyway, but the python plistlib
+	     pass in install.sh does not, and it is the one that gates arming. Spell flags without
+	     their leading dashes in prose. -->
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>LOOP_CLAUDE_BIN</key>
+		<string>{{CLAUDE_BIN}}</string>
+		<key>CLAUDE_CONFIG_DIR</key>
+		<string>{{CONFIG_DIR}}</string>
+		<key>HOME</key>
+		<string>{{HOME}}</string>
+		<key>LANG</key>
+		<string>en_US.UTF-8</string>
+		<key>PATH</key>
+		<string>{{PATH}}</string>
+	</dict>
+	<key>Label</key>
+	<string>com.loops.pr-review</string>
+	<key>LowPriorityIO</key>
+	<true/>
+	<key>Nice</key>
+	<integer>5</integer>
+	<key>ProcessType</key>
+	<string>Background</string>
+	<!-- ARGUMENTS. /bin/bash is index 0 and the runner index 1 (install.sh reads index 1 to
+	     find the script it preflights); everything after is a flag or a flag's value, and a
+	     flag and its value are ALWAYS two separate string elements.
+
+	     timeout 2400: 40 minutes of wall clock for the ONE model call. Bounded above by
+	     pr_feed's tick lock, whose TTL is 2700s: a tick that outlives its own lock lets the
+	     next one see "stale" and start sweeping while this one is still posting. This number
+	     and pr_review_loop.prs_per_tick in loop-limits.json are ONE decision: budget roughly
+	     900s of model call per pull request, so two fit here with headroom and finish inside
+	     the lock TTL, and three (3 x 900 = 2700) do not fit at all. prs_per_tick therefore
+	     lives in loop-limits.json ONLY. A limit flag here would OVERRIDE the tracked decision
+	     (install.sh's preflight says so out loud), and two copies of one number are how two
+	     numbers come to disagree. If you change this timeout, re-derive prs_per_tick from the
+	     per-PR figure, and vice versa.
+
+	     THE TEMPLATE SHIPS DRY-RUN AND SCOPE OWN. Two flags are deliberately ABSENT:
+	       live          turns posting on. Without it a tick does the full review and writes a
+	                     byte-faithful preview plus the tick report; nothing reaches the vcs
+	                     host. Comment threads posted live carry the identity the vcs_host
+	                     adapter resolves for the runner, so on a colleague's pull request they
+	                     appear to come from that person. Add this element only after the gate
+	                     in FIRST-RUN-pr-review.md, and set loop-limits.json posting_default
+	                     to live in the same edit so the record matches the job.
+	       scope all     reviews EVERY active non-draft PR targeting the base branch,
+	                     colleagues' included, not just the runner identity's own. It has to be
+	                     HERE and not only in loop-limits.json: pr_review.sh REFUSES a live tick
+	                     (exit 25) whose widened scope was inherited from the JSON alone, so the
+	                     file's value and this pair are both required. Reverting means removing
+	                     both halves.
+	     install.sh's preflight prints the effective posture (dry-run or live, and the
+	     effective scope) so an absence is never invisible at the arming prompt. -->
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>{{REPO_DIR}}/.claude/skills/dev-loop-pr-review/scripts/pr_review.sh</string>
+		<string>--timeout</string>
+		<string>2400</string>
+	</array>
+	<!-- Arming is never a run. -->
+	<key>RunAtLoad</key>
+	<false/>
+	<key>StandardErrorPath</key>
+	<string>{{REPO_DIR}}/.claude/loops/pr-review.launchd.err.log</string>
+	<key>StandardOutPath</key>
+	<string>{{REPO_DIR}}/.claude/loops/pr-review.launchd.out.log</string>
+	<!-- HOURLY. Minute is set and Hour is deliberately ABSENT: launchd treats an omitted
+	     field as a WILDCARD, not as zero, so this fires at the given minute of every hour,
+	     24x/day, wall-clock aligned. One entry rather than 24, so a future edit cannot desync
+	     them. Do NOT "fix" this by adding an Hour key: `Hour 0` is not a no-op here, it would
+	     narrow the job from 24 runs a day to one at midnight.
+	     Once a day this slot coincides with com.loops.qa-dream (read that template for its
+	     slot; do not restate it here). The two are SERIALIZED by the shared cross-agent lock
+	     (lib/agent_lock.sh): whichever job gets the bolt runs, the other logs
+	     `event=skipped reason=agent_lock_held` naming the holder and exits 0. On that slot it
+	     is normally the dream winning and this tick coming back an hour later, which costs
+	     nothing: the PR queue is durable and keyed on PR id plus head commit. WHY A LOCK AND
+	     NOT A DIFFERENT MINUTE: launchd COALESCES missed calendar intervals into one event on
+	     wake, so a laptop asleep through both slots fires both jobs at the same instant
+	     whatever their minutes say. A lock is the only option that survives a wake.
+	     Both runners classify a model-API 429 and exit 29 (out of window, not a fault), so a
+	     starved job reports itself honestly instead of looking broken. -->
+	<key>StartCalendarInterval</key>
+	<dict>
+		<key>Minute</key>
+		<integer>0</integer>
+	</dict>
+	<key>WorkingDirectory</key>
+	<string>{{REPO_DIR}}</string>
+</dict>
+</plist>

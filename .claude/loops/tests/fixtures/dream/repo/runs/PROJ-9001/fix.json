@@ -1,0 +1,26 @@
+{
+  "status": "fixed",
+  "key": "PROJ-9001",
+  "root_cause": "The delete mutation never invalidated the members query cache.",
+  "is_root_cause": true,
+  "confidence": 88,
+  "failure_class": null,
+  "masking_suspected": false,
+  "files_changed": [
+    "/tmp/loops-fixture-repo/src/areas/members/useMembers.js"
+  ],
+  "design_decisions": [
+    "Invalidate on the shared composable, not per call site."
+  ],
+  "lessons_consulted": [
+    41,
+    "fix_lessons#42 stale-cache-after-mutate"
+  ],
+  "pending_fix_lesson": {
+    "symptom": "A deleted row stays visible until a full page reload.",
+    "root_cause": "The mutation did not invalidate the list query cache.",
+    "fix_shape": "Invalidate the shared query in the composable every call site uses.",
+    "signature_tag": "stale-list-after-delete",
+    "area": "Settings/Members"
+  }
+}

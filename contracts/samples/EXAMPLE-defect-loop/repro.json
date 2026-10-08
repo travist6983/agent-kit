@@ -1,0 +1,38 @@
+{
+  "status": "reproduced",
+  "surface": "state-mutation",
+  "symptom_quote": "After clicking Send on a draft invoice, the row's status badge still reads 'Draft' until the page is reloaded, even though the invoice was sent.",
+  "app_map_writes": [
+    {
+      "store": "app_map",
+      "key": "my-app/route/invoices",
+      "value": "InvoicesPage at /invoices; list rows render InvoiceRow with an InvoiceStatusBadge per row; web/src/invoices/InvoicesPage.js"
+    },
+    {
+      "store": "app_map",
+      "key": "my-app/selector/invoice-row",
+      "value": "[data-testid=invoice-row] — one per invoice; the Send action is [data-testid=invoice-send] inside the row"
+    },
+    {
+      "store": "app_map",
+      "key": "my-app/selector/invoice-status-badge",
+      "value": "[data-testid=invoice-status] inside the row; text is the status label ('Draft' | 'Sent' | 'Paid')"
+    },
+    {
+      "store": "app_map",
+      "key": "my-app/component/InvoiceStatusBadge",
+      "value": "copies props.status into local state ONCE on mount and never re-syncs; web/src/invoices/InvoiceStatusBadge.js:9"
+    },
+    {
+      "store": "app_map",
+      "key": "my-app/store/invoicesStore.sendInvoice",
+      "value": "POST /api/invoices/{id}/send then patches the row in the store to status 'sent'; web/src/invoices/invoicesStore.js:58 — the store IS updated, the badge just does not read it"
+    },
+    {
+      "store": "app_map",
+      "key": "my-app/api/invoices-send",
+      "value": "POST /api/invoices/{id}/send -> 200 {id, status: 'sent', sent_at}; GET /api/invoices/{id} reflects 'sent' immediately"
+    }
+  ],
+  "replay_spec": "replay-oracle.sh"
+}

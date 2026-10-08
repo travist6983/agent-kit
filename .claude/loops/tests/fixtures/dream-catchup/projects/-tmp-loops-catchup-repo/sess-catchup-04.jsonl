@@ -1,0 +1,4 @@
+{"type": "summary", "sessionId": "sess-catchup-04", "summary": "Catch-up fixture session 04"}
+{"type": "user", "sessionId": "sess-catchup-04", "cwd": "/tmp/loops-catchup-repo", "timestamp": "2026-03-15T11:50:00.000Z", "origin": {"kind": "human"}, "message": {"role": "user", "content": [{"type": "text", "text": "CATCHUPTURN-04-1 fix the members list refetch"}]}}
+{"type": "user", "sessionId": "sess-catchup-04", "cwd": "/tmp/loops-catchup-repo", "timestamp": "2026-03-15T11:55:00.000Z", "origin": {"kind": "human"}, "message": {"role": "user", "content": [{"type": "text", "text": "CATCHUPTURN-04-2 fix the members list refetch"}]}}
+{"type": "assistant", "sessionId": "sess-catchup-04", "cwd": "/tmp/loops-catchup-repo", "timestamp": "2026-03-15T11:59:00.000Z", "message": {"role": "assistant", "content": [{"type": "text", "text": "CATCHUPRECAP-04 session 04 is done."}]}}

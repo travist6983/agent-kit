@@ -1,0 +1,8 @@
+{
+  "schema": "dev-intake/1",
+  "key": "PROJ-9202",
+  "recipe": "dev-loop-feature-complete",
+  "risk_class": "hard",
+  "area": "Invoices",
+  "summary": "WORKTREETICKETMARKER — a loop that ran inside an infra-worktree sandbox."
+}

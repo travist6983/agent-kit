@@ -1,0 +1,76 @@
+# R6 blast-radius denylist — the FRAMEWORK DEFAULT, machine-readable half of
+# references/blast-radius-denylist.md.
+#
+# This list is used only when the target repo's conventions file
+# (`stack.conventions_file`, default .claude/loops/conventions.json) has an EMPTY
+# `blast_radius_denylist_globs`. When that array is non-empty it REPLACES this file —
+# the adopter owns the list — so an adopter who writes their own must cover the same
+# five categories (migrations, secrets, auth, infra/IaC, CI) in their own stack's names.
+#
+# One glob per line; '#' comments. Matched case-insensitively (fnmatch) against the
+# repo-relative path; a pattern starting with '*/' also matches at the repo root; a
+# pattern without a '/' also matches the basename. A hit BLOCKS: dev-fix returns
+# status "blocked-blast-radius", ship preflight aborts. Err toward blocking: a hit
+# forces a human gate, it does not delete work. Content-level rules (an auth section
+# inside an otherwise-benign file, a connection string, an authorization
+# attribute/decorator) remain the protocol's job — this file is the mechanical floor,
+# not the ceiling.
+
+# DB migrations / schema (ORM migrations, schema snapshots, raw DDL)
+*/migrations/*
+*/migrate/*
+*/alembic/*
+*schema*snapshot*
+schema.rb
+structure.sql
+*.prisma
+*.sql
+
+# Secrets / env config
+.env*
+*.env
+*.env.*
+*secrets*
+*secret.*
+*credentials*
+*.pfx
+*.p12
+*.pem
+*.key
+*.jks
+
+# Auth / authorization wiring
+*authorization*polic*
+*authentication*config*
+*auth*polic*
+*auth*config*
+*/identity/*
+*permissions*.polic*
+
+# Infra / IaC
+*.tf
+*.tfvars
+*.bicep
+*/cloudformation/*
+Pulumi.*
+Dockerfile*
+docker-compose*
+compose.y*ml
+*/k8s/*
+*/kubernetes/*
+*/helm/*
+*/charts/*
+*/terraform/*
+*/infra/*
+*/iac/*
+
+# CI / pipeline definitions
+.github/workflows/*
+.gitlab-ci*
+Jenkinsfile*
+.circleci/*
+.buildkite/*
+.drone.y*ml
+*pipelines*.yml
+*pipelines*.yaml
+*/pipelines/*

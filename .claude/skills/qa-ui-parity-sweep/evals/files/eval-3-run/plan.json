@@ -1,0 +1,161 @@
+{
+  "budget_min": 45,
+  "collector": "http://127.0.0.1:5098",
+  "console_noise": [
+    {
+      "pattern": "chat-widget",
+      "why": "support chat widget"
+    }
+  ],
+  "deadlines": {
+    "capture": 1791143330.920558,
+    "fixes": 1791143811.520558,
+    "report": 1791144051.820558
+  },
+  "envs": {
+    "baseline": {
+      "name": "design",
+      "url": "https://design.example.com"
+    },
+    "candidate": {
+      "name": "staging",
+      "url": "https://staging.example.com"
+    }
+  },
+  "limits": {
+    "budget_min": 45,
+    "max_dialogs_per_route": 3,
+    "max_fix_prs": 2
+  },
+  "probe": {
+    "buttons_extra": [],
+    "dialog_close_extra": [],
+    "dialogs_extra": [],
+    "guard_allow_hosts": [],
+    "icon_class_patterns": [],
+    "settle_selectors": [
+      "[class*=\"-enter-active\"]",
+      "[class*=\"-leave-active\"]",
+      "[class*=\"-enter-from\"]"
+    ],
+    "utility_class_prefixes": []
+  },
+  "rehearsal": false,
+  "roots": {
+    "baseline": "main",
+    "candidate": ".page-content"
+  },
+  "routes": [
+    {
+      "area": "projects",
+      "baseline": "/a",
+      "baseline_url": "https://design.example.com/a",
+      "candidate": "/a",
+      "candidate_url": "https://staging.example.com/a",
+      "id": "alpha",
+      "path": "/a",
+      "roots": {
+        "baseline": "main",
+        "candidate": ".page-content"
+      }
+    },
+    {
+      "area": "projects",
+      "baseline": "/b",
+      "baseline_url": "https://design.example.com/b",
+      "candidate": "/b",
+      "candidate_url": "https://staging.example.com/b",
+      "id": "beta",
+      "path": "/b",
+      "roots": {
+        "baseline": "main",
+        "candidate": ".page-content"
+      }
+    },
+    {
+      "area": "workspace",
+      "baseline": "/",
+      "baseline_url": "https://design.example.com/",
+      "candidate": "/",
+      "candidate_url": "https://staging.example.com/",
+      "id": "gamma",
+      "path": "/",
+      "roots": {
+        "baseline": "main",
+        "candidate": ".page-content"
+      }
+    },
+    {
+      "area": "projects",
+      "baseline": "/d",
+      "baseline_url": "https://design.example.com/d",
+      "candidate": "/d",
+      "candidate_url": "https://staging.example.com/d",
+      "id": "delta",
+      "path": "/d",
+      "roots": {
+        "baseline": "main",
+        "candidate": ".page-content"
+      }
+    },
+    {
+      "area": "projects",
+      "baseline": "/e",
+      "baseline_url": "https://design.example.com/e",
+      "candidate": "/e",
+      "candidate_url": "https://staging.example.com/e",
+      "id": "epsilon",
+      "path": "/e",
+      "roots": {
+        "baseline": "main",
+        "candidate": ".page-content"
+      }
+    },
+    {
+      "area": "workspace",
+      "baseline": "/z",
+      "baseline_url": "https://design.example.com/z",
+      "candidate": "/z",
+      "candidate_url": "https://staging.example.com/z",
+      "id": "zeta",
+      "path": "/z",
+      "roots": {
+        "baseline": "main",
+        "candidate": ".page-content"
+      }
+    }
+  ],
+  "routes_file": "evals/files/eval-3-run/routes.json",
+  "run": "evals/files/eval-3-run",
+  "run_id": "ui-parity-20261004T191551Z",
+  "source": {
+    "baseline_paths": [
+      "components",
+      "pages"
+    ],
+    "baseline_repo_dir": null,
+    "candidate_paths": [
+      "src"
+    ],
+    "component_extensions": [
+      ".tsx"
+    ],
+    "extensions": [
+      ".tsx",
+      ".scss",
+      ".css"
+    ],
+    "logic_dirs": [
+      "services",
+      "stores",
+      "hooks",
+      "utils"
+    ],
+    "style_extensions": [
+      ".scss",
+      ".css"
+    ]
+  },
+  "started_at": 1791141351.820558,
+  "started_iso": "2026-10-04T19:15:51+00:00"
+}

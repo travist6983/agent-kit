@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "loops/contracts/dev-fix.json",
+  "title": "dev-fix fix.json — candidate fix receipt",
+  "version": "1.3.0",
+  "status": "ratified",
+  "description": "The ratified output of the dev-fix skill, written to <evid_root>/<key>/fix.json. Machine consumers: recipe_router branches on `status`; infra-ship's select_pr_threads.py posts a PR comment thread ONLY for `design_decisions` entries marked `must_read: true` (capped per PR; the expected count is zero); dev-escalate renders root_cause/design_decisions/noticed_not_changed into the warm handoff. v1.2.0 (additive, backward-compatible — added after a real PR collected a dozen noise threads for two simple bugs): design_decisions objects gain OPTIONAL `must_read` + `must_read_reason`, and the top level gains OPTIONAL `noticed_not_changed`. An entry without `must_read` is read as false, so every pre-1.2.0 artifact validates AND posts nothing — the safe direction. 'must_read:true needs a recognised reason and a reviewer_must_confirm ask' is its own anyOf branch, so an unclassified must-read fails here as well as in the funnel (exit 4); only the funnel can also refuse a blank ask. Required core only + additionalProperties:true — dev-fix is a free-emitting rich skill (paths_enumerated, bypassers_*, diff_summary, build notes etc. vary per run), so the contract pins what machines read and stays honest about the tail (contracts/README.md option-B posture). design_decisions items are string OR the structured object dev-fix's SKILL.md documents — both sample runs emit strings and the escalation renderer handles both. v1.1.0 (additive, backward-compatible): the fix_lesson WRITE moves OUT of dev-fix and into the recipe, gated on qa-verify=pass — a lesson written before the fix is proven teaches the brain a fix that may never have worked. dev-fix now only READS the brain and DECLARES: `lessons_consulted` names the rows it recalled, `pending_fix_lesson` is the lesson the recipe will write on a green verify. Both OPTIONAL — a v1.0.0 artifact with neither key still validates.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["status", "root_cause", "is_root_cause", "confidence"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["fixed", "blocked-blast-radius", "could-not-fix"],
+      "description": "The field the recipe branches on. 'blocked-blast-radius' is the R6 forced-human-gate outcome — the exact string recipe_router reads (there is no separate blast_radius_status field)."
+    },
+    "key": { "type": "string", "description": "Issue tracker key, e.g. PROJ-123." },
+    "root_cause": {
+      "type": "string",
+      "description": "The diagnosed root cause — never a symptom description. dev-escalate renders this verbatim into the handoff."
+    },
+    "is_root_cause": {
+      "type": "boolean",
+      "description": "False = the change only masks/works around the symptom (R3) — lowers confidence and flags for human."
+    },
+    "confidence": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Fix confidence. Sensitive areas gate on this downstream (router --min-confidence)."
+    },
+    "failure_class": {
+      "anyOf": [ { "type": "string" }, { "type": "null" } ],
+      "description": "Null on success. On failure: the declared class (e.g. bypasser-missed, symptom-only) — every declared class must be emittable here (loop-readiness item 2)."
+    },
+    "masking_suspected": { "type": "boolean" },
+    "files_changed": { "type": "array", "items": { "type": "string" } },
+    "design_decisions": {
+      "type": "array",
+      "description": "The judgment calls a human taking this ticket over would want to know about (usually 0-3). Recording is not posting: only must_read:true entries can become PR threads (infra-ship select_pr_threads.py, capped per PR at .claude/loops/loop-limits.json defect_pr_threads.max_per_pr). Items are a plain string (legacy, never posted), a recorded decision, or a must-read item (dev-fix SKILL.md step 8).",
+      "items": {
+        "anyOf": [
+          { "type": "string" },
+          {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "A recorded decision — must_read false or absent. Never posted.",
+            "properties": {
+              "kind": { "type": "string" },
+              "title": { "type": "string" },
+              "decision": { "type": "string" },
+              "alternatives_considered": { "type": "array", "items": { "type": "string" } },
+              "reviewer_must_confirm": { "type": "string" },
+              "must_read": { "type": "boolean", "enum": [false], "description": "OPTIONAL (v1.2.0). Absent = false." },
+              "must_read_reason": { "type": "string", "enum": ["ticket-not-fully-fixed", "data-or-security-risk", "breaking-shared-contract", "human-action-required", "behavior-change-beyond-ticket", "product-call"] }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "A must-read item (v1.2.0) — the only shape select_pr_threads.py can post. Passes the must-read test in infra-ship/references/pr-thread-bar.md: the reviewer must act or decide before merging, getting it wrong costs something real, and the consequence lands outside the changed lines.",
+            "required": ["must_read", "must_read_reason", "reviewer_must_confirm"],
+            "properties": {
+              "kind": { "type": "string" },
+              "title": { "type": "string" },
+              "decision": { "type": "string" },
+              "alternatives_considered": { "type": "array", "items": { "type": "string" } },
+              "reviewer_must_confirm": { "type": "string", "description": "The action the reviewer must take or decide before merging." },
+              "must_read": { "type": "boolean", "enum": [true] },
+              "must_read_reason": {
+                "type": "string",
+                "enum": ["ticket-not-fully-fixed", "data-or-security-risk", "breaking-shared-contract", "human-action-required", "behavior-change-beyond-ticket", "product-call"],
+                "description": "The cost that makes this worth an interrupt. The enum order is the posting priority when the cap binds."
+              }
+            }
+          }
+        ]
+      }
+    },
+    "noticed_not_changed": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "OPTIONAL (v1.2.0). Pre-existing issues dev-fix saw while enumerating but did not touch (out of scope), one line each. infra-ship's funnel lists them under 'Noticed, not changed' in the PR description (max 3; the rest in the run report, which drafts a ticket for a serious one) and dev-escalate's handoff renders them all. NEVER PR threads: they are not about this diff, and nothing the reviewer does to this PR resolves them. (A hazard the change newly exposes is not pre-existing — that is a must-read data-or-security-risk item.)"
+    },
+    "lessons_consulted": {
+      "type": "array",
+      "description": "OPTIONAL (v1.1.0). The brain rows dev-fix actually RECALLED before patching — `kb search app_map --query \"<symptom>\"`, `kb read app_map --area <area>`, `kb search fix_lessons`. Items are the row id (integer) or a short human handle (string, e.g. 'fix_lessons#41 state-drift-claim-parity'). Empty array = the recall step ran and found nothing (an honest cold brain); the key ABSENT = the artifact predates v1.1.0 or the recall step did not run. Cross-checkable: every id here should exist in the brain — `contracts/validate.py --receipts <KEY>` reports the drift.",
+      "items": { "anyOf": [ { "type": "integer" }, { "type": "string" } ] }
+    },
+    "pending_fix_lesson": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["symptom"],
+          "properties": {
+            "symptom": {
+              "type": "string",
+              "description": "The user-visible symptom in the reporter's terms — what a future run will search for. Never the file name or the stack frame."
+            },
+            "root_cause": { "type": "string", "description": "Same discipline as fix.root_cause: the cause, never the symptom restated." },
+            "fix_shape": { "type": "string", "description": "The REUSABLE shape of the change ('re-read state each turn, don't cache the stage'), not the diff." },
+            "signature_tag": { "type": "string", "description": "Short stable slug that lets a later run match this lesson without the embedder, e.g. 'state-drift-claim-parity'." },
+            "area": { "type": "string", "description": "Area tag. Normalized by the kb CLI on write ('Design System' -> design-system), so either spelling is accepted here." }
+          }
+        },
+        { "type": "null" }
+      ],
+      "description": "OPTIONAL (v1.1.0). The fix_lesson dev-fix PROPOSES but does NOT write. The recipe writes it with `kb write fix_lessons --source dev-loop-defect` ONLY after qa-verify passes. Explicit null = dev-fix judged there is no reusable lesson here (a one-off typo) — an honest declaration, not a missing field. Key absent = pre-v1.1.0 artifact."
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "OPTIONAL (v1.3.0). Which attempt of this stage produced the artifact, 1-based. Added because the retry audit had to be reconstructed from session transcripts \u2014 no artifact recorded its own attempt number, so a retry was indistinguishable from a first pass after the fact. A retry requires transient-failure evidence; a deterministic failure escalates or changes strategy instead of repeating."
+    },
+    "retry_reason": {
+      "type": "string",
+      "description": "OPTIONAL (v1.3.0). Why this attempt happened, when attempt > 1 \u2014 the flaky-store match, infra error, timeout or oracle exit 2 that justified it."
+    },
+    "timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "OPTIONAL (v1.3.0). When this stage ran. Costs microseconds to write and is the only way to tell whether a pipeline redesign still holds months later \u2014 without it every duration has to be reconstructed from session transcripts, which do not always exist.",
+      "required": ["started_at", "ended_at"],
+      "properties": {
+        "started_at": { "type": "string", "description": "ISO-8601 UTC, e.g. 2026-01-01T00:00:00Z" },
+        "ended_at": { "type": "string", "description": "ISO-8601 UTC" },
+        "duration_s": { "type": "number", "minimum": 0 }
+      }
+    }
+  }
+}

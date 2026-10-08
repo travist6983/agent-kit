@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "loops/contracts/qa-run-chatbot.json",
+  "title": "qa-run-chatbot chatbot-run.json — conversational case-set run receipt",
+  "version": "1.0.0",
+  "status": "proposed",
+  "description": "Output of the qa-run-chatbot skill, written to <evid_root>/<key>/chatbot-run.json. The control plane branches on `status` only, maps `cases` to per-case rows, and PROPOSES verdicts a human disposes. Vocabulary mirrors qa-run-case.json where the shapes coincide (media kinds, PASS|FAIL|PARTIAL|BLOCKED — no MANUAL: a chat case a machine can't grade is BLOCKED with the reason). A tooling failure that prevents any grading writes NO artifact (the runner's missing-artifact ok:false path).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "summary", "cases"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["PASS", "FAIL", "PARTIAL", "BLOCKED"],
+      "description": "Run grade — worst-of the cases. PASS = every case passed. FAIL = at least one case FAIL. PARTIAL = no FAIL, at least one PARTIAL. BLOCKED = a run-level blocker (env down, auth gate, tenant mismatch, driver dead) prevented or truncated the run — exact reason in `summary`."
+    },
+    "summary": {
+      "type": "string",
+      "description": "One honest line: '<x>/<n> pass' plus the lead finding. For FAIL quote the strongest failing evidence verbatim; for BLOCKED state the exact blocking reason."
+    },
+    "cases": {
+      "type": "array",
+      "description": "One row per case in set order, including cases never attempted (those are BLOCKED with class `tooling` or `env`).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "status", "evidence"],
+        "properties": {
+          "id": { "type": "string", "description": "Case id from the set (T1, T2, …)." },
+          "name": { "type": "string", "description": "OPTIONAL short case name." },
+          "status": {
+            "type": "string",
+            "enum": ["PASS", "FAIL", "PARTIAL", "BLOCKED"],
+            "description": "PASS = pass criteria met AND persistence confirmed where applicable. FAIL = fail phrase hit, or claimed success contradicted by the independent read. PARTIAL = landed with a mismatch (described verbatim in evidence). BLOCKED = could not attempt/complete (class says why)."
+          },
+          "failure_class": {
+            "type": "string",
+            "enum": ["failure-mode-hit", "wrong-data", "no-persistence", "no-response", "tooling", "env"],
+            "description": "Required in spirit whenever status != PASS — the classify-before-adapt key the recipe routes on."
+          },
+          "evidence": {
+            "type": "string",
+            "description": "Verbatim quotes grounding the grade — the assistant's exact phrase and/or what the independent UI read showed. Never a paraphrase."
+          },
+          "ui_verified": {
+            "type": "boolean",
+            "description": "OPTIONAL. True when the grade includes an independent UI/API persistence read (not just chat text)."
+          },
+          "transcript": {
+            "type": "string",
+            "description": "OPTIONAL. Relative path (under the artifact dir) to the full verbatim transcript for this case."
+          }
+        }
+      }
+    },
+    "failure_modes": {
+      "type": "array",
+      "description": "OPTIONAL (TICKETS mode). The regression table: every failure mode mined from the ticket(s) × whether it reproduced in this run.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["mode", "reproduced"],
+        "properties": {
+          "mode": { "type": "string", "description": "The documented failure mode, verbatim where it was a phrase." },
+          "reproduced": { "type": "boolean" },
+          "case_ids": { "type": "array", "items": { "type": "string" }, "description": "OPTIONAL. Cases that exercised it." }
+        }
+      }
+    },
+    "new_observations": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "OPTIONAL. Behaviors surfaced that no ticket mentioned — findings a human may want to ticket (this skill never files one)."
+    },
+    "media": {
+      "type": "array",
+      "description": "OPTIONAL, best-effort — same shape and semantics as qa-run-case.json media[].",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "url"],
+        "properties": {
+          "kind": { "type": "string", "enum": ["gif", "mp4", "screenshot"] },
+          "url": { "type": "string", "description": "The evidence URL as the evidence_store adapter returned it." },
+          "label": { "type": "string" }
+        }
+      }
+    },
+    "notes": {
+      "type": "string",
+      "description": "OPTIONAL. Flakes observed, brain writes made ('nothing new this run' is valid), early-stop reasons with class."
+    }
+  }
+}

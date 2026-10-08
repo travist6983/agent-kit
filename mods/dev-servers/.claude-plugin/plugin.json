@@ -1,0 +1,1 @@
+{ "name": "dev-servers", "version": "0.1.0", "description": "Pane of running dev servers with URLs, plus /up and /bounce from a saved per-project recipe", "types": "./types/index.d.ts" }

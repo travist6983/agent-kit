@@ -1,0 +1,149 @@
+{
+  "status": "blocked",
+  "next_action": "re-fix",
+  "key": "PROJ-2401",
+  "branch": "fix/PROJ-2401-invoice-dates",
+  "base": "main (merge-base 70170587f5bb)",
+  "files_changed": 3,
+  "checks": {
+    "frontend_build": "pass",
+    "frontend_lint": "pass",
+    "backend_build": "unknown",
+    "backend_tests": "unknown",
+    "standards_scan": "fail",
+    "code_review": "not-run",
+    "fix_verified": "missing"
+  },
+  "sources": {
+    "regression": "stale",
+    "review": "missing",
+    "verify": "missing",
+    "build": "ran-locally",
+    "standards": "standards_check.sh (exit 3)",
+    "staleness_evidence": "runs/PROJ-2401/regression.json is older than both changed source files — `find <changed files> -newer regression.json` returns both, so the artifact predates the code it claims to have tested and its green was NOT adopted."
+  },
+  "counts": {
+    "critical": 1,
+    "high": 1,
+    "medium": 4,
+    "low": 2,
+    "heuristic_unconfirmed": 0
+  },
+  "violations": [
+    {
+      "file": "api/invoices/get_invoice_weeks.py",
+      "line": 4,
+      "severity": "critical",
+      "rule_id": "no-secret-literals",
+      "rule": "Secret-looking literal in added code",
+      "fix": "Move the key to the environment (the config names the variable, never the value) and rotate it — it is in the branch history now.",
+      "snippet": "REPORTING_KEY = 'sk_live_4f8a2c9e1b7d'",
+      "heuristic": true,
+      "confirmed": true,
+      "source": "standards_check"
+    },
+    {
+      "file": "web/src/invoices/__tests__/InvoiceWeekGrid.test.js",
+      "line": 4,
+      "severity": "high",
+      "rule_id": "no-focused-tests",
+      "rule": "Focused test (.only / fit / fdescribe)",
+      "fix": "Drop the .only — a focused test silently skips the rest of the suite in CI.",
+      "snippet": "it.only('renders the current week', () => {",
+      "heuristic": false,
+      "source": "standards_check"
+    },
+    {
+      "file": "web/src/invoices/InvoiceWeekGrid.js",
+      "line": 11,
+      "severity": "medium",
+      "rule_id": "no-debug-console",
+      "rule": "Debug console output in added code",
+      "fix": "Remove the console.log, or route it through the app's logger behind a debug flag.",
+      "snippet": "console.log('weeks', weeks)",
+      "heuristic": false,
+      "source": "standards_check"
+    },
+    {
+      "file": "api/invoices/get_invoice_weeks.py",
+      "line": 16,
+      "severity": "medium",
+      "rule_id": "no-debug-print",
+      "rule": "Debug print() in added library code",
+      "fix": "Use the module logger at debug level, or remove it.",
+      "snippet": "print(f\"cutoff {cutoff}\")",
+      "heuristic": false,
+      "source": "standards_check"
+    },
+    {
+      "file": "web/src/invoices/InvoiceWeekGrid.js",
+      "line": 14,
+      "severity": "medium",
+      "rule_id": "undefined-identifier",
+      "rule": "Identifier used without being imported or declared",
+      "fix": "`invoiceService` is never imported — prev() throws a ReferenceError on the first click. Correctness is dev-code-review's lane; flagged here only because there is no review.json for this branch.",
+      "snippet": "const weeks = await invoiceService.getWeeks({ from: today })",
+      "heuristic": false,
+      "confirmed": true,
+      "source": "reader"
+    },
+    {
+      "file": "web/src/invoices/InvoiceWeekGrid.js",
+      "line": 0,
+      "severity": "medium",
+      "rule_id": "missing-test-for-new-behavior",
+      "rule": "New branching behavior with no passing test in the change set",
+      "fix": "The branch adds a new query (90-day cutoff + empty guard) and a new component with async navigation; the only new test file is the focused one above. dev-code-review's test-coverage specialist is the primary owner; flagged here because the gap is unclaimed on this branch.",
+      "snippet": "",
+      "heuristic": false,
+      "source": "reader"
+    },
+    {
+      "file": "api/invoices/get_invoice_weeks.py",
+      "line": 9,
+      "severity": "low",
+      "rule_id": "todo-without-ticket",
+      "rule": "TODO / FIXME without a ticket key",
+      "fix": "Add the ticket key (PROJ-2401) or resolve it before the PR.",
+      "snippet": "# TODO: handle fiscal-year offsets",
+      "heuristic": false,
+      "source": "standards_check"
+    },
+    {
+      "file": "web/src/invoices/InvoiceWeekGrid.js",
+      "line": 8,
+      "severity": "low",
+      "rule_id": "unused-import",
+      "rule": "Imported symbol never used",
+      "fix": "`formatMonth` is imported but never referenced. Drop it from the import.",
+      "snippet": "import { formatWeek, formatMonth } from './format'",
+      "heuristic": false,
+      "source": "reader"
+    }
+  ],
+  "blockers": [
+    "fix_verified = missing — no verify.json exists for PROJ-2401, so nothing proves the fix works. A loop run may not open a PR without a fresh `pass` from qa-verify (fail closed); route back through verify.",
+    "api/invoices/get_invoice_weeks.py:4 — no-secret-literals (CRITICAL, reader-confirmed) — a live-looking reporting key literal; move it to the environment and rotate it.",
+    "web/src/invoices/__tests__/InvoiceWeekGrid.test.js:4 — no-focused-tests (HIGH) — it.only() would silently skip the rest of the suite in CI.",
+    "Backend build/test evidence could not be established. The branch changes api/invoices/get_invoice_weeks.py, but the api project's build command (conventions.projects[].build) exits 1 in this checkout because its dependencies are not installed. Nothing here proves the module imports under CI, and a readiness verdict on a build that was never run is a lie."
+  ],
+  "warnings": [
+    "STALE EVIDENCE — runs/PROJ-2401/regression.json reports green (34/34 passed, lint 0->0) but predates both changed source files. It was NOT adopted; the frontend build/lint were re-run locally instead. That green describes code that no longer exists — do not cite it in the PR.",
+    "review.json is MISSING for PROJ-2401 — no dev-code-review verdict exists for this diff. Not a blocker on its own (the standard defect recipe has no review stage), but it means nothing has judged this diff for correctness or symptom-masking.",
+    "web/src/invoices/InvoiceWeekGrid.js:11 — no-debug-console (MEDIUM) — console.log left in a component.",
+    "api/invoices/get_invoice_weeks.py:16 — no-debug-print (MEDIUM) — print() in library code.",
+    "web/src/invoices/InvoiceWeekGrid.js:14 — undefined-identifier (MEDIUM, reader-confirmed) — `invoiceService` is used without an import; prev() would throw a ReferenceError at runtime.",
+    "missing-test-for-new-behavior (MEDIUM) — new query branching and new component navigation land with no passing test in the change set.",
+    "api/invoices/get_invoice_weeks.py:9 — todo-without-ticket (LOW) — add the ticket key or resolve it.",
+    "web/src/invoices/InvoiceWeekGrid.js:8 — unused-import (LOW) — `formatMonth` imported, never used.",
+    "runs/PROJ-2401/regression.json is committed on the branch and will land in the PR as a source-file change. Loop evidence in the diff is usually not what you want reviewers reading."
+  ],
+  "confirmed_clear": [
+    "no-secret-literals heuristic at web/src/invoices/InvoiceWeekGrid.js:3 — read the file: `const TOKEN_HEADER = 'x-api-token'` is a header NAME, not a credential. Not a violation — do not re-litigate.",
+    "Tenant scoping — read get_invoice_weeks.py: the query filters on the session's workspace_id, so the read is workspace-scoped. No cross-tenant exposure — do not re-litigate this next run.",
+    "No TASK.md on this branch, so there are no open CRITICAL/HIGH review items to roll up.",
+    "R6 blast radius — the diff touches no migrations, secrets/env config, auth config, IaC, or CI definitions."
+  ],
+  "report_path": "runs/PROJ-2401/pre-pr-report.md",
+  "summary": "NOT clear to open the PR. No verify.json exists, so the fix is unproven (fail closed); the loop's regression.json green is stale (older than both changed files) and was discarded, not adopted; the deterministic standards scan exits 3 with a read-confirmed CRITICAL secret literal and a HIGH focused test; and the backend build could not be established at all because the api project's build command cannot run in this checkout. Route to dev-fix for the two blocking violations, re-run qa-verify, then re-run this gate with a real backend build."
+}

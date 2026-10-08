@@ -1,0 +1,8 @@
+{
+  "schema": "dev-intake/1",
+  "key": "PROJ-9201",
+  "recipe": "dev-loop-defect",
+  "risk_class": "standard",
+  "area": "Settings/Members",
+  "summary": "MAINREPOTICKETMARKER — a run that happened in the repo root itself."
+}

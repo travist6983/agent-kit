@@ -1,0 +1,66 @@
+{
+ "_doc": "Test routes for qa-ui-parity-sweep's offline suite. Neutral selectors and example-domain areas.",
+ "roots": {
+  "baseline": "main",
+  "candidate": ".page-content"
+ },
+ "console_noise": [
+  {
+   "pattern": "chat-widget",
+   "why": "support chat widget"
+  }
+ ],
+ "source": {
+  "candidate_paths": [
+   "src"
+  ],
+  "baseline_paths": [
+   "components",
+   "pages"
+  ],
+  "extensions": [
+   ".tsx",
+   ".scss",
+   ".css"
+  ],
+  "component_extensions": [
+   ".tsx"
+  ],
+  "style_extensions": [
+   ".scss",
+   ".css"
+  ]
+ },
+ "routes": [
+  {
+   "id": "alpha",
+   "area": "projects",
+   "path": "/a"
+  },
+  {
+   "id": "beta",
+   "area": "projects",
+   "path": "/b"
+  },
+  {
+   "id": "gamma",
+   "area": "workspace",
+   "path": "/"
+  },
+  {
+   "id": "delta",
+   "area": "projects",
+   "path": "/d"
+  },
+  {
+   "id": "epsilon",
+   "area": "projects",
+   "path": "/e"
+  },
+  {
+   "id": "zeta",
+   "area": "workspace",
+   "path": "/z"
+  }
+ ]
+}

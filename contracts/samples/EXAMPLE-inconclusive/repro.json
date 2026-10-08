@@ -1,0 +1,7 @@
+{
+  "status": "inconclusive",
+  "surface": "state-mutation",
+  "symptom_quote": "Reporter: saving an invoice line item intermittently throws. Could not determine — the dev API returned 500 on GET /api/invoices so the symptom could not be driven to a verdict.",
+  "app_map_writes": [],
+  "replay_spec": ""
+}

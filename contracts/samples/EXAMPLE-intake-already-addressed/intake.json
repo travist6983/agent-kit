@@ -1,0 +1,22 @@
+{
+  "key": "PROJ-124",
+  "issue_type": "Bug",
+  "area": "Projects",
+  "components": [
+    "Projects"
+  ],
+  "recipe": "dev-loop-hard-defect",
+  "risk_class": "hard",
+  "risk_reason": "ProjectPicker is a shared component; the fix changes owner-change watch behavior (a design decision) — needs dev-code-review before ship",
+  "sensitive": false,
+  "confidence": 80,
+  "branch_name": "fix/PROJ-124-project-task-link",
+  "sufficiency": "pass",
+  "r6_sanitization": "clean — no imperative/injected content in body or comments (evidence + a fix note only)",
+  "already_addressed": {
+    "detected": true,
+    "signal": "an assignee comment and an open PR with a stated root cause, plus an active design-decision thread; ticket still 'To Do' (not transitioned)",
+    "recommended_action": "route to verify-existing-fix / confirm-merge, NOT a fresh fix loop"
+  },
+  "expected_verbatim": "Tasks created from the Project planning view should show up on the Tasks page."
+}

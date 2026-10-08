@@ -1,0 +1,18 @@
+{
+  "_comment": "The shared-brain pointer. TRACKED IN GIT, holds no secret. Fill in database_url once, for everyone, and commit it; a fresh clone then lands on the same brain. Keys starting with _comment are ignored.",
+  "database_url": "",
+  "_comment_database_url": "Explicit libpq DSN of the shared Postgres + pgvector brain, e.g. 'host=db.example.com port=5432 dbname=loop_kb user=loop_rw sslmode=require'. Never defaulted: an empty value is an error. KB_DATABASE_URL in the environment (or kb --db) overrides it. A loopback / unix-socket host is refused unless KB_ALLOW_UNSHARED=1.",
+  "auth": {
+    "mode": "password"
+  },
+  "_comment_auth": "auth.mode is one of: password (DSN / PGPASSWORD / ~/.pgpass, or the env var auth.password_env names, default KB_DB_PASSWORD, usually set in the secret env file) | url_env (the full DSN with its credential lives in the env var auth.env names, default KB_DATABASE_URL) | token_command (auth.command, an argv list or shell string that prints a short-lived DB token used as the password, e.g. a cloud CLI's generate-db-auth-token).",
+  "embedding": {
+    "provider": "openai",
+    "model": "text-embedding-3-small",
+    "dim": 1536,
+    "api_key_env": "OPENAI_API_KEY"
+  },
+  "_comment_embedding": "provider: openai | openai-compatible (set embedding.base_url for a self-hosted or gateway endpoint) | stub (TEST-ONLY, never for real rows). api_key_env NAMES the env var holding the key; the key itself lives in the secret env file. Changing dim means re-rendering the schema: kb schema --dim N --apply.",
+  "secret_env_file": "kb.secret.env",
+  "_comment_secret_env_file": "Gitignored, per machine, next to this file: the embedding key (the variable api_key_env names) and, for auth.mode password, KB_DB_PASSWORD."
+}

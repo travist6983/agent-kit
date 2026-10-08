@@ -1,0 +1,15 @@
+{
+  "key": "PROJ-125",
+  "status": "fixed",
+  "is_root_cause": true,
+  "failure_class": null,
+  "root_cause": "web/src/tasks/TaskPopup.js onProjectChange() ran form.model.assigneeIds = [] unconditionally on any project change — wiping even assignees who are still members of the newly-selected project.",
+  "files_changed": [
+    "web/src/tasks/TaskPopup.js"
+  ],
+  "diff_summary": "Keep assignees who are members of the newly-selected project (filter by project.members); clear only when no project is selected.",
+  "design_decisions": [
+    "Sibling defect: CommentPopup.js has the same unconditional assignee-wipe on project change — recommend a separate ticket."
+  ],
+  "confidence": 85
+}

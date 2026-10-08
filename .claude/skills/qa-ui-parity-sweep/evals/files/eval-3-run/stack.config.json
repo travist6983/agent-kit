@@ -1,0 +1,38 @@
+{
+ "_doc": "A minimal stack.config for the offline tests (LOOPS_STACK_CONFIG points here).",
+ "version": "1.0.0",
+ "project": {
+  "name": "example-app",
+  "default_branch": "main",
+  "branch_prefixes": {
+   "fix": "fix/"
+  }
+ },
+ "app": {
+  "repo_dir": null,
+  "url": "http://localhost:3000",
+  "environments": {
+   "design": {
+    "url": "https://design.example.com"
+   },
+   "staging": {
+    "url": "https://staging.example.com"
+   }
+  }
+ },
+ "stack": {
+  "conventions_file": ".claude/loops/conventions.json"
+ },
+ "adapters": {},
+ "evidence": {
+  "root": "runs"
+ },
+ "limits_file": ".claude/loops/loop-limits.json",
+ "integrations": {
+  "ui_parity": {
+   "baseline_env": "design",
+   "candidate_env": "staging",
+   "routes": []
+  }
+ }
+}

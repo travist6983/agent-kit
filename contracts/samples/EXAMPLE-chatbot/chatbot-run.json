@@ -1,0 +1,84 @@
+{
+  "status": "FAIL",
+  "summary": "4/6 pass. The original 'tasks require a project' rejection is gone, but T6 shows created tasks missing from the assistant's own list — claimed success, UI confirms persistence, inline list capped.",
+  "cases": [
+    {
+      "id": "T1",
+      "name": "literal repro",
+      "status": "PASS",
+      "ui_verified": true,
+      "evidence": "Assistant: \"I've created the task 'Send the Q3 invoice' in Project Alpha, due Tuesday.\" Tasks page shows 'Send the Q3 invoice' · Project Alpha · due Tue.",
+      "transcript": "transcripts/T1.md"
+    },
+    {
+      "id": "T2",
+      "name": "single-shot variant",
+      "status": "PASS",
+      "ui_verified": true,
+      "evidence": "Created in one turn; row present with matching assignee + due date.",
+      "transcript": "transcripts/T2.md"
+    },
+    {
+      "id": "T3",
+      "name": "multi-turn variant",
+      "status": "PARTIAL",
+      "failure_class": "wrong-data",
+      "ui_verified": true,
+      "evidence": "Assistant claimed \"due Monday 9am\"; Tasks page shows Monday 8:00 PM — time drifted to a UTC midnight roll.",
+      "transcript": "transcripts/T3.md"
+    },
+    {
+      "id": "T4",
+      "name": "adjacent — create a Project",
+      "status": "PASS",
+      "ui_verified": true,
+      "evidence": "Failure is not task-specific: Project 'Q3 Launch' created and persisted correctly.",
+      "transcript": "transcripts/T4.md"
+    },
+    {
+      "id": "T5",
+      "name": "cross-tool routing",
+      "status": "PASS",
+      "ui_verified": true,
+      "evidence": "Task → add-comment in the same chat routed to the comments tool; comment visible in the task's Comments panel.",
+      "transcript": "transcripts/T5.md"
+    },
+    {
+      "id": "T6",
+      "name": "persistence-verification chat",
+      "status": "FAIL",
+      "failure_class": "failure-mode-hit",
+      "ui_verified": true,
+      "evidence": "Assistant listed 3 of the 5 tasks created this run; UI shows all 5. Inline list cap misreports state to the user.",
+      "transcript": "transcripts/T6.md"
+    }
+  ],
+  "failure_modes": [
+    {
+      "mode": "tasks require a project",
+      "reproduced": false,
+      "case_ids": [
+        "T1",
+        "T2"
+      ]
+    },
+    {
+      "mode": "ISO-only date parsing",
+      "reproduced": false,
+      "case_ids": [
+        "T3"
+      ]
+    },
+    {
+      "mode": "inline list caps at 3 items",
+      "reproduced": true,
+      "case_ids": [
+        "T6"
+      ]
+    }
+  ],
+  "new_observations": [
+    "Time-parsing rolls hours to UTC midnight on multi-turn flows only (T3 vs T2) — recommend its own ticket."
+  ],
+  "notes": "Brain: 2 app_map data_location writes (tasks page row locator, chat input); 1 expectation proposed (inline list cap); flakiness clean."
+}

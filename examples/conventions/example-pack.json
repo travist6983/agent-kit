@@ -1,0 +1,181 @@
+{
+  "_comment": "EXAMPLE conventions pack for a HYPOTHETICAL stack: a Ruby JSON API under app/ + a TypeScript single-page UI under web/, serving Workspaces, Projects, Tasks, Comments, Invoices, Members and Settings. Every rule is here to demonstrate one feature of the format (see README.md). Copy, then delete what is not yours.",
+  "version": "1.0.0",
+  "guidelines_file": "CLAUDE.md",
+  "suppress_marker": "standards:allow",
+  "test_path_regex": "(_spec\\.rb$|\\.test\\.tsx?$|/spec/|/__tests__/|/fixtures?/)",
+  "rules": [
+    {
+      "_comment": "A plain `line` rule, non-heuristic: the pattern IS the verdict. Wall-clock reads bypass the per-workspace time zone and make tests flaky.",
+      "id": "api-raw-time-now",
+      "layer": "api",
+      "severity": "high",
+      "include_path": "^(app|lib)/.*\\.rb$",
+      "exclude_path": "(^|/)clock\\.rb$",
+      "skip_tests": true,
+      "pattern": "\\bTime\\.now\\b|\\bDateTime\\.now\\b|\\bDate\\.today\\b",
+      "rule": "Raw wall-clock read",
+      "fix": "Use the Clock service (Clock.now / Clock.today) so time is workspace-zoned and test-controllable.",
+      "heuristic": false
+    },
+    {
+      "_comment": "A `line` rule that is a layer-boundary check: UI components call the api client module, never fetch() directly.",
+      "id": "web-raw-fetch-in-component",
+      "layer": "web",
+      "severity": "high",
+      "include_path": "^web/src/components/.*\\.tsx?$",
+      "skip_tests": true,
+      "pattern": "\\bfetch\\s*\\(|\\baxios\\.",
+      "rule": "Direct HTTP call from a component",
+      "fix": "Call a method on web/src/api/* instead; components never talk to the network directly, so auth, retries and error toasts stay in one place.",
+      "heuristic": false
+    },
+    {
+      "_comment": "A `file_absent` rule: flag an added subscription only when the WHOLE FILE has no matching unsubscribe. This is the 'you did X but never did Y' shape.",
+      "id": "web-listener-without-cleanup",
+      "layer": "web",
+      "severity": "medium",
+      "type": "file_absent",
+      "include_path": "^web/src/.*\\.tsx?$",
+      "skip_tests": true,
+      "pattern": "\\baddEventListener\\s*\\(|\\bsocket\\.on\\s*\\(",
+      "absent_pattern": "\\bremoveEventListener\\s*\\(|\\bsocket\\.off\\s*\\(",
+      "rule": "Event subscription with no cleanup anywhere in the file",
+      "fix": "Pair every addEventListener / socket.on with its removal in the component's cleanup, or handlers leak across navigations.",
+      "heuristic": false
+    },
+    {
+      "_comment": "A HEURISTIC `file_absent` rule — the most valuable and the most dangerous kind. Multi-tenant isolation: an entry-point query in a controller with no workspace scope anywhere in the file. A regex cannot tell a scoped base class from a cross-tenant read, so it is a lead; the gate must read the file and answer confirm_question before it blocks as CRITICAL.",
+      "id": "api-query-without-workspace-scope",
+      "layer": "api",
+      "severity": "critical",
+      "type": "file_absent",
+      "include_path": "^app/controllers/.*_controller\\.rb$",
+      "skip_tests": true,
+      "pattern": "\\.(where|find_by|find|all|pluck)\\b",
+      "absent_pattern": "\\bcurrent_workspace\\b|\\bworkspace_id\\b|\\bscoped_to_workspace\\b",
+      "rule": "Entry-point query with no workspace scope anywhere in the file",
+      "fix": "Scope every entry-point query to current_workspace (or inherit a controller base that does). CONFIRM by reading the file — a controller that delegates to a scoped query object is fine.",
+      "heuristic": true,
+      "confirm_question": "Does this query actually cross workspaces, or is scoping applied by a base class / query object the file calls?"
+    },
+    {
+      "_comment": "A `sibling_file` rule — the cross-file check. Every service object needs its spec; {stem} is the basename minus '_service', and the template is a path, so it matches that relative path.",
+      "id": "api-service-without-spec",
+      "layer": "api",
+      "severity": "high",
+      "type": "sibling_file",
+      "include_path": "^app/services/.*_service\\.rb$",
+      "strip_suffix": "_service",
+      "sibling_template": "spec/services/{stem}_service_spec.rb",
+      "rule": "Service object with no spec",
+      "fix": "Add spec/services/<name>_service_spec.rb — a service without a spec is the place the next regression hides.",
+      "heuristic": false
+    },
+    {
+      "_comment": "A heuristic style rule using the design system. Literals inside the token DEFINITION file are legitimate, which is exactly why it is a heuristic with an exclude_path AND a confirm_question.",
+      "id": "web-hardcoded-color",
+      "layer": "web",
+      "severity": "medium",
+      "include_path": "^web/src/.*\\.(css|scss|tsx?)$",
+      "exclude_path": "^web/src/styles/tokens/",
+      "skip_tests": true,
+      "pattern": "(?<![\\w-])#[0-9a-fA-F]{6}\\b|(?<![\\w-])#[0-9a-fA-F]{3}\\b|\\brgba?\\s*\\(|\\bhsla?\\s*\\(",
+      "rule": "Hardcoded color value",
+      "fix": "Use a design token (var(--color-…)) instead of a literal; literals drift from the palette and break theming.",
+      "heuristic": true,
+      "confirm_question": "Is the literal inside a token definition or a third-party chart config (fine), or in a component style (a violation)?"
+    },
+    {
+      "_comment": "A rule that uses the {{ticket_key_pattern}} placeholder: a skipped spec must name the ticket that owns re-enabling it.",
+      "id": "api-skipped-spec-without-ticket",
+      "layer": "api",
+      "severity": "medium",
+      "include_path": "_spec\\.rb$",
+      "pattern": "\\b(xit|xdescribe|skip:|pending)\\b(?!.*{{ticket_key_pattern}})",
+      "rule": "Skipped spec without a ticket key",
+      "fix": "Reference the ticket that will un-skip it (`xit 'does X' # PROJ-123`) — a skipped spec with no owner never comes back.",
+      "heuristic": false
+    },
+    {
+      "_comment": "The framework defaults are worth keeping as-is in most packs. Shown here so the pack is complete on its own.",
+      "id": "no-focused-tests",
+      "severity": "high",
+      "include_path": "(_spec\\.rb$|\\.test\\.tsx?$|/spec/|/__tests__/)",
+      "pattern": "\\b(describe|it|test|context)\\.only\\s*\\(|\\b(fdescribe|fit)\\s*\\(|\\bfocus:\\s*true\\b",
+      "rule": "Focused test",
+      "fix": "Remove the focus. A focused test silently skips the rest of the suite.",
+      "heuristic": false
+    },
+    {
+      "id": "no-secret-literals",
+      "severity": "critical",
+      "include_path": ".",
+      "exclude_path": "(\\.example|\\.sample|\\.template|\\.md|\\.lock)$|(^|/)(fixtures?|mocks?|testdata)/",
+      "skip_tests": true,
+      "pattern": "(?i)\\b(api[_-]?key|secret|passwd|password|auth[_-]?token|access[_-]?token|private[_-]?key)\\b\\s*[:=]\\s*[\"'][^\"'$<>{}]{12,}[\"']|\\bAKIA[0-9A-Z]{16}\\b|\\bsk-[A-Za-z0-9]{20,}\\b|\\bgh[pousr]_[A-Za-z0-9]{30,}\\b|\\bxox[baprs]-[A-Za-z0-9-]{10,}\\b|-----BEGIN [A-Z ]*PRIVATE KEY-----",
+      "rule": "Secret-looking literal in added code",
+      "fix": "Never commit a credential. Read it from the environment and rotate the one you just pasted — it is in the diff now.",
+      "heuristic": true,
+      "confirm_question": "Is this a real credential, or a placeholder / documentation value that could never authenticate anything?"
+    },
+    {
+      "id": "todo-without-ticket",
+      "severity": "low",
+      "include_path": ".",
+      "exclude_path": "\\.(md|lock)$",
+      "pattern": "\\b(TODO|FIXME|HACK|XXX)\\b(?!.*{{ticket_key_pattern}})",
+      "rule": "TODO / FIXME without a ticket key",
+      "fix": "Reference the ticket that owns the follow-up (`TODO PROJ-123: …`).",
+      "heuristic": false
+    }
+  ],
+  "projects": [
+    {
+      "_comment": "Which paths imply which CI-parity commands. `build: null` means the project has no build step. These must be the EXACT commands CI runs.",
+      "name": "api",
+      "path_globs": ["app/**", "lib/**", "config/**", "db/**", "Gemfile", "Gemfile.lock"],
+      "build": null,
+      "lint": "bundle exec rubocop",
+      "unit_test": "bundle exec rspec",
+      "test_report": { "format": "junit", "glob": "tmp/rspec/*.xml" }
+    },
+    {
+      "name": "web",
+      "path_globs": ["web/**"],
+      "build": "npm --prefix web run build",
+      "lint": "npm --prefix web run lint",
+      "unit_test": "npm --prefix web test -- --run",
+      "test_report": { "format": "junit", "glob": "web/test-results/*.xml" }
+    }
+  ],
+  "blast_radius_denylist_globs": [
+    "db/migrate/**",
+    "db/schema.rb",
+    "config/credentials*",
+    "config/initializers/auth*",
+    "infra/**",
+    ".github/workflows/**"
+  ],
+  "shared_core_globs": [
+    "app/models/concerns/**",
+    "app/services/billing/**",
+    "web/src/shared/**",
+    "web/src/api/**"
+  ],
+  "app_handles": {
+    "primary_nav": "[data-testid=primary-nav]",
+    "workspace_switcher": "[data-testid=workspace-switcher]",
+    "toast": "[role=status]",
+    "modal": "[role=dialog]"
+  },
+  "domain_glossary": {
+    "Workspace": "the tenant; every row belongs to exactly one, and no query may cross it",
+    "Project": "a container of Tasks inside a Workspace",
+    "Task": "the unit of work; has an assignee (a Member), a status and Comments",
+    "Comment": "a threaded note on a Task",
+    "Invoice": "a billing document for a Workspace; the sensitive area that never auto-ships",
+    "Member": "a user inside a Workspace with one of the roles owner / admin / member / observer",
+    "Settings": "per-Workspace configuration; changes here are shared-core edits"
+  }
+}

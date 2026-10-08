@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "loops/contracts/qa-diagnose.json",
+  "title": "qa-diagnose diagnose.json — control-plane propose-only failure diagnosis",
+  "version": "1.0.0",
+  "status": "ratified",
+  "description": "The ratified output of the qa-diagnose skill, written to <evid_root>/<key>/diagnose.json (KEY = diag-<record_id>). qa-diagnose is the PROPOSE-ONLY diagnose lane of the control plane's QA-automation loop. Given a failed run's context.json (the generated-code tier: the materialized case file, and the failure evidence — error summary, output tail, failed steps, screenshots) it gathers evidence (READS the failure screenshot FIRST), runs a two-agent swarm (Screenshot+Error analyzer over the 9-cause taxonomy, and Source-code analyzer), synthesizes the root cause, and — this is the whole point — PROPOSES a minimal fix as a unified-diff STRING. It NEVER applies the fix (the skill's allowed-tools omit Edit; propose-only is structurally enforced). The runner returns this object verbatim to the control plane; the control plane stores it as the run record's diagnosis (propose-only — no fix is auto-applied; a human / a developer reviews the diff and decides whether to land it), and branches on `failure_layer` to route the finding (app_bug -> a product-code fix path; test_bug -> the case-code path; environment/data -> a non-code triage path). Spec-suite automations are out of scope: the skill never re-runs, reads, or proposes a diff to a spec-suite file, and a run on a spec-suite tier still emits a valid diagnosis, with `diff: \"\"` and `notes` saying the tier is unsupported and the case should be re-run on the generated-code tier. Single diagnosis pass, no re-run/iterate loop — nothing is applied, so there is nothing to re-verify. If a fix cannot be determined the skill still emits a valid diagnosis with `diff: \"\"` (empty) and puts what a human must investigate in `notes` — the headless give-up path, never a hang. This file is the single source of truth for the runner and the control plane. See contracts/README.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["root_cause", "failure_layer"],
+  "properties": {
+    "root_cause": {
+      "type": "string",
+      "description": "The synthesized root cause of the failure in one honest paragraph — WHICH file/element and WHY it failed, distinguishing symptom from cause. Grounded in the evidence actually read (the failure screenshot, the error output, the source). For an inconclusive run, state what could NOT be determined and why."
+    },
+    "failure_layer": {
+      "type": "string",
+      "enum": ["app_bug", "test_bug", "environment", "data"],
+      "description": "Where the fault lives — the field the control plane branches on to route the finding. app_bug = the product code under test is wrong (the test caught a real defect). test_bug = the case code (the materialized case file) is wrong (bad selector, wrong step order, missing wait, hardcoded data). environment = infra/config/auth/timeout/network, not the code. data = seed/fixture/precondition data is missing or wrong. This is the fault LAYER, independent of whether a diff was proposed (an app_bug may still carry `diff: \"\"` when the fix needs a human)."
+    },
+    "summary": {
+      "type": "string",
+      "description": "OPTIONAL. One honest line describing the diagnosis outcome (e.g. 'test_bug: selector getByTestId(\\'comment-add\\') is not rendered by the Comments panel — proposed getByRole fallback'). For an inconclusive run, say so plainly."
+    },
+    "diff": {
+      "type": "string",
+      "description": "The PROPOSED minimal fix as a unified diff (diff --git / --- / +++ / @@ hunks) — a STRING, never applied. Scoped as tightly as the root cause allows (ideally one file, the fewest hunks). Never targets a spec-suite file. MAY be the empty string \"\" when no fix can be determined (the give-up path) or the run is on an unsupported spec-suite tier — in that case `notes` MUST explain what a human should investigate. An empty diff is valid; the contract never requires a non-empty fix."
+    },
+    "confidence": {
+      "type": "number",
+      "description": "OPTIONAL. 0.0-1.0 self-assessed confidence in the root_cause + proposed diff. Low confidence is a signal to a human reviewer, not a reason to withhold the diagnosis."
+    },
+    "notes": {
+      "type": "string",
+      "description": "OPTIONAL free-form notes: alternatives considered, perishable caveats (line numbers / behaviors pinned to the current build), follow-ups, and — REQUIRED when `diff` is empty — exactly what a human must investigate to determine the fix."
+    }
+  }
+}

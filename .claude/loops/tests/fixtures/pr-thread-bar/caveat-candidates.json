@@ -1,0 +1,8 @@
+[
+  {
+    "kind": "caveat",
+    "title": "Pre-existing security gap in the project-permissions update endpoint",
+    "decision": "Not reachable from this dialog; not introduced here.",
+    "must_read": false
+  }
+]

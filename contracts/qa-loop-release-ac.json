@@ -1,0 +1,207 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "version": "2.0.0",
+  "title": "qa-loop-release-ac ac-matrix.json \u2014 every acceptance criterion in a release, and what happened to it",
+  "description": "Version 2.0.0 (BREAKING: rows carry `case_dir` instead of `case_id`/`test`; `run_url` and `summary.unmatched_receipts` are gone; `fix_version` is now `release_name`, matching what `matrix` has always emitted). Emitted by the `qa-loop-release-ac` recipe (`release_ac.mjs matrix`). One row per Gherkin scenario (or explicit prose AC bullet) found in the issue-tracker tickets a release label names, joined to the qa-run-case receipt (`case-run.json`) of the case file `release_ac.mjs cases` wrote for it (or qa-run-chatbot's grade for chat-class scenarios). `summary.verdict` is deliberately strict: `all-ac-pass` only when every scenario was judged and passed \u2014 a run where the automated half is green and the manual half was never run is `automated-pass-with-gaps`, never a pass. Not consumed by the control plane \u2014 QA / release-owner facing.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "release_version",
+    "release_name",
+    "env",
+    "generated",
+    "summary",
+    "rows"
+  ],
+  "properties": {
+    "release_version": {
+      "type": "string",
+      "description": "The version the release label carries (vcs_host / ci_cd adapters), e.g. \"21.0.0\"."
+    },
+    "release_name": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "The issue-tracker release name it reconciled against (named per integrations.release_ac.release_name_pattern), e.g. \"Release 21.0.0\"."
+    },
+    "env": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "The environment the scenarios ran against (never production)."
+    },
+    "generated": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scenarios",
+        "pass",
+        "fail",
+        "blocked",
+        "manual",
+        "not_run",
+        "not_deployed",
+        "too_thin",
+        "dev_gate",
+        "descoped",
+        "tickets_without_ac",
+        "automated_pct",
+        "verdict"
+      ],
+      "properties": {
+        "scenarios": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "pass": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fail": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "blocked": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "manual": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Scenarios a person must run (email, mobile, voice, time-travel, destructive billing, server-side) that have no result yet."
+        },
+        "not_run": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "not_deployed": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Scenarios whose PR's merge commit is not in the environment's build \u2014 skipped, never failed."
+        },
+        "too_thin": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "dev_gate": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "AC that is a developer gate (typecheck, lint, unit tests) \u2014 owned by qa-regression / dev-pre-pr, not by this run."
+        },
+        "tickets_without_ac": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "In-scope tickets with no Gherkin and no acceptance-criteria bullets. A finding for the reporter; nothing is invented for them."
+        },
+        "automated_pct": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "verdict": {
+          "type": "string",
+          "enum": [
+            "failures",
+            "incomplete",
+            "automated-pass-with-gaps",
+            "all-ac-pass"
+          ]
+        },
+        "descoped": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Scenarios the PR description or a ticket comment explicitly cut from this release \u2014 quoted in class_why, never silently dropped."
+        }
+      }
+    },
+    "rows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scenario_id",
+          "key",
+          "title",
+          "class",
+          "class_why",
+          "case_dir",
+          "result",
+          "evidence"
+        ],
+        "properties": {
+          "scenario_id": {
+            "type": "string",
+            "description": "<issue key>#S<n> \u2014 stable for a given ticket body."
+          },
+          "key": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "class": {
+            "type": "string",
+            "enum": [
+              "ui",
+              "chat",
+              "backend",
+              "prose-ac",
+              "manual-email",
+              "manual-mobile",
+              "manual-voice",
+              "manual-time",
+              "gated-destructive",
+              "dev-check",
+              "too-thin",
+              "not-deployed",
+              "descoped"
+            ]
+          },
+          "class_why": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "case_dir": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The scenario's qa-run-case directory (`<cases out-dir>/<KEY>-S<n>/`, holding case.json and, once run, case-run.json); null for a scenario that got no case file (manual, chat, not deployed, too thin, dev gate, descoped)."
+          },
+          "result": {
+            "type": "string",
+            "enum": [
+              "pass",
+              "fail",
+              "blocked",
+              "partial",
+              "manual",
+              "not-run",
+              "no-case",
+              "not-deployed",
+              "too-thin",
+              "dev-gate",
+              "descoped"
+            ]
+          },
+          "evidence": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

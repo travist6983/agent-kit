@@ -1,0 +1,66 @@
+{
+  "skill_name": "qa-loop-release-ac",
+  "_fixture": "Every eval runs against a synthetic release, never a live account: the `file` issue_tracker (tickets PROJ-101..PROJ-112 under the configured tickets dir, release name \"Sparrow 4.2.0\" in each ticket's raw.releases), the `git-local` vcs_host over a fixture app repo whose merged PRs 41-52 carry the `4.2.0` label (PRs 50, 51, 52 merged after the environment's last deploy), two deploy tracks (frontend: web/**; backend: api/**) whose version sources are fakes on PATH, and `app.environments.staging.url` pointing at a stub. PROJ-110 and PROJ-111 have no Gherkin and no AC bullets; PROJ-103 and PROJ-104 are PR-only (no release field); PROJ-105 and PROJ-108 carry email scenarios; PROJ-107 is a bug ticket whose template has an Actual Behavior block.",
+  "evals": [
+    {
+      "id": 1,
+      "name": "full-ac-release",
+      "prompt": "we just merged all the PRs for 4.2.0 and they're on staging now. can you test every piece of gherkin AC from the tickets on those PRs?",
+      "expected_output": "Scopes the release from the vcs_host PR labels + the tracker's release field (Sparrow 4.2.0), flags PROJ-103/PROJ-104 as PR-only, detects PRs 50/51/52 are NOT on staging yet (their scenarios not-deployed, not failed, naming the track), extracts the scenarios skipping Actual Behavior blocks, classifies them, calls out email scenarios as manual, reports PROJ-110/PROJ-111 as having no AC, writes a qa-run-case case file per browser scenario (`A cases`), and stops before execution to show the cases and ask for a yes, without writing anything outward.",
+      "files": [],
+      "assertions": [
+        "Report names PROJ-103 and PROJ-104 as merged under the 4.2.0 label but missing the release field",
+        "Report identifies that PRs 50/51/52 (PROJ-109/PROJ-106/PROJ-124) are not deployed on staging, names the track, and does not count them as failures",
+        "At least one Gherkin scenario was extracted for every in-scope ticket that has Gherkin, and the per-class counts add up to the scenario total",
+        "No extracted scenario asserts a bug's Actual Behavior (e.g. PROJ-107's '✗ the trailing space reappears')",
+        "Report explicitly lists the email scenarios (PROJ-105 and PROJ-108 at minimum) as needing manual testing",
+        "Report names PROJ-110 and PROJ-111 as tickets with no testable AC, without inventing scenarios for them",
+        "Case files exist under the work dir as <KEY>-S<n>/case.json for the ui/prose-ac scenarios only, and the report shows them as cases and asks for a yes before any qa-run-case spawn; nothing was written outward"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "scope-only",
+      "prompt": "before we burn a day on it — how much of the 4.2.0 release could we actually test automatically vs by hand? don't run anything yet, just tell me.",
+      "expected_output": "Phases 1-2 only: in-scope ticket count, per-class scenario counts, automatable percentage, the manual categories named (email, mobile/voice, destructive billing, backend, time), not-deployed tickets, tickets with no AC. No case files executed, no pass-rate metric.",
+      "files": [],
+      "assertions": [
+        "Report gives an automatable share (percentage or automated vs manual counts) for the 4.2.0 scenarios",
+        "Report names the manual categories: email, mobile/voice, and destructive billing/workspace-delete",
+        "Report notes that some 4.2.0 tickets are not yet deployed on staging",
+        "Report names PROJ-110 and PROJ-111 as having no AC",
+        "Nothing was executed: no qa-run-case or qa-run-chatbot spawn, no case-run.json, and no release_ac_pass_rate metric was written"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "full-ac-other-release",
+      "prompt": "run the release AC testing for 4.1.0 — every scenario in every ticket that shipped in it",
+      "expected_output": "Generalises to another release: finds the 4.1.0-labelled PRs through the vcs_host adapter, resolves the tracker's release name from integrations.release_ac.release_name_pattern (or contains-the-version), checks deployment state per track, extracts and classifies scenarios, writes the case files, and asks for a yes before executing them.",
+      "files": [],
+      "assertions": [
+        "Found every fixture PR labelled 4.1.0 and no PR labelled 4.2.0",
+        "Resolved the tracker's release name for 4.1.0 (the one release name denoting that version)",
+        "Reported whether the 4.1.0 PRs are deployed on the target environment, per deploy track",
+        "Extracted and classified scenarios per ticket (a per-class count is present)",
+        "Wrote the case files and stopped for an explicit yes before executing, rather than running unreviewed cases"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "backend-pr-deploy-check",
+      "prompt": "is everything in 4.2.0 actually on staging yet? a couple of those PRs were backend-only (api/ changes) and I don't trust that the frontend's version endpoint tells us anything about the API",
+      "expected_output": "Phase 1 only. Runs `prs` then `deployed`; classes each PR by the deploy tracks its merge commit's changed paths fall into (deploy.tracks path_globs); checks the backend track against the backend's own deploy source (its deployed_version_command / the deploy adapter), not against the frontend's version_endpoint; reports each track's deployed commit/build in deployed.json `tracks`; a PR touching both tracks is deployed only when both are; a failing deploy source is a deploy-unknown stop with that track's PRs left unverified, never counted deployed. Deterministic backing: .claude/loops/tests/test_release_ac_deploy.sh.",
+      "files": [],
+      "assertions": [
+        "deployed.json gives every PR a `track` naming the deploy tracks it touched (frontend, backend or frontend+backend) and a `state`",
+        "deployed.json carries a `tracks` object naming, per track read, the deployed commit, build and the source it came from",
+        "No PR touching the backend track is marked deployed unless its merge commit is an ancestor of the backend track's deployed commit",
+        "The report names the backend track's deployed build separately from the frontend track's",
+        "If the backend deploy source fails, the report shows a deploy-unknown stop naming the backend track and leaves its PRs unverified (none reported as deployed), and the exit code is 3",
+        "A frontend-only release never reads the backend track's deploy source",
+        "test_release_ac_deploy.sh passes against the skill's release_ac.mjs"
+      ]
+    }
+  ]
+}

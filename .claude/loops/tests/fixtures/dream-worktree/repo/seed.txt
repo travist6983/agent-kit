@@ -1,0 +1,2 @@
+Synthetic content so `git init` + `git worktree add` have something to check out.
+Nothing here is real: the repo is a throwaway created inside the test's temp dir.

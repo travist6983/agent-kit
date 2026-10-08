@@ -1,0 +1,6 @@
+{
+  "verdict": "pass",
+  "confidence": 91,
+  "observed_quote": "Row disappears with no reload.",
+  "masking_suspected": false
+}

@@ -1,0 +1,6 @@
+{
+  "verdict": "inconclusive",
+  "confidence": 30,
+  "observed_quote": "The Assignee dropdown never finished loading its member list during three attempts; the symptom surface could not be observed either way.",
+  "masking_suspected": false
+}

@@ -1,0 +1,6 @@
+{
+  "verdict": "pass",
+  "confidence": 93,
+  "observed_quote": "After clicking Send on invoice INV-0042 the row's [data-testid=invoice-status] still read 'Draft' at t=0.5s, t=2s and t=5s while GET /api/invoices/42 returned status 'sent' at t=0.4s; a page reload rendered 'Sent' — the badge is stale, not the data.",
+  "masking_suspected": false
+}

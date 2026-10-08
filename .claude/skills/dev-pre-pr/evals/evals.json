@@ -1,0 +1,72 @@
+{
+  "skill_name": "dev-pre-pr",
+  "evals": [
+    {
+      "id": 1,
+      "name": "stale-evidence-and-violations",
+      "prompt": "im about to open a PR for PROJ-123 (task due-date filter fix), branch fix/PROJ-123-task-due-dates. can you run a pre-pr check on the repo and tell me if im clear to open it? there's loop artifacts under runs/PROJ-123/ from an earlier run.",
+      "expected_output": "BLOCKED. The regression.json says green but predates both changed source files, so it must NOT be adopted as a pass. Real added-line violations from the conventions ruleset: a focused test (.only), a TODO with no ticket key, and heuristic leads (console.log in a component, a secret-looking literal) that are reported as warnings unless confirmed. One configured project's unit-test command cannot run (toolchain missing) so its result is unknown, never pass. Writes pre-pr.json + pre-pr-report.md.",
+      "files": [],
+      "assertions": [
+        "Overall verdict is BLOCKED (not ready, not clear-to-open)",
+        "Detects that runs/PROJ-123/regression.json is STALE — it predates the changed source files — and refuses to adopt its green as a pass",
+        "Reports the non-heuristic added-line violations: the focused test (.only) and the TODO without a ticket key",
+        "Reports the heuristic findings (console.log, secret-looking literal) as leads — confirmed by reading the file before blocking, or left as warnings labeled unconfirmed",
+        "Does NOT claim a project's tests passed when its configured command could not run — the result is unknown/missing/skipped",
+        "Emits a machine-readable readiness verdict in JSON with an explicit overall status field",
+        "The JSON validates against contracts/dev-pre-pr.json",
+        "Produces a human-readable readiness report (markdown) alongside the JSON",
+        "Every blocker names a specific file, and a line number where one applies"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "clean-branch-fresh-evidence",
+      "prompt": "quick pre-PR readiness check on this repo — PROJ-124, member avatar on the task card. the loop already ran verify, regression and code review on it. am i good to open the PR?",
+      "expected_output": "READY. verify.json (pass, not masked), regression.json (green) and review.json (approve) are all newer than the changed file, so they are adopted rather than re-run — no configured build/lint/test command is invoked. Zero conventions violations on the added lines. Writes pre-pr.json with status ready and sources marking all three artifacts fresh.",
+      "files": [],
+      "assertions": [
+        "Overall verdict is READY / clear to open the PR",
+        "Runs the deterministic verify gate first and records fix_verified=pass with sources.verify=fresh",
+        "Adopts the existing regression.json and review.json as FRESH rather than re-running or ignoring them, and records that provenance",
+        "Does NOT re-run the configured build/lint/test commands (no work duplicated that a fresh artifact already answered)",
+        "Reports zero conventions violations on the added lines",
+        "Emits a machine-readable readiness verdict in JSON with an explicit overall status field",
+        "The JSON validates against contracts/dev-pre-pr.json",
+        "Produces a human-readable readiness report (markdown) alongside the JSON"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "false-positive-trap",
+      "prompt": "run the pre-pr check on this repo before i open the PR for PROJ-125. heads up the invoices area is old code — i only added the filter bar and a settings reader, so don't block me on stuff i didn't touch.",
+      "expected_output": "READY or WARNINGS, never BLOCKED. The legacy LegacyInvoicePanel.js / invoice_settings.py violations are pre-existing and must not appear as blockers. The only findings are heuristics on added lines: a print() inside a CLI entry point (legitimate — should be cleared on inspection) and an `api_key = \"<your-key-here>\"` placeholder in a settings example (not a real secret). Unconfirmed heuristics stay warnings.",
+      "files": [],
+      "assertions": [
+        "Overall verdict is NOT blocked (ready or warnings)",
+        "No violation from the pre-existing LegacyInvoicePanel.js or invoice_settings.py is reported as a blocker",
+        "The pre-existing files are not reported as violations at all (the scan is limited to added lines)",
+        "The print() in the CLI entry point is either cleared on inspection or reported as an unconfirmed warning — never a blocker",
+        "The placeholder api_key literal is confirmed to be a non-secret on inspection, or stays an unconfirmed warning — never promoted to a blocker without reading the file",
+        "Emits a machine-readable readiness verdict in JSON with an explicit overall status field",
+        "The JSON validates against contracts/dev-pre-pr.json",
+        "Produces a human-readable readiness report (markdown) alongside the JSON"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "unverified-fix-blocks-despite-green-build",
+      "prompt": "pre-pr for PROJ-126 please, branch fix/PROJ-126-comment-order. regression is green and review approved. verify never finished, i think the app was down when it ran. we're good to ship right?",
+      "expected_output": "BLOCKED with next_action escalate. verify.json is missing (or has verdict blocked), so fix_verified is missing/fail and nothing else matters — a green regression.json and an approve review are not verification. The report puts the Fix verified row first and says why.",
+      "files": [],
+      "assertions": [
+        "Overall verdict is BLOCKED even though regression.json is green and review.json is approve",
+        "Runs scripts/verify_gate.py and adopts its answer verbatim rather than hand-judging",
+        "next_action is escalate (not re-fix) because the oracle produced no evidence about the fix",
+        "Does NOT infer verification from the green build or the approving review",
+        "The report lists Fix verified first in the validations table",
+        "The JSON validates against contracts/dev-pre-pr.json"
+      ]
+    }
+  ]
+}

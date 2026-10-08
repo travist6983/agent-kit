@@ -1,0 +1,12 @@
+{
+  "status": "green",
+  "next_action": "ship-ok",
+  "area": "invoices",
+  "area_slice_run": [],
+  "results": {
+    "passed": 0,
+    "failed": 0,
+    "total": 0
+  },
+  "detail": "NEGATIVE SAMPLE - the incident shape with integer counts: nothing ran, yet green + ship-ok. validate.py must refuse it (QA-REGRESSION-C1)."
+}

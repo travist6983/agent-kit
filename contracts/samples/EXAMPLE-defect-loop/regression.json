@@ -1,0 +1,25 @@
+{
+  "key": "PROJ-123",
+  "status": "green",
+  "next_action": "ship-ok",
+  "area": "invoices",
+  "area_slice_run": [
+    "web/src/invoices/__tests__/InvoiceStatusBadge.test.js",
+    "web/src/invoices/__tests__/InvoiceRow.test.js"
+  ],
+  "smoke_slice_run": [
+    "web unit suite (full)"
+  ],
+  "results": {
+    "passed": 3,
+    "failed": 0,
+    "total": 3
+  },
+  "failed_specs": [],
+  "flaky_quarantined": [],
+  "baseline": {
+    "lint_before": "0 errors",
+    "lint_after": "0 errors"
+  },
+  "detail": "NORMALIZED SAMPLE - the raw run artifact this was modelled on predates the contract and is the QA-REGRESSION-C1 incident shape (zero tests, total n/a, ship-ok); samples/EXAMPLE-bad-green-zero-tests keeps that shape and must FAIL validation."
+}
