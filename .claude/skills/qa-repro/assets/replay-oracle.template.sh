@@ -90,7 +90,15 @@ pw open >/dev/null 2>&1 || blocked "playwright-cli open failed"
 
 # ── sign in ──────────────────────────────────────────────────────────────────────────────────────
 # Signed in = the configured landmark is visible (auth_provider.config.login.signed_in_landmark).
-signed_in() { [ "$(pw run-code "async page => { try { await page.locator($(js_str "$SIGNED_IN_LANDMARK")).first().waitFor({ state: 'visible', timeout: ${1:-30000} }); return 'ok'; } catch (e) { return 'no'; } }")" = '"ok"' ]; }
+# The landmark and timeout are staged in variables first: macOS /bin/bash 3.2 mangles the JS braces
+# when a ${1:-…} expansion and a nested $(…) sit inside one double-quoted command substitution.
+signed_in() {
+  local t="${1:-30000}" lm js out
+  lm=$(js_str "$SIGNED_IN_LANDMARK")
+  js="async page => { try { await page.locator($lm).first().waitFor({ state: 'visible', timeout: $t }); return 'ok'; } catch (e) { return 'no'; } }"
+  out=$(pw run-code "$js")
+  [ "$out" = '"ok"' ]
+}
 # cred_value NAME — the process env wins; then the local (secret) file, then the shared file. Files are read
 # literally, line by line — never sourced or eval'd — so a value like `$(…)` is just text.
 cred_value() {
