@@ -10,7 +10,7 @@ Claude Code mods (plugins of function hooks) that ship with the kit. The kit rep
 | secret-catcher | Pulls API keys out of prompts before the model sees them, saves them to `<config>/secrets/<project>.env` (mode 600) and leaves `$NAME` placeholders. |
 | traffic-control | Shows other live Claude sessions in the same repo and locks push/deploy per repo so parallel sessions can't collide. `/traffic` pane. |
 | pr | Status line `PR #42 draft · CI 4/5 · 2 threads`. `/ci` and `/threads` pane, a toast as each check finishes, and a `review_threads` tool so "fix the review comments" works. Needs an authenticated `gh`. |
-| brain | Recalls matching lessons from the agent-kit brain into each prompt (fails open when the brain is down), gives Claude a `remember` tool whose lessons wait for your approval, shows `brain: <project> · N lessons · k recalled · p to review`, and `/brain` opens Recalled, Review and Lessons tabs. `/remember <lesson>` or `/remember global: <lesson>` saves one directly. Needs the kit's `kb` CLI (found beside the mod, or `$AGENT_KIT_HOME`) and `$AGENT_KIT_OVERLAY`. |
+| brain | Recalls matching lessons from the agent-kit brain into each prompt (fails open when the brain is down), gives Claude a `remember` tool whose lessons wait for your approval, shows `brain: <project> · N lessons · k recalled · p to review`, and `/brain` opens Recalled, Review and Lessons tabs. `/remember <lesson>` or `/remember global: <lesson>` saves one directly. `/agent-kit init`, `doctor` and `list` run the kit's `scripts/agent-kit` for the repo you're in. Needs the kit's `kb` CLI (found beside the mod, or `$AGENT_KIT_HOME`) and `$AGENT_KIT_OVERLAY`. |
 
 ## Install
 

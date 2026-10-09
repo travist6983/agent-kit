@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
@@ -70,13 +71,20 @@ def project_root() -> Optional[Path]:
     return None if top is None or top == repo_root() else top
 
 
+def norm_project(name: str) -> str:
+    """Projects compare normalized, as the brain does: 'My_App' -> 'my-app'; '' -> 'global'."""
+    s = re.sub(r"[\s_/\\]+", "-", (name or "").strip().lower())
+    return re.sub(r"-{2,}", "-", s).strip("-") or GLOBAL_PROJECT
+
+
 def project_name() -> str:
-    """`$AGENT_KIT_PROJECT`, else the name of the git repo the process runs in, else `global`."""
+    """`$AGENT_KIT_PROJECT`, else the name of the git repo the process runs in, else `global`.
+    Normalized like the brain's project names, so one overlay folder serves both."""
     env = os.environ.get(ENV_PROJECT)
     if env:
-        return env
+        return norm_project(env)
     top = project_root()
-    return top.name if top is not None else GLOBAL_PROJECT
+    return norm_project(top.name) if top is not None else GLOBAL_PROJECT
 
 
 def _overlay_config_path() -> Optional[Path]:
@@ -240,5 +248,5 @@ def cfg(dotted: str, default: Any = None) -> Any:
 
 
 __all__ = ["StackConfig", "load_config", "cfg", "repo_root", "default_config_path", "overlay_dir",
-           "project_root", "project_name", "CONFIG_RELPATH", "ENV_CONFIG_PATH", "ENV_REPO_ROOT",
+           "project_root", "project_name", "norm_project", "CONFIG_RELPATH", "ENV_CONFIG_PATH", "ENV_REPO_ROOT",
            "ENV_OVERRIDE_PREFIX", "ENV_OVERLAY", "ENV_PROJECT", "GLOBAL_PROJECT"]

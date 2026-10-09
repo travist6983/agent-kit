@@ -31,6 +31,24 @@ async function kbPath($: EngineInterface) {
   return ''
 }
 
+// `/agent-kit init|doctor|list` from inside a project: runs the kit's scripts/agent-kit in the session's folder.
+async function agentKit($: EngineInterface, args: string[]) {
+  const path = await kbPath($)
+  if (!path) return 'agent-kit not found: set AGENT_KIT_HOME to the agent-kit checkout.'
+  const script = path.replace(/\/\.claude\/skills\/qa-kb\/scripts\/kb$/, '/scripts/agent-kit')
+  const overlay = (await $.env.get('AGENT_KIT_OVERLAY')) ?? ''
+  try {
+    const r = await $.process.run([script, ...args], {
+      cwd: await $.session.cwd(),
+      timeoutMs: 120_000,
+      env: overlay ? { AGENT_KIT_OVERLAY: overlay } : {},
+    })
+    return [r.stdout.trim(), r.stderr.trim()].filter(Boolean).join('\n') || `agent-kit exited ${r.exitCode}`
+  } catch (err) {
+    return `agent-kit failed: ${err instanceof Error ? err.message : String(err)}`
+  }
+}
+
 async function kb($: EngineInterface, args: string[], timeoutMs = 8000): Promise<KbAnswer> {
   const path = await kbPath($)
   if (!path) return { ok: false, error: 'kb CLI not found: set AGENT_KIT_HOME to the agent-kit checkout' }
@@ -117,6 +135,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'brain', description: 'Brain health, recalled lessons and the review queue', argumentHint: '[review | lessons]' })
     await $.command.register({ name: 'remember', description: 'Save a lesson to the brain for this project (or "global: …" for every project)', argumentHint: '[global:] <lesson>' })
+    await $.command.register({ name: 'agent-kit', description: 'Connect this repo to agent-kit: init drafts its overlay config, doctor checks it', argumentHint: 'init | doctor | list' })
     await $.tool.register({
       name: 'remember',
       description:
@@ -177,6 +196,19 @@ export const register: Register = on => {
     if (!r.ok) return { text: `Not saved: ${firstLine(r.error)}` }
     const row = r.row as Lesson | undefined
     return { text: r.action === 'bump' ? `Already known as lesson ${row?.id}.` : `Saved lesson ${row?.id} (${row?.project}).` }
+  })
+
+  on('command.run', { command: 'agent-kit' }, async ($, e) => {
+    const [verb = 'doctor', ...rest] = e.args.trim().split(/\s+/).filter(Boolean)
+    if (!['init', 'doctor', 'list'].includes(verb)) return { text: 'Usage: /agent-kit init [--ticket-prefix XX] | doctor | list' }
+    const text = await agentKit($, verb === 'init' ? ['init', '.', ...rest] : [verb, ...rest])
+    if (verb !== 'init') return { text }
+    return {
+      text,
+      context: [
+        'agent-kit init just drafted this project\'s overlay config. Read the ONBOARDING.md it names, fill in what you can verify from the repo (app URL and ports, health path, test accounts, blast-radius paths in conventions.json), ask the user for anything you cannot verify, then run `/agent-kit doctor` until it reports 0 blocking.',
+      ],
+    }
   })
 
   on('command.run', { command: 'brain' }, async ($, e) => {

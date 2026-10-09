@@ -1,0 +1,347 @@
+#!/usr/bin/env python3
+"""agent-kit: connect a repo to the kit through an overlay.
+
+    agent-kit init   [repo] [--ticket-prefix FK] [--force]   draft <overlay>/projects/<name>/
+    agent-kit doctor [project|repo]                          check that config actually works
+    agent-kit run    <project> [claude args...]              open the loops session for a project
+    agent-kit list                                           projects in the overlay
+
+The overlay is $AGENT_KIT_OVERLAY (see docs/setups.md). `init` reads the repo (git, package.json,
+pyproject.toml, CLAUDE.md) and writes a stack.config.json plus a conventions.json to edit; what it
+cannot know is listed in ONBOARDING.md beside them. Nothing in the target repo is changed.
+
+Loops run from the kit checkout with AGENT_KIT_PROJECT set, because the skills address their
+scripts relative to the kit; `run` does exactly that. Inside the project itself the mods and the
+brain work as usual.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+KIT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(KIT))
+
+from lib.adapters import config as C  # noqa: E402
+
+SKIP_DIRS = {"node_modules", ".git", ".venv", "venv", "dist", "build", ".next", "runs"}
+
+
+def die(msg: str, code: int = 2) -> None:
+    print(f"agent-kit: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def overlay() -> Path:
+    o = C.overlay_dir()
+    if o is None:
+        die("AGENT_KIT_OVERLAY is not set. Point it at your overlay folder (docs/setups.md).")
+    if not o.is_dir():
+        die(f"overlay {o} does not exist")
+    return o
+
+
+def git(repo: Path, *args: str) -> str:
+    r = subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def repo_root(path: str | None) -> Path:
+    start = Path(path or os.getcwd()).expanduser().resolve()
+    top = git(start, "rev-parse", "--show-toplevel")
+    if not top:
+        die(f"{start} is not inside a git repository")
+    return Path(top)
+
+
+def manifests(repo: Path, depth: int = 2):
+    """package.json / pyproject.toml / Gemfile / go.mod at the root and up to `depth` levels down."""
+    found = []
+    for dirpath, dirnames, filenames in os.walk(repo):
+        rel = Path(dirpath).relative_to(repo)
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".")]
+        if len(rel.parts) >= depth:
+            dirnames[:] = []
+        for name in ("package.json", "pyproject.toml", "Gemfile", "go.mod"):
+            if name in filenames:
+                found.append(Path(dirpath) / name)
+    return found
+
+
+def node_runner(d: Path, repo: Path) -> str:
+    for p in [d, *d.parents]:
+        if (p / "pnpm-lock.yaml").exists():
+            return "pnpm"
+        if (p / "yarn.lock").exists():
+            return "yarn"
+        if p == repo:
+            break
+    return "npm run" if (d / "package-lock.json").exists() else "npm run"
+
+
+def cd(repo: Path, d: Path) -> str:
+    rel = d.relative_to(repo)
+    return "" if str(rel) == "." else f"cd {rel} && "
+
+
+def join(commands: list[str]) -> str | None:
+    """Commands run from the repo root; each one that changes directory runs in its own subshell."""
+    parts = [f"({c})" if c.startswith("cd ") and len(commands) > 1 else c for c in commands]
+    return " && ".join(parts) or None
+
+
+def detect(repo: Path) -> dict:
+    facts = {"languages": set(), "build": [], "lint": [], "test": [], "start": None, "todo": []}
+    workspace_roots = set()
+    for m in manifests(repo):
+        d = m.parent
+        if m.name == "package.json":
+            try:
+                pkg = json.loads(m.read_text())
+            except ValueError:
+                continue
+            scripts = pkg.get("scripts") or {}
+            facts["languages"].add("javascript")
+            if any(p in workspace_roots for p in d.parents):
+                continue  # a workspace member; the workspace root's scripts cover it
+            if (d / "pnpm-workspace.yaml").exists() or pkg.get("workspaces"):
+                workspace_roots.add(d)
+            run = node_runner(d, repo)
+            for key, bucket in (("build", "build"), ("lint", "lint"), ("test", "test")):
+                if key in scripts:
+                    facts[bucket].append(f"{cd(repo, d)}{run} {key}")
+            if facts["start"] is None and "dev" in scripts:
+                facts["start"] = f"{cd(repo, d)}{run} dev"
+        elif m.name == "pyproject.toml":
+            text = m.read_text(errors="ignore")
+            facts["languages"].add("python")
+            uv = (d / "uv.lock").exists()
+            pre = "uv run " if uv else "python3 -m "
+            if "pytest" in text or (d / "tests").is_dir():
+                facts["test"].append(f"{cd(repo, d)}{pre}pytest -q")
+            if "ruff" in text:
+                facts["lint"].append(f"{cd(repo, d)}{'uv run ' if uv else ''}ruff check .")
+        elif m.name == "Gemfile":
+            facts["languages"].add("ruby")
+        elif m.name == "go.mod":
+            facts["languages"].add("go")
+            facts["test"].append(f"{cd(repo, m.parent)}go test ./...")
+    if not facts["test"]:
+        facts["todo"].append("stack.unit_test_command: no test command found; set the one that must pass before a PR.")
+    if facts["start"] is None:
+        facts["todo"].append("app.start_command: no dev script found; set how to start the app ($PORT is the sandbox port).")
+    return facts
+
+
+def guidelines(repo: Path) -> str | None:
+    for candidate in [repo / "CLAUDE.md", *sorted(repo.glob("*/CLAUDE.md"))]:
+        if candidate.is_file():
+            return str(candidate)
+    return None
+
+
+def cmd_init(a) -> int:
+    repo = repo_root(a.repo)
+    name = C.norm_project(repo.name)
+    out = overlay() / "projects" / name
+    target = out / "stack.config.json"
+    if target.exists() and not a.force:
+        die(f"{target} exists; use --force to redraft it")
+    out.mkdir(parents=True, exist_ok=True)
+
+    facts = detect(repo)
+    default_branch = (git(repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD").split("/", 1)[-1]
+                      or git(repo, "branch", "--show-current") or "main")
+    prefix = (a.ticket_prefix or re.sub(r"[^A-Za-z]", "", repo.name)[:3] or "TKT").upper()
+    guide = guidelines(repo)
+    todo = list(facts["todo"])
+    todo += [
+        "app.url / app.environments.local.url: the URL the browser tests open (the app's local dev URL).",
+        "app.health_path: a path that answers 200 when the app is up (\"/\" works if nothing better exists).",
+        "Test accounts: create .env.e2e (roles, URLs; tracked) and .env.e2e.local (passwords; gitignored) in the repo, "
+        "then set adapters.auth_provider.config.roles and the login selectors (docs/test-credentials.md).",
+        "adapters.sandbox.config.db_clone_command: if the app needs its own database per sandbox (else leave unset).",
+        "conventions.json: add this project's blast-radius paths (migrations, auth, infra, CI) and house rules.",
+    ]
+    if guide is None:
+        todo.append("No CLAUDE.md found: add one with the project's house rules; the fixer and reviewer read it.")
+
+    example = json.loads((KIT / ".claude/loops/stack.config.example.json").read_text())
+    cfg = {
+        "_comment": f"Drafted by `agent-kit init` for {repo}. Edit freely; open items are in ONBOARDING.md. Relative paths resolve here first, then in the kit.",
+        "version": "1.0.0",
+        "project": {
+            "name": name,
+            "ticket_key_pattern": f"^{prefix}-[0-9]+$",
+            "default_branch": default_branch,
+            "branch_prefixes": {"fix": "fix/", "feature": "feature/", "chore": "chore/"},
+            "protected_branch_patterns": [default_branch, "release/*"],
+            "deploy_branch_patterns": [],
+        },
+        "app": {
+            "repo_dir": str(repo),
+            "url": None,
+            "api_url": None,
+            "health_path": "/",
+            "start_command": facts["start"],
+            "environments": {"local": {"url": None}},
+        },
+        "stack": {
+            "languages": sorted(facts["languages"]),
+            "build_command": join(facts["build"]),
+            "lint_command": join(facts["lint"]),
+            "unit_test_command": join(facts["test"]),
+            "conventions_file": "conventions.json",
+            "repo_guidelines_file": guide,
+        },
+        "adapters": {
+            "issue_tracker": {"provider": "file", "config": {"dir": "runs/tickets", "key_prefix": prefix}},
+            "vcs_host": {"provider": "git-local"},
+            "test_management": {"provider": "none"},
+            "analytics": {"provider": "none"},
+            "auth_provider": {"provider": "env-file", "config": {
+                "env_file": str(repo / ".env.e2e"), "local_env_file": str(repo / ".env.e2e.local"),
+                "process_env": True, "roles": [], "credential_env_pattern": "E2E_{ROLE}_{FIELD}", "prefix": "E2E"}},
+            "ci_cd": {"provider": "none"},
+            "deploy": {"provider": "none"},
+            "notifications": {"provider": "file", "config": {"dir": "runs/notifications"}},
+            "sandbox": {"provider": "git-worktree", "config": {"port_base": 3000, "port_stride": 10, "max_concurrent": 2,
+                                                               "delete_branch_on_teardown": False}},
+            "evidence_store": {"provider": "local"},
+        },
+        "evidence": {"root": "runs"},
+        "models": example.get("models"),
+        "deploy": {"prod_lane_branch_patterns": [], "tracks": []},
+        "browser": example.get("browser"),
+        "runner": {"billing_posture": "subscription", "claude_bin": "claude",
+                   "config_dir": os.environ.get("CLAUDE_CONFIG_DIR") or None},
+    }
+    target.write_text(json.dumps(cfg, indent=2) + "\n")
+    conv = out / "conventions.json"
+    if not conv.exists() or a.force:
+        shutil.copyfile(KIT / ".claude/loops/conventions.json", conv)
+    (out / "ONBOARDING.md").write_text(
+        f"# Onboarding {name}\n\nDrafted by `agent-kit init` from `{repo}`. Fill these in, then run "
+        f"`agent-kit doctor {name}`.\n\n" + "\n".join(f"- [ ] {t}" for t in todo) + "\n")
+    print(f"Drafted {target}")
+    print(f"  conventions: {conv}")
+    print(f"  open items:  {out / 'ONBOARDING.md'} ({len(todo)})")
+    print(f"Next: fill the open items, then `agent-kit doctor {name}`.")
+    return 0
+
+
+def resolve_project(arg: str | None) -> str:
+    if arg and Path(arg).expanduser().is_dir() and git(Path(arg).expanduser(), "rev-parse", "--show-toplevel"):
+        return C.norm_project(repo_root(arg).name)
+    if arg:
+        return C.norm_project(arg)
+    return C.project_name()
+
+
+def project_env(project: str) -> dict:
+    env = dict(os.environ)
+    env["AGENT_KIT_PROJECT"] = project
+    env.pop("LOOPS_STACK_CONFIG", None)
+    return env
+
+
+def cmd_doctor(a) -> int:
+    project = resolve_project(a.project)
+    o = overlay()
+    os.environ["AGENT_KIT_PROJECT"] = project
+    os.environ.pop("LOOPS_STACK_CONFIG", None)
+    path = C.default_config_path()
+    rows = []
+
+    def check(ok: bool, what: str, detail: str = "", blocking: bool = True) -> None:
+        rows.append(("ok  " if ok else ("FAIL" if blocking else "warn"), what, detail))
+
+    check(path.parent == o / "projects" / project, "config from the overlay", str(path))
+    try:
+        cfg = C.load_config(reload=True)
+    except Exception as e:  # noqa: BLE001
+        check(False, "config loads", str(e))
+        cfg = None
+    if cfg is not None:
+        repo = cfg.repo_dir()
+        check(bool(repo and (repo / ".git").exists()), "app.repo_dir is a git checkout", str(repo))
+        branch = cfg.get("project.default_branch")
+        check(bool(repo and git(repo, "rev-parse", "--verify", branch or "")), "default branch exists", str(branch))
+        for key in ("stack.unit_test_command", "app.start_command", "app.url"):
+            check(bool(cfg.get(key)), key, str(cfg.get(key) or "unset"))
+        check(bool(cfg.get("stack.lint_command")), "stack.lint_command", str(cfg.get("stack.lint_command") or "unset"), blocking=False)
+        guide = cfg.get("stack.repo_guidelines_file")
+        check(bool(guide and Path(guide).exists()), "repo guidelines file", str(guide), blocking=False)
+        conv = cfg.resolve(cfg.get("stack.conventions_file"))
+        check(bool(conv and conv.exists()), "conventions file", str(conv))
+        auth = cfg.adapter_spec("auth_provider")["config"]
+        env_file = Path(str(auth.get("env_file") or ""))
+        check(env_file.is_file(), "test accounts (.env.e2e)", str(env_file), blocking=False)
+        check(bool(auth.get("roles")), "auth roles", json.dumps(auth.get("roles")), blocking=False)
+        r = subprocess.run([sys.executable, str(KIT / "lib/adapters/cli.py"), "--list"], capture_output=True, text=True,
+                           env=project_env(project), cwd=KIT)
+        check(r.returncode == 0, "adapters resolve", (r.stdout or r.stderr).strip().splitlines()[-1][:120] if (r.stdout or r.stderr) else "")
+    kb = KIT / ".claude/skills/qa-kb/scripts/kb"
+    r = subprocess.run([str(kb), "status"], capture_output=True, text=True, env=project_env(project), cwd=KIT)
+    try:
+        st = json.loads(r.stdout)
+        check(bool(st.get("ok") and st.get("reachable")), "brain reachable",
+              f"{st.get('target')} · scope {st.get('scope')} · project {st.get('project')}")
+    except ValueError:
+        check(False, "brain reachable", (r.stderr or r.stdout).strip()[:160])
+    check(shutil.which("playwright-cli") is not None, "playwright-cli on PATH", shutil.which("playwright-cli") or "missing", blocking=False)
+
+    width = max(len(w) for _, w, _ in rows)
+    for status, what, detail in rows:
+        print(f"{status}  {what.ljust(width)}  {detail}")
+    failed = sum(1 for s, _, _ in rows if s == "FAIL")
+    print(f"\n{project}: {failed} blocking, {sum(1 for s, _, _ in rows if s == 'warn')} warnings")
+    return 1 if failed else 0
+
+
+def cmd_run(a, extra) -> int:
+    project = resolve_project(a.project)
+    if not (overlay() / "projects" / project / "stack.config.json").exists():
+        die(f"no config for {project}; run `agent-kit init <repo>` first")
+    claude = os.environ.get("AGENT_KIT_CLAUDE", "claude")
+    print(f"agent-kit: loops session for {project} (kit {KIT})", file=sys.stderr)
+    os.chdir(KIT)
+    os.execvpe(claude, [claude, *extra], project_env(project))
+    return 0
+
+
+def cmd_list(a) -> int:
+    for d in sorted((overlay() / "projects").glob("*/stack.config.json")):
+        cfg = json.loads(d.read_text())
+        print(f"{d.parent.name:24} {cfg.get('app', {}).get('repo_dir')}")
+    return 0
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(prog="agent-kit", description=__doc__.split("\n\n")[0])
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    i = sub.add_parser("init")
+    i.add_argument("repo", nargs="?")
+    i.add_argument("--ticket-prefix")
+    i.add_argument("--force", action="store_true")
+    d = sub.add_parser("doctor")
+    d.add_argument("project", nargs="?")
+    r = sub.add_parser("run")
+    r.add_argument("project")
+    sub.add_parser("list")
+    a, extra = ap.parse_known_args()
+    if a.cmd == "run":
+        return cmd_run(a, extra)
+    if extra:
+        ap.error(f"unrecognized arguments: {' '.join(extra)}")
+    return {"init": cmd_init, "doctor": cmd_doctor, "list": cmd_list}[a.cmd](a)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

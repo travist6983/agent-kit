@@ -20,7 +20,7 @@ class OverlayLookupTests(unittest.TestCase):
         base = Path(self.tmp.name).resolve()
         self.overlay = base / "overlay"
         (self.overlay / "projects" / "demo-app").mkdir(parents=True)
-        self.repo = base / "demo-app"
+        self.repo = base / "Demo_App"
         self.repo.mkdir()
         subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
         self.env = dict(os.environ)
@@ -80,6 +80,10 @@ class OverlayLookupTests(unittest.TestCase):
         os.environ[C.ENV_OVERLAY] = str(self.overlay)
         os.chdir(self.repo)
         self.assertEqual(C.load_config(reload=True).repo_dir(), self.repo)
+
+    def test_project_names_are_normalized_like_the_brain(self):
+        os.environ[C.ENV_PROJECT] = "My_Big App"
+        self.assertEqual(C.project_name(), "my-big-app")
 
     def test_kit_checkout_is_the_global_project(self):
         os.chdir(KIT)

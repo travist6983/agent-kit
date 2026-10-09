@@ -1,0 +1,7 @@
+kb.secret.env
+*.secret.env
+backup/
+runs/
+projects/*/runs/
+mods/*/.claude-plugin/types/
+.DS_Store

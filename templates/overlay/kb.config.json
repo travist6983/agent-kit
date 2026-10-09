@@ -1,0 +1,11 @@
+{
+  "_comment": "This overlay's brain pointer. Holds no secret: the password (or token-command input) and the embedding key go in the gitignored kb.secret.env beside this file. See docs/brain-setup.md and docs/setups.md.",
+  "database_url": "",
+  "_comment_database_url": "libpq DSN of the brain, e.g. 'host=db.example.com port=5432 dbname=agents user=agents_rw sslmode=require'. Never defaulted.",
+  "scope": "shared",
+  "_comment_scope": "shared (team or client brain; a local host is refused) or single-machine (one person, one machine, on purpose).",
+  "auth": { "mode": "password" },
+  "_comment_auth": "password | url_env | token_command (docs/brain-setup.md).",
+  "embedding": { "provider": "openai", "model": "text-embedding-3-small", "dim": 1536, "api_key_env": "OPENAI_API_KEY" },
+  "secret_env_file": "kb.secret.env"
+}

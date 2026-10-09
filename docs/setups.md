@@ -7,7 +7,7 @@ This kit is used in two kinds of setup:
 
 Both run the same kit. What changes is the **overlay** (your config), the **brain** (the memory database) and the **Claude account**. This page explains the pieces, compares the two setups side by side, and walks through connecting a fresh project.
 
-> **Status.** Some pieces described here are still being built. They are marked **(planned)**, and the checklist at the end shows what's done.
+> Everything on this page exists in the kit: the overlay lookup, the brain's scopes and projects, `scripts/agent-kit` (`init`, `doctor`, `run`, `list`) and `templates/overlay/`.
 
 ---
 
@@ -18,7 +18,7 @@ Both run the same kit. What changes is the **overlay** (your config), the **brai
 │ skills/ loops/ adapters/ contracts/   the framework: defect, feature, review  │
 │ kb CLI                                the only way anything reads/writes a brain│
 │ mods/                                 Claude Code mods (marketplace agent-kit) │
-│ templates/overlay/  (planned)         starting point for a new overlay         │
+│ templates/overlay/                    starting point for a new overlay         │
 └───────────────────────────────────────────────────────────────────────────────┘
           used by ▼                                   used by ▼
 ┌──── personal overlay ─────┐                ┌──── client overlay ──────┐
@@ -58,7 +58,7 @@ So `kb.config.json`, `stack.config.json` and `conventions.json` for real project
 | Machine | Your Mac | Usually the employer's or client's laptop. Could be yours, with a separate account. |
 | Claude account | Your personal config folder: `~/.claude`, or e.g. `CLAUDE_CONFIG_DIR=~/.claude-me` behind an alias | That job's account: `~/.claude` on their machine, or its own `CLAUDE_CONFIG_DIR` |
 | Kit | Your clone, e.g. `~/repos/agent-kit` | `git clone git@github.com:travist6983/agent-kit` (or install the mods from GitHub only) |
-| Overlay | Your overlay repo, e.g. `~/repos/my-agents` | A new overlay from `templates/overlay/` (planned), e.g. `~/work/<client>-agents`. Keep it in the client's git, not yours. |
+| Overlay | Your overlay repo, e.g. `~/repos/my-agents` | A new overlay copied from `templates/overlay/`, e.g. `~/work/<client>-agents`. Keep it in the client's git, not yours. |
 | Brain host | Postgres on your machine, e.g. database `personal_brain` | Postgres + pgvector the client provides: a managed service or their server. Never your Mac. |
 | Brain `scope` | `"scope": "single-machine"`: a local database is allowed because you declared it. | `shared`, the default: local or socket hosts are refused, so the brain can't silently land on one laptop. |
 | Who else uses the brain | Only you | The client's team, CI and scheduled agents. Everyone sees the same lessons. |
@@ -67,7 +67,7 @@ So `kb.config.json`, `stack.config.json` and `conventions.json` for real project
 | Kit mods | All six, user scope | All six, user scope, installed under the job's account |
 | Overlay mods | Your own marketplace in the overlay, e.g. a mod for one project, installed at local scope in that repo | Whatever that client needs, or none |
 | Adapters (tickets, PRs, notifications) | File-based tickets or GitHub issues; GitHub via `gh` | Whatever they use. A missing provider is written once in `lib/adapters/providers/` and reused. |
-| Backups | Nightly `pg_dump` to the overlay's `backup/` (planned) | The client's database backups |
+| Backups | Your own job, e.g. a nightly `pg_dump` into the overlay's gitignored `backup/` | The client's database backups |
 | What must never cross over | Personal lessons never go into a client brain, and client code, lessons or credentials never come onto this Mac's brain or overlay. To move a lesson, copy it by hand, deliberately. ||
 
 ### Why a client brain is "shared" and the personal one isn't
@@ -83,7 +83,7 @@ For one person on one machine it's just overhead, so the personal overlay sets `
 Use this for any repo of yours on the machine.
 
 1. **Open a session in the project** under your personal account. The kit mods are already active: ship, dev-servers, burn-meter, secret-catcher, traffic-control and pr.
-2. **(planned) Run `/agent-kit init`.** It reads the repo (package.json, pyproject, CI workflows, CLAUDE.md) and drafts `<overlay>/projects/<repo>/`:
+2. **Run `/agent-kit init`** (or `<kit>/scripts/agent-kit init <repo>`). It reads the repo (package.json, pyproject, CI workflows, CLAUDE.md) and drafts `<overlay>/projects/<repo>/`:
    - `stack.json`: build, lint, unit-test and E2E commands; default branch; branch prefixes; environments (`local` URL, staging URL); ticket key pattern.
    - `conventions.json`: house rules, the blast-radius denylist (migrations, secrets, auth, infrastructure, CI), shared-core paths.
 3. **Check the draft.** Commands must actually run, and URLs must be the ones you use.
@@ -95,6 +95,18 @@ Use this for any repo of yours on the machine.
    - `.env.e2e` (tracked: role names and URLs) and `.env.e2e.local` (gitignored: passwords) for the test accounts. See [test-credentials.md](test-credentials.md).
    - `playwright-cli` on PATH.
 7. **Dry run.** Give the defect loop one small bug as a file ticket. It runs in a worktree, verifies, and stops at "PR opened". Nothing deploys while the brain's `staging_only` flag is on.
+
+### Where the loops run
+
+The defect, feature and review loops run **from the kit checkout**, with the project selected:
+
+```sh
+<kit>/scripts/agent-kit run <project>      # opens Claude in the kit with AGENT_KIT_PROJECT=<project>
+```
+
+The skills call their scripts by paths inside the kit, and each loop works on the project through its sandbox (a git worktree of `app.repo_dir`). So a loop session is a session in the kit, while your everyday session stays in the project, where the mods and the brain's recall work as usual. Both read and write the same brain under the same project name.
+
+If the project's dev stack uses fixed ports (Vite `strictPort`, a fixed API port), set `adapters.sandbox.config.max_concurrent` to 1 and stop your own running copy of the stack before a loop starts the sandbox's copy.
 
 The project now has its own lessons in the personal brain under `project = <repo>`. It also sees `global` lessons such as tool quirks and your preferences.
 
@@ -118,7 +130,7 @@ Use this when the code, team and data belong to someone else.
    `alias claude-<client>='CLAUDE_CONFIG_DIR=~/.claude-<client> command claude'`
 2. **Kit mods:**
    `/plugin install <mod> --marketplace travist6983/agent-kit` for each mod, or clone the kit and add the clone itself as a local marketplace (`claude plugin marketplace add <kit>`). The mods keep their data in that account's config folder, so nothing mixes with your personal data.
-3. **Overlay (planned: `templates/overlay/`).** Copy the template to a folder in the client's git. Fill in:
+3. **Overlay (`templates/overlay/`).** Copy the template to a folder in the client's git. Fill in:
    - `kb.config.json`: `database_url` (no password), `auth.mode` (`password`, `url_env` or `token_command`), `embedding`. Leave `scope` unset, so it stays shared.
    - `kb.secret.env` (gitignored): the database password or token command input, and the embedding key.
 4. **Point the account at the overlay:** set `AGENT_KIT_OVERLAY` in that account's `settings.json` `env` block.
@@ -166,7 +178,7 @@ Use this when the code, team and data belong to someone else.
 3. Set `AGENT_KIT_OVERLAY` in your account's `settings.json` `env` block.
 4. Install Postgres with pgvector and `psycopg2`. Create the database, `CREATE EXTENSION vector`, then `kb schema --apply`.
 5. In `kb.config.json`, set `"scope": "single-machine"` and the embedding provider. Put the embedding key in `kb.secret.env`, with a spending limit on the key.
-6. **(planned)** Set up a nightly `pg_dump` backup of the brain.
+6. Set up a nightly `pg_dump` backup of the brain (a launchd or cron job writing into the overlay's gitignored `backup/`).
 7. Onboard each project as in section 3.
 
 ### Connecting any fresh project: what you'll need
