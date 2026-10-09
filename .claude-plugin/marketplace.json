@@ -6,33 +6,38 @@
   "plugins": [
     {
       "name": "ship",
-      "source": "./ship",
+      "source": "./mods/ship",
       "description": "Repo status band plus /ship: commit, push and deploy with a saved per-repo recipe"
     },
     {
       "name": "dev-servers",
-      "source": "./dev-servers",
+      "source": "./mods/dev-servers",
       "description": "Pane of running dev servers with URLs, plus /up and /bounce from a saved per-project recipe"
     },
     {
       "name": "burn-meter",
-      "source": "./burn-meter",
+      "source": "./mods/burn-meter",
       "description": "Turn time and cost in the status line, heartbeat toasts, a per-turn budget and a no-workflows switch"
     },
     {
       "name": "secret-catcher",
-      "source": "./secret-catcher",
+      "source": "./mods/secret-catcher",
       "description": "Catches API keys pasted into prompts, saves them to an env file and sends a placeholder instead"
     },
     {
       "name": "traffic-control",
-      "source": "./traffic-control",
+      "source": "./mods/traffic-control",
       "description": "Shows other live Claude sessions per repo and locks push/deploy so parallel sessions cannot collide"
     },
     {
       "name": "pr",
-      "source": "./pr",
+      "source": "./mods/pr",
       "description": "PR, CI and review threads for the checked-out branch: status line, /ci and /threads pane, finish toasts, and a threads tool for Claude"
+    },
+    {
+      "name": "brain",
+      "source": "./mods/brain",
+      "description": "Recalls lessons from the agent-kit brain into each prompt, lets Claude propose new ones for review, and shows the brain's health"
     }
   ]
 }

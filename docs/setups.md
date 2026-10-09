@@ -36,7 +36,7 @@ Both run the same kit. What changes is the **overlay** (your config), the **brai
 | **Kit** | This repo: the skills, adapters, contracts, the `kb` CLI and the generic mods. It holds no person, company or project data, and the leak check (`.claude/loops/tests/test_no_leaks.sh`) enforces that. | Yes. Clone it anywhere. |
 | **Overlay** | A small folder (ideally its own repo) holding one owner's config: the brain pointer, per-project settings, and mods that only make sense for that owner. | No. One per owner: you, client A, client B. |
 | **Brain** | A Postgres + pgvector database holding what the agents learn: the app map, expectations, flaky tests, fix lessons and general lessons. It is reached only through the `kb` CLI. | One per overlay. Brains never share data. |
-| **Mods** | Claude Code plugins: status lines, panes, guards. The kit's mods are generic; overlay mods are owner-specific. | Kit mods yes; overlay mods no. |
+| **Mods** | Claude Code plugins: status lines, panes, guards, and the `brain` mod that recalls lessons into prompts. The kit's mods are generic; overlay mods are owner-specific. | Kit mods yes; overlay mods no. |
 | **Claude account** | The Claude Code config folder a session runs under (`~/.claude`, or another one via `CLAUDE_CONFIG_DIR`). Plugins, settings and mod data live in it. | One per context: personal, each employer. |
 
 ### How the kit finds its config
@@ -117,7 +117,7 @@ Use this when the code, team and data belong to someone else.
 1. **Claude account.** Use the job's account. On a shared machine, give it its own config folder:
    `alias claude-<client>='CLAUDE_CONFIG_DIR=~/.claude-<client> command claude'`
 2. **Kit mods:**
-   `/plugin install <mod> --marketplace travist6983/agent-kit` for each mod, or clone the kit and add `mods/` as a local marketplace. The mods keep their data in that account's config folder, so nothing mixes with your personal data.
+   `/plugin install <mod> --marketplace travist6983/agent-kit` for each mod, or clone the kit and add the clone itself as a local marketplace (`claude plugin marketplace add <kit>`). The mods keep their data in that account's config folder, so nothing mixes with your personal data.
 3. **Overlay (planned: `templates/overlay/`).** Copy the template to a folder in the client's git. Fill in:
    - `kb.config.json`: `database_url` (no password), `auth.mode` (`password`, `url_env` or `token_command`), `embedding`. Leave `scope` unset, so it stays shared.
    - `kb.secret.env` (gitignored): the database password or token command input, and the embedding key.

@@ -1,0 +1,1 @@
+{ "name": "brain", "version": "0.1.0", "description": "Recalls lessons from the agent-kit brain into each prompt, lets Claude propose new ones for review, and shows the brain's health", "types": "./types/index.d.ts" }
