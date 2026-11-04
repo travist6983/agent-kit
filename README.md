@@ -18,6 +18,33 @@ is reached through an **adapter role** declared once in `.claude/loops/stack.con
 The skills name the role, never a vendor. A Rails + GitHub + Linear shop and a Spring + GitLab +
 self-hosted-tracker shop run the same skills with a different config file.
 
+## At a glance
+
+| | |
+|---|---|
+| **What it is** | Autonomous Claude Code agents that take a ticket to a reviewed pull request, with a deterministic gate between every step |
+| **Skills** | 28 atomic skills and loop recipes: intake, repro, fix, verify, regression, code review, ship, prod-verify, explore, dream |
+| **Integrations** | 10 vendor-neutral adapter roles (issue tracker, VCS host, CI/CD, sandbox, evidence store and more), picked in one config file |
+| **Memory** | A shared Postgres + pgvector knowledge brain, so selectors, flaky-test history and fix patterns carry over to the next run |
+| **Safety** | Dry-run and staging-only by default, blast-radius limits, budget caps, a global kill switch flipped only by a human |
+| **Developer tooling** | 7 Claude Code mods: one-command ship, dev-server panes, cost meter, secret catcher, cross-session push locks, PR status, brain recall |
+| **Tests** | 28 shell test suites, including contract validation and a leak test that keeps the kit free of any company's data |
+| **Built with** | Python, Bash, TypeScript (mods), Postgres + pgvector, Playwright, Claude Code |
+
+```mermaid
+flowchart LR
+  ticket["Ticket"] --> intake["intake"] --> provision["provision<br/>(git worktree)"] --> repro["repro<br/>(recorded in a browser)"] --> fix["fix"]
+  fix --> gates{"verify ∥ regression"}
+  gates -- "fail: classify, then adapt" --> fix
+  gates -- "pass" --> prepr["pre-PR checks"] --> ship["open PR"] --> prod["prod-verify"]
+  brain[("knowledge brain<br/>Postgres + pgvector")]
+  repro -.- brain
+  fix -.- brain
+  gates -.- brain
+```
+
+<sub>The defect loop. Every arrow is a gate with a written contract; a failure is classified before the next attempt, so retries change something.</sub>
+
 ## Two ways to use it
 
 - **On your own machine, for your own projects:** the kit plus a personal **overlay** (your config) and a brain database on your machine.
