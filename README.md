@@ -32,11 +32,14 @@ self-hosted-tracker shop run the same skills with a different config file.
 | **Built with** | Python, Bash, TypeScript (mods), Postgres + pgvector, Playwright, Claude Code |
 
 ```mermaid
-flowchart LR
-  ticket["Ticket"] --> intake["intake"] --> provision["provision<br/>(git worktree)"] --> repro["repro<br/>(recorded in a browser)"] --> fix["fix"]
+flowchart TD
+  ticket["Ticket"] --> intake["intake + provision<br/>(isolated git worktree)"]
+  intake --> repro["repro<br/>(recorded in a browser)"]
+  repro --> fix["fix"]
   fix --> gates{"verify ∥ regression"}
   gates -- "fail: classify, then adapt" --> fix
-  gates -- "pass" --> prepr["pre-PR checks"] --> ship["open PR"] --> prod["prod-verify"]
+  gates -- "pass" --> ship["pre-PR checks, open PR"]
+  ship --> prod["prod-verify"]
   brain[("knowledge brain<br/>Postgres + pgvector")]
   repro -.- brain
   fix -.- brain
