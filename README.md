@@ -36,7 +36,7 @@ flowchart TD
   ticket["Ticket"] --> intake["intake + provision<br/>(isolated git worktree)"]
   intake --> repro["repro<br/>(recorded in a browser)"]
   repro --> fix["fix"]
-  fix --> gates{"verify ∥ regression"}
+  fix --> gates{"verify + regression<br/>(in parallel)"}
   gates -- "fail: classify, then adapt" --> fix
   gates -- "pass" --> ship["pre-PR checks, open PR"]
   ship --> prod["prod-verify"]
