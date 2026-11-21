@@ -55,6 +55,7 @@ between steps; workflow variables are not a seam.
 | `dev-onboard-survey` | atomic | The onboarding loop's first look: a deterministic, zero-model scan of languages, declared commands, entry points, docs, hotspots and a first cut of areas | `dev-onboard-survey.json` → `survey.json` | none |
 | `dev-onboard-how` | atomic | The how lens: one read-only agent per area writes cited claims about what the code does; `check_card.py` proves every cite | `dev-onboard-card.json` → `cards/<area>.how.json` | none |
 | `dev-onboard-why` | atomic | The why lens: reasons from the record (commits, pull requests, decision docs) or marked as inference; refs checked | `dev-onboard-card.json` → `cards/<area>.why.json` | none |
+| `dev-onboard-map` | atomic | Assemble the map: the architect's lens as data, a deterministic merge that keeps a verified claim only while unchanged, and a lint for uncited claims, broken cites and two owners | `dev-onboard-map.json` → `map.json` | none |
 | `qa-explore` | producer | Walk a feature before there is a bug; map it; propose expectations; draft a ticket | — | writes `app_map`, `flakiness`; proposes `expectations` |
 | `human-explore` | producer | A human drives; the only path that blesses an expectation to canonical | — | writes canonical `expectations` |
 | `qa-dream` | producer | Scheduled consolidation: deterministic harvest, outbox replay, compressed lessons | dream brief + report | writes `app_map`, `fix_lessons`, `flakiness`, metrics; proposes `expectations` |
@@ -254,6 +255,12 @@ never a silent skip and never an unclassified retry.
 - Inputs: `REPO` (read only), `SURVEY`, `AREA`, `MODE` (`fresh` or `missing` for a why-gap).
 - Outputs: `cards/<area>.record.json` and `cards/<area>.why.json`: record claims cite `commit:`, `pr:` or `doc:`; inferences are `likely` or `guessing`; unanswered questions go in `gaps`.
 - Brain: none · Stops: posts nothing; names no people; an inference is never `certain`.
+
+**`dev-onboard-map`**
+- Purpose: one consistent model from many readers' cards. An agent writes `architect.json` (summary, area names and purposes, renames and merges, cross-area `owner` and `rule` claims); `assemble_map.py` merges survey, cards and lens the same way every time and renders `map.md`; `check_map.py` lints.
+- Inputs: `SURVEY`, the round's checked cards, `architect.json`, and on a relearn the prior map.
+- Outputs: `map.json` (contract `dev-onboard-map.json`) and `map.md`. On a relearn a fresh card replaces its area's claims for its lens only, `drops[]` are removed, and an unchanged claim keeps `verified_round`.
+- Brain: none · Stops: never hand-edits `map.json`; two `owner` claims for one symbol, an uncited claim, a broken cite or a certain inference is an error.
 
 ### Loop recipes
 
