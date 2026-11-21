@@ -1,0 +1,34 @@
+{
+  "key": "PROJ-123",
+  "verdict": "request-changes",
+  "masking": false,
+  "critical": 0,
+  "high": 1,
+  "findings": [
+    {
+      "dimension": "masking",
+      "severity": "high",
+      "confidence": 90,
+      "file": "web/src/menu/Menu.tsx",
+      "issue": "The flash is hidden by deferring close() a tick with setTimeout(..., 0); the open state still lives in two components.",
+      "harden": {
+        "band": "lint",
+        "why": "Zero-delay timers keep being used to hide one-frame ordering bugs.",
+        "candidate_rule": {
+          "id": "no-zero-delay-timer",
+          "severity": "high",
+          "include_path": "\\.(js|jsx|ts|tsx)$",
+          "skip_tests": true,
+          "pattern": "\\bsetTimeout\\s*\\([^;]*,\\s*0\\s*\\)",
+          "rule": "Zero-delay timer used to paper over an ordering bug",
+          "fix": "Do not add a timer here. The flash means two pieces of state disagree for one frame: keep the value in one place and have the other read it.",
+          "heuristic": false
+        },
+        "must_trip": "setTimeout(() => close(), 0)\n",
+        "must_pass": "close()\n"
+      }
+    }
+  ],
+  "summary": "Masking: the timer hides the flash instead of fixing the duplicated open state. Request changes.",
+  "next_action": "re-fix"
+}

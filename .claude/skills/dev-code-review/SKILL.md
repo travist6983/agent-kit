@@ -79,6 +79,28 @@ report drafts an issue for a serious one through the `issue_tracker` adapter. It
 review thread on the PR; nothing the reviewer does to this diff resolves it. (A hazard the diff
 *newly exposes* is not pre-existing — it is a finding about this diff.)
 
+### 2b. Draft a check for findings a check could catch (harden block)
+After validation, ask of each surviving finding: **would a check have caught this before review?**
+A banned call, a banned import, a suppression comment, a hard-coded value: one regex over an added
+line decides it. When the answer is yes, attach a `harden` block to the finding (contract
+`dev-code-review.json` v1.2.0) so the correction is not made by hand again:
+```
+"harden": { "band": "static", "why": "<the recurring mistake and the right move, one sentence>",
+            "candidate_rule": { id, severity, include_path, pattern, skip_tests, rule, fix },
+            "must_trip": "<the offending line from this diff>", "must_pass": "<the compliant line>" }
+```
+`band` can also be `structure` (a design change would make it impossible), `verification` or
+`prose`; only `static` takes a `candidate_rule`. Write the rule's `fix` **to the next agent**: what
+to do instead and where the real fix lives, in one or two sentences (format:
+`../dev-pre-pr/references/violation-rules.md`). Reuse the same `candidate_rule.id` for the same
+mistake across tickets; that id is how `dev-harden` counts recurrence.
+
+You only **draft**. Never write to the conventions file, the harden queue or a guidelines file:
+`dev-harden` proves the rule with fixtures and the real scanner between runs, and a human applies
+it. List the drafted ids under a `## Harden candidates` heading in `review.md`. Do not attach a
+block to a judgment call (naming, design taste) or to a finding the conventions rules already
+cover; that rule is already enforced.
+
 ### 3. The masking judge (the loop gate)
 The masking specialist judges: does the green depend on a swallowed exception / suppressed log / narrow
 special-case / disabled check / symptom-surface-only edit? The discriminating question is **"is the
@@ -126,7 +148,8 @@ and the verdict is machine-actionable.
 
 ## Knowledge brain (qa-kb)
 Reads `app_map`/`expectations` for context; **records false positives** (so they're suppressed next time);
-may write a `review` metric. Writes nothing canonical.
+may write a `review` metric. Writes nothing canonical. A `harden` block is a draft in review.json,
+not a rule: `dev-harden` reads it later.
 
 ## Key principles
 1. **High signal only.** A false finding costs a wasted loop cycle — when unsure, don't flag.

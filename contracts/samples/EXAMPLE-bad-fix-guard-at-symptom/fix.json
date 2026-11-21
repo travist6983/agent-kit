@@ -1,0 +1,28 @@
+{
+  "key": "PROJ-125",
+  "status": "fixed",
+  "is_root_cause": true,
+  "failure_class": null,
+  "root_cause": "web/src/tasks/TaskPopup.js onProjectChange() ran form.model.assigneeIds = [] unconditionally on any project change \u2014 wiping even assignees who are still members of the newly-selected project.",
+  "files_changed": [
+    "web/src/tasks/TaskPopup.js"
+  ],
+  "diff_summary": "Keep assignees who are members of the newly-selected project (filter by project.members); clear only when no project is selected.",
+  "design_decisions": [
+    "Sibling defect: CommentPopup.js has the same unconditional assignee-wipe on project change \u2014 recommend a separate ticket."
+  ],
+  "confidence": 85,
+  "root_cause_trace": {
+    "symptom_site": "web/src/tasks/TaskList.tsx:88",
+    "why_chain": [
+      "The list crashes reading task.due.getTime() at web/src/tasks/TaskList.tsx:88",
+      "task.due is a string, not a Date, at web/src/tasks/useTasks.ts:41",
+      "The API client returns raw JSON and the mapper skips date fields at web/src/api/mapTask.ts:17"
+    ],
+    "trigger_state": "a task whose due field is an ISO string after a refetch",
+    "state_legitimate": false,
+    "fault_site": "web/src/api/mapTask.ts:17",
+    "fix_site": "web/src/tasks/TaskList.tsx:88",
+    "signal_proposal": "Assert the mapped task shape in development builds so a raw string date fails at the mapper, not three components later."
+  }
+}

@@ -83,7 +83,8 @@ A role that is absent from the stack (`"provider": "none"`) is a structured `blo
 - **fix-verify only:** the **candidate fix already applied** to the working tree / sandbox, plus a
   `DIFF` (or a way to get `git diff`) so the masking detector can inspect it.
 
-**Output — `fix-verify` mode:** `verify.json` in `REPRO_DIR`, written through `contracts/emit.py`
+**Output — `fix-verify` mode:** `collateral.json` (step 2b, `contracts/qa-verify.collateral.json`)
+and `verify.json` in `REPRO_DIR`, written through `contracts/emit.py`
 against **`contracts/qa-verify.json`** (it validates before writing — a contract violation is a loud
 failure, never a half-written seam file). The shape, in the loop's shorthand:
 ```
@@ -275,9 +276,19 @@ upload helper; it calls the `evidence_store` adapter configured in stack.config)
 `adapters.evidence_store`, never in this skill and never as a hard-coded secret; best-effort (omit `media`
 if the store is `none` or the upload fails). Apply the **four MUST-HAVEs** from `references/verify-rules.md`:
 1. **Parity** — quote the live DOM/API state and show it matches `expected_verbatim` (not a paraphrase).
-2. **No collateral** — confirm neighboring state the fix shouldn't touch is unchanged.
+2. **No collateral** — confirm neighboring state the fix shouldn't touch is unchanged, and prove it in step 2b.
 3. **Visual** — the corrected state is visible on screen (screenshot/DOM after refresh).
 4. **No "trust me"** — a toast/log/JSON saying success is **not** a pass; the read state is.
+
+### 2b. Collateral proof (MUST-HAVE 2, proven, not eyeballed)
+Read `references/collateral-proof.md` (adapted from pstack's `blast-radius`). Spawn a **fresh
+sub-agent** (`Agent`) and hand it only the `DIFF`, the sandbox path and `brief.json`, never
+`fix.json`'s design_decisions or root-cause claims. It finds the one fact the change is safe because
+of, looks where grep stops, writes any proof script under `<REPRO_DIR>/collateral/` (never in the
+target tree), runs it, and writes `<REPRO_DIR>/collateral.json` through
+`contracts/emit.py --contract contracts/qa-verify.collateral.json`. Map its `status` onto the
+`no_collateral` must-have: `safe` = `pass`, `risky` = `fail`, `unproven` or `blocked` = `unknown`,
+with the rung and risk count as `evidence`. Copy `before_merge` into `judge_rationale`.
 
 Then judge from the **reporting persona's lens** (`qa-personas`, the pack `personas_file` names): would
 *this* user — e.g. the pack's onboarding-tier `member` on a phone — consider it actually fixed, on their
@@ -292,8 +303,10 @@ state matches the quoted expectation and whether the diff addresses a cause — 
 works". If green depends on masking → `masking_suspected: true`, cap confidence < 80.
 
 ### 4. Verdict
-- **pass** — replay RED→GREEN **and** all four MUST-HAVEs hold **and** judge ≥ 80 **and** not masking.
-- **partial** — symptom gone but a guard tripped (collateral change / confidence < 80 / thin visual).
+- **pass** — replay RED→GREEN **and** all four MUST-HAVEs hold (no_collateral only from a `safe`
+  collateral.json, step 2b) **and** judge ≥ 80 **and** not masking.
+- **partial** — symptom gone but a guard tripped (collateral change / collateral unproven /
+  confidence < 80 / thin visual).
 - **fail** — replay still red, state ≠ expected, or a regression appeared.
 - **blocked** — no oracle / app down (step 0), or the replay oracle could not run (exit 2, step 1).
 
@@ -332,6 +345,8 @@ quoted live state, video #2, judge ≥ 80, masking ruled out.
 - `oracle-blocked` — the replay exited 2 → `blocked` with its `observed` reason, never `fail`; never
   patch the oracle to get past it.
 - `judge-overconfident` — judge said pass but live state disagrees; the read state wins, not the judge.
+- `collateral-by-prose` — called no_collateral a pass from a writeup. Only a `safe` collateral.json
+  (safety fact at rung 3 or deeper, validated by QA-COLLATERAL-P1) can.
 
 ## Key principles
 1. **The read state is the only truth.** Toasts, logs, JSON, and the judge are inputs — the live DOM/DB wins.

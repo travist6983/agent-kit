@@ -40,6 +40,9 @@
 #   test_release_ac_deploy  qa-loop-release-ac proves each deploy track deployed by ITS OWN
 #                         deploy source, never another track's version; a failed lookup is a
 #                         deploy-unknown stop. Adapter fakes + a throwaway git repo — offline.
+#   test_harden           dev-harden never lets a rule reach the gate unproven: weak messages,
+#                         id collisions and disproving fixtures are refused, --apply needs a
+#                         human --by and keeps conventions.json byte-identical. Scratch dirs.
 #   test_assign_tier · test_check_convergence · test_descriptions · test_escalation_render ·
 #   test_fix_lessons · test_oracle_preflight · test_personas · test_pr_review_runner ·
 #   test_pr_thread_bar · test_prod_signal · test_prune · test_r6_denylist ·

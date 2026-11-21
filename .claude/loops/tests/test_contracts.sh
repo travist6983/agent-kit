@@ -34,14 +34,35 @@ must_pass "$C/dev-fix.json" "$C/samples/EXAMPLE-defect-minimal/fix.json"
 must_pass "$C/dev-fix.json" "$C/samples/EXAMPLE-fix-must-read/fix.json"
 must_fail "$C/dev-fix.json" "$C/samples/EXAMPLE-bad-must-read-reason/fix.json"
 must_fail "$C/dev-fix.json" "$C/samples/EXAMPLE-bad-must-read-no-ask/fix.json"   # must_read:true, no ask
+# dev-fix v1.4.0 (root_cause_trace): a fix at the producer of a should-never-exist state passes; the
+# same receipt with the fix landed at the symptom site must FAIL (validate.py DEV-FIX-RC1)
+must_pass "$C/dev-fix.json" "$C/samples/EXAMPLE-fix-root-cause/fix.json"
+must_fail "$C/dev-fix.json" "$C/samples/EXAMPLE-bad-fix-guard-at-symptom/fix.json"
 
 # dev-code-review — the sample review validates as-is
 must_pass "$C/dev-code-review.json" "$C/samples/EXAMPLE-defect-loop/review.json"
+# dev-code-review v1.2.0: a finding may carry a drafted `harden` block (band, why, candidate_rule,
+# must_trip, must_pass); an off-enum band must FAIL
+must_pass "$C/dev-code-review.json" "$C/samples/EXAMPLE-review-harden/review.json"
+must_fail "$C/dev-code-review.json" "$C/samples/EXAMPLE-bad-review-harden-band/review.json"
+
+# dev-harden (v1.0.0, proposed): a proposed rule and a proposed guideline pass; an off-enum band
+# fails, and a guideline that skips the static/verification bands without a reason must FAIL
+# (validate.py's DEV-HARDEN-L1 anti-prose guard)
+must_pass "$C/dev-harden.json" "$C/samples/EXAMPLE-harden-rule/harden.json"
+must_pass "$C/dev-harden.json" "$C/samples/EXAMPLE-harden-prose/harden.json"
+must_fail "$C/dev-harden.json" "$C/samples/EXAMPLE-bad-harden-band/harden.json"
+must_fail "$C/dev-harden.json" "$C/samples/EXAMPLE-bad-harden-prose-skip/harden.json"
 
 # dev-pre-pr — the readiness gate. A blocked verdict (stale evidence + violations) and a
 # warnings verdict (heuristics cleared, no blockers).
 must_pass "$C/dev-pre-pr.json" "$C/samples/EXAMPLE-pre-pr-blocked/pre-pr.json"
 must_pass "$C/dev-pre-pr.json" "$C/samples/EXAMPLE-pre-pr-warnings/pre-pr.json"
+
+# qa-verify collateral (v1.0.0, proposed): a rung-4 safety fact with its command and output passes;
+# the same claim without them must FAIL (validate.py QA-COLLATERAL-P1)
+must_pass "$C/qa-verify.collateral.json" "$C/samples/EXAMPLE-collateral-safe/collateral.json"
+must_fail "$C/qa-verify.collateral.json" "$C/samples/EXAMPLE-bad-collateral-unbacked/collateral.json"
 
 # qa-run-case (v1.0.0: DN-6 full vocabulary PASS|FAIL|PARTIAL|BLOCKED|MANUAL + orthogonal drift[])
 must_pass "$C/qa-run-case.json" "$C/samples/case-4012-run-9001/case-run.json"

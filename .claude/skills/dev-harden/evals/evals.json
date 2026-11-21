@@ -1,0 +1,57 @@
+{
+  "skill_name": "dev-harden",
+  "evals": [
+    {
+      "id": 1,
+      "name": "recurring-review-finding-becomes-a-probed-rule",
+      "prompt": "run harden. the last two review.json files under runs/ (PROJ-1 and PROJ-2) both flagged someone hiding a flash with setTimeout(..., 0), and the reviewer drafted a rule for it.",
+      "expected_output": "Collects one candidate, no-zero-delay-timer, with occurrences=2 and ready=true. Walks the ladder: structure rejected with a reason (no single API change removes the timers), static chosen. Probes the drafted rule with rule_probe.py against the target repo: fixtures pass, inventory finds the existing copies. Writes runs/harden/no-zero-delay-timer/harden.json with status rule-proposed, probe-pass, existing_copies > 0, and a drafted cleanup ticket. Does NOT touch conventions.json; tells the human the exact --apply --by command.",
+      "files": [],
+      "assertions": [
+        "Runs collect_candidates.py and treats no-zero-delay-timer as ONE candidate with occurrences 2",
+        "Records a why_not_higher entry for the structure band",
+        "Runs rule_probe.py with --target-repo and reports the probe passed",
+        "Drafts a cleanup ticket because the inventory found existing copies",
+        "harden.json validates against contracts/dev-harden.json with status rule-proposed",
+        "conventions.json is unchanged; the reply gives the rule_probe.py --apply --by command for a human"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "one-off-is-not-hardened",
+      "prompt": "harden whatever is in the queue. there's one fix_lesson line about not retrying on 4xx responses.",
+      "expected_output": "The fix_lesson candidate has occurrences=1 and no human source, so ready=false. dev-harden writes nothing for it and says it waits for another occurrence, or for a human to queue it.",
+      "files": [],
+      "assertions": [
+        "Reports the candidate as not ready (one occurrence, not human-queued)",
+        "Writes no harden.json and no rule for it",
+        "Does not edit conventions.json or any guidelines file"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "weak-message-is-rewritten-not-shipped",
+      "prompt": "make that a lint rule: we keep catching console.log in components. my draft rule's fix text is just 'No console.log'.",
+      "expected_output": "rule_probe.py fails the draft with weak-message (and id-collision if the id matches the shipped no-debug-console rule). The skill rewrites the fix as an instruction to the agent (what to use instead, e.g. the app's logger, or remove it) or notes the existing rule already covers it and declines with that reason. Never ships the weak message.",
+      "files": [],
+      "assertions": [
+        "Runs the probe and surfaces weak-message as a failure class",
+        "Either rewrites fix to say what to do instead and re-probes, or declines because an existing rule covers it",
+        "Never writes a rule whose fix text is under 40 characters"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "prose-must-justify-every-higher-band",
+      "prompt": "stop me correcting this by hand: new query helpers keep taking a raw id instead of the workspace first, so the scope filter gets forgotten.",
+      "expected_output": "A human-queued candidate, so ready. Walks all bands: structure (scoped base query exists, misses are in new helpers), static (regex cannot tell scoped from global helpers, false positives), verification (oracle does not seed colliding ids). Ends guideline-proposed with a paragraph that includes a Wrong/Right example, and three why_not_higher entries.",
+      "files": [],
+      "assertions": [
+        "harden.json has why_not_higher entries for structure, static and verification",
+        "status is guideline-proposed and guideline contains a concrete failure example",
+        "The guideline is not written to any guidelines file",
+        "harden.json passes validate.py (DEV-HARDEN-L1)"
+      ]
+    }
+  ]
+}

@@ -5,7 +5,7 @@ SK="$(cd "$(dirname "$0")/../../skills" && pwd)"
 SK="$SK" python3 - <<'PY'
 import os, re, sys
 
-SKILLS = ["dev-code-review","dev-escalate","dev-fix","dev-intake","dev-loop-defect",
+SKILLS = ["dev-code-review","dev-escalate","dev-fix","dev-harden","dev-intake","dev-loop-defect",
           "dev-loop-feature-complete","dev-loop-feature-prerelease","dev-loop-hard-defect",
           "human-explore","infra-prod-verify","infra-ship","infra-worktree","qa-explore",
           "qa-dream","qa-kb","qa-personas","qa-regression","qa-repro",

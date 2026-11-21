@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "loops/contracts/qa-verify.collateral.json",
+  "title": "qa-verify collateral.json, the proof that a fix breaks nothing else",
+  "version": "1.0.0",
+  "status": "proposed",
+  "description": "Written by qa-verify fix-verify step 2b to <REPRO_DIR>/collateral.json (procedure: .claude/skills/qa-verify/references/collateral-proof.md, adapted from pstack's blast-radius, MIT). It backs MUST-HAVE 2 (no silent collateral change): fix-verify maps `status` to the no_collateral must-have (safe = pass, risky = fail, unproven and blocked = unknown). validate.py's QA-COLLATERAL-P1 ties the claimed rung to its evidence, so a 'ran it' claim without the command and output cannot validate.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "change", "safety_fact", "risks", "cleared", "summary"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["safe", "risky", "unproven", "blocked"],
+      "description": "safe = the safety fact reached rung 3 or deeper and no confirmed risk is rated high; risky = at least one confirmed risk; unproven = the safety fact stopped at rung 1 or 2; blocked = could not look (sandbox unreadable, diff missing)."
+    },
+    "key": { "type": "string" },
+    "change": { "type": "string", "description": "What the change does, including the part the diff does not spell out." },
+    "safety_fact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["statement", "rung", "proof_kind"],
+      "properties": {
+        "statement": { "type": "string", "description": "The one fact the change is safe because of." },
+        "rung": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "proof_kind": { "type": "string", "enum": ["stated", "cited", "walked", "ran", "reproduced"] },
+        "ref": { "type": "string", "description": "path:line (or library source) the fact rests on. Required from rung 2." },
+        "command": { "type": "string", "description": "Rung 4: the exact command that ran the proof script." },
+        "output": { "type": "string", "description": "Rung 4: what the script printed. Rung 5: the observed quote from the running app." }
+      }
+    },
+    "risks": {
+      "type": "array",
+      "description": "Confirmed risks only. Cleared ones go in `cleared`.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["how", "where", "likelihood", "cost", "check"],
+        "properties": {
+          "how": { "type": "string", "description": "How it breaks." },
+          "where": { "type": "string", "description": "path:line" },
+          "likelihood": { "type": "string", "enum": ["low", "medium", "high"] },
+          "cost": { "type": "string", "enum": ["low", "medium", "high"] },
+          "check": { "type": "string", "description": "How to check it, or the proof if it was run." }
+        }
+      }
+    },
+    "cleared": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["what", "why"],
+        "properties": {
+          "what": { "type": "string" },
+          "why": { "type": "string" },
+          "where": { "type": "string" }
+        }
+      }
+    },
+    "before_merge": { "type": ["string", "null"], "description": "The cheapest test or repro that catches the real bug, including the script written." },
+    "summary": { "type": "string" },
+    "judged_blind": { "type": "boolean" },
+    "model": { "type": "string" },
+    "attempt": { "type": "integer", "minimum": 1 },
+    "timing": { "type": "object", "additionalProperties": true }
+  }
+}

@@ -11,6 +11,8 @@ wrong-fix guard, the confidence-≥80 validator, and the R3 root-cause rule.
 2. **No silent collateral change.** Confirm the state the fix should *not* have touched is unchanged —
    neighboring fields, adjacent rows, other areas. A fix that corrects X but quietly mutates Y is a
    regression, not a pass ("no silent field clobbering").
+   In fix-verify this is proven, not eyeballed: step 2b writes `collateral.json` per
+   `collateral-proof.md`, and only `status: safe` makes this must-have a pass.
 3. **Visual confirmation.** Confirm the corrected behavior is actually **visible to a user** — a
    screenshot / DOM read after a refresh — not merely present in an API payload. The user's experience
    is the truth.

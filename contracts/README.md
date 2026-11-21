@@ -18,10 +18,12 @@ URLs come from the `evidence_store` adapter, and the evidence root is `evidence.
 | `context-pack.json` | 1.0.0 | `dev-intake` (+ `infra-worktree` fills `environment`) | `<evid_root>/<key>/context.json` | read by every downstream skill | — |
 | `qa-repro.json` | 1.5.0 | `qa-repro` | `<evid_root>/<key>/repro.json` | `repro_evidence` (stored verbatim) | `status` |
 | `qa-verify.repro-judge.json` | 1.2.0 | `qa-verify` mode=`repro-judge` | `<repro_dir>/judge.json` | `judge_evidence` | `verdict` |
-| `dev-fix.json` | 1.3.0 | `dev-fix` | `<evid_root>/<key>/fix.json` | router: `status`; ship: `design_decisions` with `must_read: true` | `status` |
+| `dev-fix.json` | 1.4.0 | `dev-fix` | `<evid_root>/<key>/fix.json` | router: `status`; ship: `design_decisions` with `must_read: true` | `status` |
 | `qa-verify.json` | 1.0.0 | `qa-verify` mode=`fix-verify` (default) | `<evid_root>/<key>/verify.json` | the checker node; `dev-pre-pr` fails closed on it | `verdict` |
+| `qa-verify.collateral.json` | 1.0.0 | `qa-verify` fix-verify step 2b | `<repro_dir>/collateral.json` | the `no_collateral` must-have | `status` |
 | `qa-regression.json` | 2.1.0 | `qa-regression` | `<evid_root>/<key>/regression.json` | router | `status` + `next_action` |
-| `dev-code-review.json` | 1.1.0 | `dev-code-review` | `<evid_root>/<key>/review.json` | router | `verdict` |
+| `dev-code-review.json` | 1.2.0 | `dev-code-review` | `<evid_root>/<key>/review.json` | router; `dev-harden` reads findings' `harden` blocks | `verdict` |
+| `dev-harden.json` | 1.0.0 | `dev-harden` | `<evid_root>/harden/<fingerprint>/harden.json` | `collect_candidates.py` (decided skip); a human `--apply` | `status` |
 | `dev-pre-pr.json` | 1.2.0 | `dev-pre-pr` | `<evid_root>/<key>/pre-pr.json` | router | `status` |
 | `qa-run-case.json` | 1.0.0 | `qa-run-case` (`DRIVER=cli` default · `chrome`) | `<evid_root>/<key>/case-run.json` | grade + drift (stored verbatim); `steps` → per-step rows | `status` |
 | `qa-run-chatbot.json` | 1.0.0 | `qa-run-chatbot` | `<evid_root>/<key>/chatbot-run.json` | per-case rows | `status` |

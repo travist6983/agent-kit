@@ -138,7 +138,100 @@ def validate(schema, doc):
     _check_object(schema, doc, "", errors)
     if str(schema.get("$id", "")).endswith("/qa-regression.json"):
         _check_regression_c1(doc, errors)
+    if str(schema.get("$id", "")).endswith("/dev-harden.json"):
+        _check_harden_ladder(doc, errors)
+    if str(schema.get("$id", "")).endswith("/dev-fix.json"):
+        _check_fix_root_cause(doc, errors)
+    if str(schema.get("$id", "")).endswith("/qa-verify.collateral.json"):
+        _check_collateral_proof(doc, errors)
     return errors
+
+
+
+def _norm_site(site):
+    return re.sub(r"\s+", "", str(site or "")).lower()
+
+
+def _check_fix_root_cause(doc, errors):
+    """DEV-FIX-RC1: a state that should never exist is not fixed by guarding it where it surfaced.
+    When dev-fix's trace says the triggering state is illegitimate and still claims a root-cause
+    fix at the symptom site, the receipt contradicts itself: the guard hides the bug, and the
+    producer of the bad state is still there."""
+    t = doc.get("root_cause_trace")
+    if not isinstance(t, dict):
+        return
+    if t.get("state_legitimate") is False and doc.get("is_root_cause") is True \
+            and _norm_site(t.get("fix_site")) and _norm_site(t.get("fix_site")) == _norm_site(t.get("symptom_site")):
+        errors.append("DEV-FIX-RC1: state_legitimate=false but fix_site == symptom_site with is_root_cause=true; "
+                      "fix where the bad state was produced (fault_site), or set is_root_cause=false")
+
+
+
+_PROOF_RUNG = {"stated": 1, "cited": 2, "walked": 3, "ran": 4, "reproduced": 5}
+
+
+def _check_collateral_proof(doc, errors):
+    """QA-COLLATERAL-P1: the rung a safety fact claims must be backed by its evidence, and the
+    status must follow from the rung and the risks. A collateral writeup reads as convincing
+    whether or not it is true, so the artifact carries the proof, not the prose."""
+    sf = doc.get("safety_fact") if isinstance(doc.get("safety_fact"), dict) else {}
+    rung, kind = sf.get("rung"), sf.get("proof_kind")
+    if kind in _PROOF_RUNG and isinstance(rung, int) and _PROOF_RUNG[kind] != rung:
+        errors.append(f"QA-COLLATERAL-P1: proof_kind={kind} is rung {_PROOF_RUNG[kind]}, not {rung}")
+    if isinstance(rung, int):
+        if 2 <= rung <= 3 and not (sf.get("ref") or "").strip():
+            errors.append(f"QA-COLLATERAL-P1: rung {rung} needs safety_fact.ref (a real path:line)")
+        if rung == 4 and not ((sf.get("command") or "").strip() and (sf.get("output") or "").strip()):
+            errors.append("QA-COLLATERAL-P1: rung 4 (ran) needs safety_fact.command and its output")
+        if rung == 5 and not (sf.get("output") or "").strip():
+            errors.append("QA-COLLATERAL-P1: rung 5 (reproduced) needs the observed output")
+    risks = [r for r in (doc.get("risks") or []) if isinstance(r, dict)]
+    high = [r for r in risks if r.get("likelihood") == "high" or r.get("cost") == "high"]
+    status = doc.get("status")
+    if status == "safe":
+        if not isinstance(rung, int) or rung < 3:
+            errors.append("QA-COLLATERAL-P1: status=safe needs the safety fact at rung 3 or deeper")
+        if high:
+            errors.append("QA-COLLATERAL-P1: status=safe with a confirmed risk rated high; that is risky")
+    if status == "risky" and not risks:
+        errors.append("QA-COLLATERAL-P1: status=risky needs at least one confirmed risk")
+    if status == "unproven" and isinstance(rung, int) and rung >= 3 and not high:
+        errors.append("QA-COLLATERAL-P1: status=unproven but the fact reached rung 3+ with no high risk; that is safe")
+
+
+_LADDER = ("structure", "static", "verification", "prose")
+_HARDEN_STATUS_BAND = {"rule-proposed": "static", "rule-applied": "static",
+                       "expectation-proposed": "verification", "guideline-proposed": "prose"}
+
+
+def _check_harden_ladder(doc, errors):
+    """DEV-HARDEN-L1, the anti-prose guard the schema keywords can't express: every band above the
+    chosen one must carry a why_not_higher reason, so a guideline can never be proposed while a
+    check that fails was possible and nobody said why not. Also ties status to band and evidence:
+    a rule status needs the proved rule, a guideline status needs the guideline text."""
+    band = doc.get("band")
+    if band in _LADDER:
+        skipped = {w.get("band") for w in (doc.get("why_not_higher") or []) if isinstance(w, dict)}
+        missing = [b for b in _LADDER[:_LADDER.index(band)] if b not in skipped]
+        if missing:
+            errors.append(f"DEV-HARDEN-L1: band={band} but no why_not_higher reason for {missing}")
+    status = doc.get("status")
+    want = _HARDEN_STATUS_BAND.get(status)
+    if want and band != want:
+        errors.append(f"DEV-HARDEN-L1: status={status} needs band={want}, got {band}")
+    if status in ("rule-proposed", "rule-applied"):
+        if not isinstance(doc.get("rule"), dict):
+            errors.append(f"DEV-HARDEN-L1: status={status} needs the proved `rule`")
+        if (doc.get("probe") or {}).get("status") != "probe-pass":
+            errors.append(f"DEV-HARDEN-L1: status={status} needs probe.status=probe-pass")
+    if status == "rule-applied" and not doc.get("applied"):
+        errors.append("DEV-HARDEN-L1: status=rule-applied needs `applied` {by, at}: only a human applies a rule")
+    if status == "guideline-proposed" and not doc.get("guideline"):
+        errors.append("DEV-HARDEN-L1: status=guideline-proposed needs the `guideline` text")
+    if status == "expectation-proposed" and not doc.get("expectation"):
+        errors.append("DEV-HARDEN-L1: status=expectation-proposed needs the `expectation` text")
+    if status == "ticket-drafted" and not doc.get("ticket_draft"):
+        errors.append("DEV-HARDEN-L1: status=ticket-drafted needs `ticket_draft`")
 
 
 def _check_regression_c1(doc, errors):
