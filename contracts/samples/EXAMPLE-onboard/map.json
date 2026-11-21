@@ -1,0 +1,23 @@
+{
+  "project": "ledgerly",
+  "commit": "0000000000000000000000000000000000000000",
+  "generated_at": "2026-01-01T00:00:00Z",
+  "summary": "An invoicing service: a service layer that enforces invoice rules over a swappable store. Here the store is in memory and the only caller is a small command-line entry point.",
+  "areas": [
+    {"id": "invoices", "name": "Invoices", "paths": ["app/invoices/"], "purpose": "Create, pay and total invoices.", "depends_on": []},
+    {"id": "members", "name": "Members", "paths": ["app/members/"], "purpose": "Invite members by email.", "depends_on": []},
+    {"id": "entry", "name": "Entry point", "paths": ["app/main.py"], "purpose": "Wire the store into the service and run.", "depends_on": ["invoices"]}
+  ],
+  "claims": [
+    {"id": "invoices.c1", "area": "invoices", "kind": "owner", "text": "InvoiceService owns every invoice state change; the store only persists rows.", "cites": [{"path": "app/invoices/service.py", "line_start": 8, "line_end": 23, "symbol": "class InvoiceService"}], "evidence": "pointed", "source": "code"},
+    {"id": "invoices.c2", "area": "invoices", "kind": "how", "text": "pay() refuses any invoice whose status is not open, then sets it to paid and writes it back through store.update.", "cites": [{"path": "app/invoices/service.py", "line_start": 17, "line_end": 23, "symbol": "def pay"}], "evidence": "walked", "source": "code"},
+    {"id": "invoices.c3", "area": "invoices", "kind": "how", "text": "total_due() sums cents over open invoices only.", "cites": [{"path": "app/invoices/service.py", "line_start": 25, "line_end": 26, "symbol": "def total_due"}], "evidence": "ran", "source": "code"},
+    {"id": "invoices.c4", "area": "invoices", "kind": "why", "text": "The store is in memory so tests stay fast and offline; a real store would keep the same four methods.", "cites": [{"ref": "doc:docs/decisions/0001-store-in-memory.md"}], "evidence": "pointed", "confidence": "certain", "source": "record"},
+    {"id": "invoices.c5", "area": "invoices", "kind": "gotcha", "text": "MemoryStore.get returns a copy, so mutating the result does nothing until update() is called.", "cites": [{"path": "app/invoices/store.py", "line_start": 15, "line_end": 16, "symbol": "def get"}], "evidence": "pointed", "source": "code"},
+    {"id": "members.c1", "area": "members", "kind": "where", "text": "Email validation lives in app/members/invite.py, before anything is stored.", "cites": [{"path": "app/members/invite.py", "line_start": 7, "line_end": 10, "symbol": "def invite"}], "evidence": "pointed", "source": "code"},
+    {"id": "entry.c1", "area": "entry", "kind": "how", "text": "build_service() is the one place the store is chosen; tests use it too.", "cites": [{"path": "app/main.py", "line_start": 8, "line_end": 9, "symbol": "def build_service"}], "evidence": "pointed", "source": "code"},
+    {"id": "entry.c2", "area": "entry", "kind": "command", "text": "make test runs the unittest suite under tests/.", "cites": [{"path": "Makefile", "line_start": 4, "line_end": 5}], "evidence": "pointed", "source": "code"}
+  ],
+  "commands": {"test": "make test", "run": "make run", "lint": "make lint"},
+  "open_questions": ["Nothing in the record says why invite() lowercases the email."]
+}

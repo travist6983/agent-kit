@@ -397,6 +397,7 @@ adapter layer, and is held to the loop-readiness checklist in
 | `qa-dream` | The scheduled consolidation pass: harvest yesterday's transcripts and loop artifacts deterministically, replay the brain's write outbox and re-embed pending rows, then consolidate compressed lessons so the next run starts warm. | writes `app_map`, `fix_lessons`, `flakiness`, metrics; proposes `expectations` |
 | `qa-run-case` | Run one structured test case from a case file against a live environment, read real state independently, and propose a verdict (`PASS` / `FAIL` / `PARTIAL` / `BLOCKED` / `MANUAL`); a human disposes. Never asks a question — marks `BLOCKED` with the reason. | — |
 | `qa-diagnose` | Diagnose one failed automated case run — screenshot first, then a two-analyzer swarm — and propose a minimal unified diff. Propose-only by construction (no edit tool). Classifies `app_bug` / `test_bug` / `environment` / `data`. | — |
+| `qa-onboard-quiz` | The onboarding loop's evaluator: a blind exam of a codebase map. A writer (code only), an examiner (map only) and a judge are separate agents; a script checks every cite, discards broken answer keys, blocks a round whose examiner read the code, and classifies every lost question so the loop relearns only what failed. See `docs/onboarding-loop.md`. | writes metrics |
 
 ### Ship / deploy / verify (`infra-*`)
 

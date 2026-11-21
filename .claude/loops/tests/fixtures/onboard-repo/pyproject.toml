@@ -1,0 +1,6 @@
+[project]
+name = "ledgerly"
+version = "0.1.0"
+
+[project.scripts]
+ledgerly = "app.main:main"

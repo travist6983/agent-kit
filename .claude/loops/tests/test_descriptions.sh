@@ -8,7 +8,7 @@ import os, re, sys
 SKILLS = ["dev-code-review","dev-escalate","dev-fix","dev-harden","dev-intake","dev-loop-defect",
           "dev-loop-feature-complete","dev-loop-feature-prerelease","dev-loop-hard-defect",
           "human-explore","infra-prod-verify","infra-ship","infra-worktree","qa-explore",
-          "qa-dream","qa-kb","qa-personas","qa-regression","qa-repro",
+          "qa-dream","qa-kb","qa-onboard-quiz","qa-personas","qa-regression","qa-repro",
           "qa-verify"]
 BUDGET = 1100  # chars ≈ 160 words; audit budget is ~100 words — hard ceiling with headroom
 FORBID = ["carved out of", "copied from create-pr", "decomposed from", "persona packs from",

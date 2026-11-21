@@ -47,5 +47,12 @@
     "max_fix_prs": 2,
     "max_dialogs_per_route": 3,
     "rule": "qa-ui-parity-sweep's bounds, from the skill's spec. budget_min is a HARD wall-clock budget for the whole run (capture closes at ~73%, fixes at ~91%, the report is due at 100%); sweep.py init reads it as the --budget-min default and `sweep.py budget` enforces it per phase (exit 3). A late report is written anyway and says BUDGET EXCEEDED. max_fix_prs caps the one-file fixes per run — enforced by `sweep.py fixed` (exit 3 on the third) — and each opens as a DRAFT pull request through infra-ship --draft (the vcs_host adapter's draft option), the one opt-in exception to the no-auto-ship rule for this sweep. max_dialogs_per_route bounds how many dialog triggers the capture opens per route per environment. Raising any of these is a human decision; the sweep never reads them as targets."
+  },
+  "onboard_loop": {
+    "pass_threshold": 0.8,
+    "area_floor": 0.6,
+    "max_bad_key_rate": 0.25,
+    "max_rounds": 3,
+    "rule": "The bounds of the codebase onboarding loop (dev-loop-onboard, docs/onboarding-loop.md). pass_threshold is the mean quiz score a map needs; area_floor is the lowest score any area with two or more scored questions may have, so a strong area cannot hide a blind one; max_rounds is how many quiz rounds a run gets before it stops and hands back what it still does not know; max_bad_key_rate is the share of questions whose answer key does not resolve against the code above which the round is BLOCKED (the question writer is the problem, not the map). grade_quiz.py reads the three score bounds and the recipe reads max_rounds; a value outside 0..1 falls back to these defaults. These are starting numbers, not measured ones: revisit them against the onboard_quiz_score metric after a few real codebases."
   }
 }

@@ -1,0 +1,9 @@
+{"answers": [
+  {"id": "q1", "text": "InvoiceService owns state changes.", "cites": [{"path": "app/invoices/service.py", "line_start": 8, "line_end": 23}], "from_claims": ["invoices.c1"]},
+  {"id": "q2", "text": "It is refused, since pay only works on open invoices.", "cites": [{"path": "app/invoices/service.py", "line_start": 17, "line_end": 23}], "from_claims": ["invoices.c2"]},
+  {"id": "q3", "text": "No, get returns a copy.", "cites": [{"path": "app/invoices/store.py", "line_start": 15, "line_end": 16}], "from_claims": ["invoices.c5"]},
+  {"id": "q4", "text": "To keep tests fast and offline.", "cites": [{"ref": "doc:docs/decisions/0001-store-in-memory.md"}], "from_claims": ["invoices.c4"]},
+  {"id": "q5", "text": "In app/members/invite.py.", "cites": [{"path": "app/members/invite.py", "line_start": 7, "line_end": 10}], "from_claims": ["members.c1"]},
+  {"id": "q6", "text": "", "cites": [], "from_claims": [], "not_in_map": true},
+  {"id": "q7", "text": "In build_service.", "cites": [{"path": "app/main.py", "line_start": 8, "line_end": 9}], "from_claims": ["entry.c1"]}
+]}

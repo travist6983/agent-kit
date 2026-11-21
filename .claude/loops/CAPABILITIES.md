@@ -51,6 +51,7 @@ between steps; workflow variables are not a seam.
 | `qa-personas` | atomic | Select a persona (role + lens) from the configured pack for a walk or repro | — | — |
 | `qa-run-case` | atomic | Run one structured case against a live environment; propose a grade | `qa-run-case.json` → `case-run.json` | — |
 | `qa-diagnose` | atomic | Diagnose one failed run, propose a minimal diff; never applies it | `qa-diagnose.json` → `diagnose.json` | — |
+| `qa-onboard-quiz` | atomic | The onboarding loop's evaluator: a blind exam of a codebase map (writer, examiner, judge) graded by a script that checks every cite | `qa-onboard-quiz.json` → `quiz.json` | writes metrics |
 | `qa-explore` | producer | Walk a feature before there is a bug; map it; propose expectations; draft a ticket | — | writes `app_map`, `flakiness`; proposes `expectations` |
 | `human-explore` | producer | A human drives; the only path that blesses an expectation to canonical | — | writes canonical `expectations` |
 | `qa-dream` | producer | Scheduled consolidation: deterministic harvest, outbox replay, compressed lessons | dream brief + report | writes `app_map`, `fix_lessons`, `flakiness`, metrics; proposes `expectations` |
@@ -224,6 +225,14 @@ never a silent skip and never an unclassified retry.
 - Outputs: `<evid_root>/harden/<fingerprint>/harden.json` plus any drafted `ticket.md`.
 - Brain: proposes `expectations` for the verification band; writes nothing canonical.
 - Stops: never edits the target repo, `conventions.json`, guidelines or skills; a rule reaches the gate only through a human's `rule_probe.py --apply --by`.
+
+### The onboarding lane
+
+**`qa-onboard-quiz`**
+- Purpose: decide whether a codebase map is good enough to work from. A writer who read only the code writes questions with cited answer keys; an examiner who holds only the map answers them, citing the claims it used; a judge grades each answer against its key. `grade_quiz.py` then checks every cite against the repo, discards broken keys, enforces the examiner's blindness, scores the round and classifies every lost question. Design: `docs/onboarding-loop.md`.
+- Inputs: `REPO` (read only), `MAP` (`dev-onboard-map.json` → `map.json`), `ROUND`, optional `CARRYOVER` (last round's lost questions) and `CHANGED_FILES`.
+- Outputs: `quiz.json`: `status ∈ {pass, fail, blocked}`, `score`, per-area scores with a floor, and per question `grade ∈ {correct, partial, wrong, missing, discarded}` and `failure_class ∈ {none, missing, wrong, vague, stale, why-gap, bad-key, outside-map}`.
+- Brain: writes `onboard_quiz_score` metrics · Stops: three separate fresh-context agents, never one; a missing grade, a broken question set or an examiner that read the code blocks the round instead of scoring it; never edits the repo or the map.
 
 ### Loop recipes
 
