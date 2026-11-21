@@ -86,6 +86,10 @@ must_fail "$C/qa-regression.json" "$C/samples/EXAMPLE-bad-green-zero-tests/regre
 must_pass "$C/dev-onboard-survey.json" "$C/samples/EXAMPLE-onboard/survey.json"
 # negative: a command purpose outside the vocabulary must FAIL (the survey never invents a kind)
 must_fail "$C/dev-onboard-survey.json" "$C/samples/EXAMPLE-onboard-bad-command/survey.json"
+must_pass "$C/dev-onboard-card.json" "$C/samples/EXAMPLE-onboard/cards/invoices.how.json"
+must_pass "$C/dev-onboard-card.json" "$C/samples/EXAMPLE-onboard/cards/invoices.why.json"
+# negative: a lens other than how or why must FAIL (the two lenses are the only readers)
+must_fail "$C/dev-onboard-card.json" "$C/samples/EXAMPLE-onboard-bad-card/invoices.how.json"
 must_pass "$C/dev-onboard-map.json" "$C/samples/EXAMPLE-onboard/map.json"
 must_pass "$C/qa-onboard-quiz.json" "$C/samples/EXAMPLE-onboard/quiz.json"
 # negative: an off-enum failure_class must FAIL (locks the classify-before-relearn vocabulary)

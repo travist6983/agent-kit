@@ -1,0 +1,47 @@
+{
+  "project": "ledgerly",
+  "commit": null,
+  "area": "invoices",
+  "lens": "why",
+  "mode": "fresh",
+  "focus": [],
+  "summary": "The record has one decision for this area: the store is in memory on purpose.",
+  "claims": [
+    {
+      "id": "invoices.w1",
+      "area": "invoices",
+      "kind": "why",
+      "text": "The store is in memory so tests stay fast and offline; a real store would keep the same four methods.",
+      "cites": [
+        {
+          "ref": "doc:docs/decisions/0001-store-in-memory.md"
+        }
+      ],
+      "evidence": "pointed",
+      "confidence": "certain",
+      "source": "record"
+    },
+    {
+      "id": "invoices.w2",
+      "area": "invoices",
+      "kind": "why",
+      "text": "Amounts are stored as integer cents, most likely to avoid floating point rounding on money.",
+      "cites": [],
+      "evidence": "said",
+      "confidence": "likely",
+      "source": "inference"
+    }
+  ],
+  "drops": [],
+  "gaps": [
+    "Why paid invoices can never be reopened: no commit or doc says."
+  ],
+  "read": [
+    "docs/decisions/0001-store-in-memory.md"
+  ],
+  "timing": {
+    "started_at": "2026-11-21T00:00:00Z",
+    "ended_at": "2026-11-21T00:02:00Z",
+    "duration_s": 120.0
+  }
+}
