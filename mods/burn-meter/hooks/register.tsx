@@ -47,7 +47,7 @@ async function draw($: EngineInterface) {
   }
   const elapsed = (await $.clock.now()) - t.startedAt
   const spent = total - t.costAtStart
-  $.ui.status(`⏱ ${clock(elapsed)} · ${t.steps} t.steps · turn ${money(spent)} · session ${money(total)}${ctx}${flags ? ` · ${flags}` : ''}`)
+  $.ui.status(`⏱ ${clock(elapsed)} · ${t.steps} steps · turn ${money(spent)} · session ${money(total)}${ctx}${flags ? ` · ${flags}` : ''}`)
 
   if (s.budgetUsd !== null) {
     const ratio = spent / s.budgetUsd
@@ -75,22 +75,28 @@ async function saveSettings($: EngineInterface, fn: (s: BurnSettings) => BurnSet
   await draw($)
 }
 
+// /fanout, not /workflows: Claude Code now ships a built-in /workflows and refuses the name.
+const COMMANDS = [
+  {
+    name: 'budget',
+    description: 'Per-turn spend limit: /budget 5 (warn, block fan-out), /budget 5 hard (stop the turn), /budget off',
+    argumentHint: '<usd> [hard] | off',
+    immediate: true,
+  },
+  {
+    name: 'fanout',
+    description: 'Allow or block multi-agent workflows: /fanout off | on',
+    argumentHint: 'on | off',
+    immediate: true,
+  },
+] as const
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const saved = (await $.store.get('settings')) as BurnSettings | undefined
     if (saved) await update($, settings, () => ({ ...DEFAULTS, ...saved }))
-    await $.command.register({
-      name: 'budget',
-      description: 'Per-turn spend limit: /budget 5 (warn, block fan-out), /budget 5 hard (stop the turn), /budget off',
-      argumentHint: '<usd> [hard] | off',
-      immediate: true,
-    })
-    await $.command.register({
-      name: 'workflows',
-      description: 'Allow or block multi-agent workflows: /workflows off | on',
-      argumentHint: 'on | off',
-      immediate: true,
-    })
+    // One refused name (a built-in that took it, another mod's) must not stop the rest of the mod.
+    for (const cmd of COMMANDS) await $.command.register(cmd).catch(() => undefined)
     await draw($)
     return next(e)
   })
@@ -108,7 +114,7 @@ export const register: Register = on => {
     t.heartbeat = $.clock.every(HEARTBEAT_MS, () => {
       void (async () => {
         const elapsed = (await $.clock.now()) - t.startedAt
-        $.ui.toast(`Still working · ${clock(elapsed)} · ${t.steps} t.steps · ${money(await turnCost($))}${t.lastTool ? ` · last: ${t.lastTool}` : ''}`, {
+        $.ui.toast(`Still working · ${clock(elapsed)} · ${t.steps} steps · ${money(await turnCost($))}${t.lastTool ? ` · last: ${t.lastTool}` : ''}`, {
           timeoutMs: 8000,
         })
       })()
@@ -126,7 +132,7 @@ export const register: Register = on => {
       const s = await read($, settings)
       if (s.isWorkflowOff && e.tool === 'Workflow') {
         return {
-          deny: 'The user has switched off multi-agent workflows (/workflows off). Do this work directly in the main session, reading only what you need.',
+          deny: 'The user has switched off multi-agent workflows (/fanout off). Do this work directly in the main session, reading only what you need.',
         }
       }
       if (s.budgetUsd !== null && t.turnId !== null && (await turnCost($)) >= s.budgetUsd) {
@@ -144,7 +150,7 @@ export const register: Register = on => {
       t.heartbeat?.cancel()
       const spent = await turnCost($)
       if (e.durationMs > 3 * 60_000) {
-        $.ui.toast(`Done · ${clock(e.durationMs)} · ${t.steps} t.steps · ${money(spent)}`, { timeoutMs: 10_000 })
+        $.ui.toast(`Done · ${clock(e.durationMs)} · ${t.steps} steps · ${money(spent)}`, { timeoutMs: 10_000 })
       }
       t.turnId = null
       await draw($)
@@ -165,9 +171,9 @@ export const register: Register = on => {
     return { text: `Turn budget ${money(usd)}${isHard ? ': the turn stops when it is hit.' : ': warnings at 50% and 80%, then workflows and subagents are blocked.'}` }
   })
 
-  on('command.run', { command: 'workflows' }, async ($, e) => {
+  on('command.run', { command: 'fanout' }, async ($, e) => {
     const isOff = e.args.trim().toLowerCase() !== 'on'
     await saveSettings($, s => ({ ...s, isWorkflowOff: isOff }))
-    return { text: isOff ? 'Workflows blocked in every session until /workflows on.' : 'Workflows allowed.' }
+    return { text: isOff ? 'Workflows blocked in every session until /fanout on.' : 'Workflows allowed.' }
   })
 }
