@@ -41,7 +41,7 @@ export type RepoIn = {
   lastDeploy: { at: number; what: string } | null
   recipe: string | null
 }
-export type ServerIn = { pid: number; port: number; process: string; command: string; age: string }
+export type ServerIn = { pid: number; port: number; process: string; command: string; age: string; cwd?: string; tool?: string | null; project?: string | null }
 export type RecipeEntryIn = { name: string; port: number }
 export type PrIn = {
   branch: string
@@ -310,12 +310,40 @@ function shipCard(s: Snapshot): Pick<Card, 'status' | 'isWarn' | 'isActive' | 'd
   }
 }
 
+// "vite in pm-tool", "roughdraft", or the bare process name when nothing better is known.
+export function appLabel(x: ServerIn) {
+  const what = x.tool || x.process || `pid ${x.pid}`
+  return x.project && x.project !== x.tool ? `${what} in ${x.project}` : what
+}
+
+export const shortPath = (path: string) => path.replace(/^\/(Users|home)\/[^/]+/, '~').replace(/ \/(Users|home)\/[^/ ]+/g, ' ~')
+
+// One row per listening port, with what the card's one-liner leaves out: the project folder,
+// the full command and the pid. `hidden` holds pids the panel just stopped, so they drop out
+// before dev-servers' next scan.
+export type ServerRow = { key: string; pid: number; port: number; process: string; app: string; age: string; folder: string; command: string }
+export function serverRows(d: NonNullable<Snapshot['dev']>, hidden: number[] = []): ServerRow[] {
+  return d.servers
+    .filter(x => !hidden.includes(x.pid))
+    .map(x => ({
+      key: `${x.pid}-${x.port}`,
+      pid: x.pid,
+      port: x.port,
+      process: x.process || `pid ${x.pid}`,
+      app: appLabel(x),
+      age: x.age,
+      folder: x.cwd && x.cwd !== '?' ? shortPath(x.cwd) : 'folder unknown',
+      command: shortPath(x.command || x.process),
+    }))
+    .sort((a, b) => a.port - b.port)
+}
+
 function devCard(s: Snapshot): Pick<Card, 'status' | 'isWarn' | 'isActive' | 'details'> {
   const d = s.dev
   if (!d) return { status: 'No scan yet', isWarn: false, isActive: false, details: [] }
   const ports = [...new Set(d.servers.map(x => x.port))].sort((a, b) => a - b)
   const running = new Set(ports)
-  const details: [string, string][] = d.servers.map(x => [x.process || `pid ${x.pid}`, `:${x.port}${x.age ? ` · up ${x.age}` : ''}`])
+  const details: [string, string][] = d.servers.map(x => [appLabel(x), `:${x.port}${x.cwd && x.cwd !== '?' ? ` · ${shortPath(x.cwd)}` : ''}${x.age ? ` · up ${x.age}` : ''}`])
   for (const r of d.recipe) if (!running.has(r.port)) details.push([r.name, `:${r.port} · stopped`])
   return {
     status: ports.length > 0 ? `${ports.length} running · ${ports.map(p => `:${p}`).join(' ')}` : 'Nothing running',

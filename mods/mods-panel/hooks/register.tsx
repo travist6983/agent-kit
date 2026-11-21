@@ -18,6 +18,7 @@ import {
   money,
   openQuestions,
   recipeView,
+  serverRows,
   sessionRows,
   summary,
 } from './view'
@@ -41,6 +42,8 @@ const toggledAtom = atom({ plugin: 'mods-panel', key: 'toggled' } as const, {})
 const answeredAtom = atom({ plugin: 'mods-panel', key: 'answered' } as const, [])
 const pendingAtom = atom({ plugin: 'mods-panel', key: 'pending' } as const, [])
 const bandAtom = atom({ plugin: 'mods-panel', key: 'isBandOn' } as const, true)
+const stopArmedAtom = atom({ plugin: 'mods-panel', key: 'stopArmed' } as const, null)
+const stoppedAtom = atom({ plugin: 'mods-panel', key: 'stopped' } as const, [])
 
 // ---- the other mods' values, read only ("any plugin reads any value; its owner alone writes it")
 
@@ -95,6 +98,30 @@ async function snapshot($: EngineInterface): Promise<Snapshot> {
     pr: pr ?? null,
     brain: health !== undefined || recall !== undefined ? { health: health ?? null, recall: recall ?? null, review: review ?? [] } : null,
   }
+}
+
+// ---- stopping a dev server from its card
+
+// The pid still listening on this port, or null: dev-servers scans every 15 seconds, so the row
+// can be stale, and a pid can be reused. Only a pid that still holds the port is signalled.
+async function holder($: EngineInterface, pid: number, port: number) {
+  const r = await $.process.run(['lsof', '-nP', '-a', '-p', String(pid), `-iTCP:${port}`, '-sTCP:LISTEN', '-t'])
+  return r.exitCode === 0 && r.stdout.trim() !== '' ? pid : null
+}
+
+async function stopServer($: EngineInterface, pid: number, port: number) {
+  await update($, stopArmedAtom, () => null)
+  if ((await holder($, pid, port)) === null) {
+    await $.ui.toast(`:${port} is already stopped.`, { timeoutMs: 5000 })
+    await update($, stoppedAtom, cur => [...new Set([...cur, pid])])
+    return
+  }
+  await $.process.run(['kill', String(pid)])
+  await $.clock.sleep(1500)
+  if ((await holder($, pid, port)) !== null) await $.process.run(['kill', '-9', String(pid)])
+  const isGone = (await holder($, pid, port)) === null
+  if (isGone) await update($, stoppedAtom, cur => [...new Set([...cur, pid])])
+  await $.ui.toast(isGone ? `Stopped :${port} (pid ${pid}).` : `Could not stop :${port} (pid ${pid}).`, { timeoutMs: 6000 })
 }
 
 // ---- reading the session and settings into this panel's own state
@@ -346,6 +373,10 @@ export const register: Register = on => {
     const sum = summary(s, list)
     const open = new Set((await read($, openAtom)) ?? defaultOpen(s))
     const tab = await read($, tabAtom)
+    const armed = await read($, stopArmedAtom)
+    // pids stopped here stay hidden only until dev-servers' scan stops listing them
+    const listed = new Set((s.dev?.servers ?? []).map(x => x.pid))
+    const stopped = (await read($, stoppedAtom)).filter(pid => listed.has(pid))
     const cols = Math.max(30, e.props.bodyColumns ?? 44)
     const wide = Math.max(8, Math.min(24, cols - 14))
 
@@ -647,6 +678,55 @@ export const register: Register = on => {
       )
     }
 
+    const devBody = (c: Card) => {
+      if (!s.dev) return genericBody(c)
+      const rows = serverRows(s.dev, stopped)
+      const running = new Set(rows.map(r => r.port))
+      const down = s.dev.recipe.filter(r => !running.has(r.port))
+      return (
+        <Box key="dev-body" flexDirection="column" gap={1}>
+          {rows.length === 0 && <Text dimColor>No dev servers are listening.</Text>}
+          {rows.map(r => (
+            <Box key={`dev-${r.key}`} flexDirection="column">
+              <Box flexDirection="row" justifyContent="space-between" alignItems="center" gap={1}>
+                <Text wrap="truncate-end" tabular>
+                  <Text bold>:{r.port}</Text>
+                  <Text> {r.app}</Text>
+                  <Text dimColor>
+                    {' '}
+                    · pid {r.pid}
+                    {r.age ? ` · up ${r.age}` : ''}
+                  </Text>
+                </Text>
+                <Box flexDirection="row" gap={1}>
+                  <Button key={`dev-open-${r.key}`} plain dimColor label="Open" onPress={() => $.process.run(['open', `http://localhost:${r.port}`])} />
+                  {armed === r.pid ? (
+                    <>
+                      <Button key={`dev-stop-yes-${r.key}`} label="Stop it" variant="primary" onPress={() => stopServer($, r.pid, r.port)} />
+                      <Button key={`dev-stop-no-${r.key}`} plain dimColor label="Keep" onPress={() => update($, stopArmedAtom, () => null)} />
+                    </>
+                  ) : (
+                    <Button key={`dev-stop-${r.key}`} plain label="Stop" onPress={() => update($, stopArmedAtom, () => r.pid)} />
+                  )}
+                </Box>
+              </Box>
+              <Text dimColor wrap="truncate-end">
+                {r.folder}
+              </Text>
+              <Text dimColor wrap="truncate-middle">
+                $ {r.command}
+              </Text>
+            </Box>
+          ))}
+          {down.map(r => (
+            <Text key={`dev-down-${r.name}`} dimColor>
+              ○ {r.name} :{r.port} · stopped
+            </Text>
+          ))}
+        </Box>
+      )
+    }
+
     const genericBody = (c: Card) =>
       c.details.length === 0 ? (
         <Text key={`${c.name}-body`} dimColor>
@@ -695,7 +775,9 @@ export const register: Register = on => {
                     ? burnBody(c)
                     : c.name === 'traffic-control'
                       ? trafficBody()
-                      : genericBody(c)}
+                      : c.name === 'dev-servers'
+                        ? devBody(c)
+                        : genericBody(c)}
             </Box>
           )}
         </Box>
