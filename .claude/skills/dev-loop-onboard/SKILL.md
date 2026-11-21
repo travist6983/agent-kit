@@ -28,6 +28,8 @@ The decisions are scripts, each tested by `.claude/loops/tests/test_onboard_loop
 | `scripts/onboard_writeback.py` | what reaches the brain, and as what status | a plan; the brain on `--apply` |
 | `scripts/decide.py` | nothing; it records | one row in `decisions.tsv` |
 
+Its human end is `dev-onboard-teach` (step 8), whose questions feed the next run.
+
 ## The sequence
 
 ```
@@ -56,7 +58,9 @@ from `stack.config.json`, default `runs`). Files on disk are the source of truth
      --out "$EVID/stale.json" --changed-out "$EVID/changed.txt"
    ```
    `fresh` with nothing changed: skip to the quiz to re-check the map, or stop if the brain already
-   holds it at this commit. `stale`: relearn only `stale_areas` (steps 2 to 4 for those areas, with
+   holds it at this commit. If `$EVID/teach-gaps.json` exists, `dev-onboard-teach`'s
+   `record_gap.py --jobs --map "$EVID/map.json"` turns the open questions people asked into relearn
+   jobs; run them in step 3 beside any stale areas, and place `unplaced` ones with the survey. `stale`: relearn only `stale_areas` (steps 2 to 4 for those areas, with
    the old map as `--prior`). `unknown` or any `unassigned` path: run the full survey and every area.
 2. **Survey.** `dev-onboard-survey` (a script, no model). Log the area cut with `decide.py`.
 3. **How ∥ why.** For every area, spawn one `dev-onboard-how` agent and one `dev-onboard-why` agent
@@ -100,6 +104,10 @@ from `stack.config.json`, default `runs`). Files on disk are the source of truth
    kind `codebase`; unverified ones land as `proposed` only when the map passed, for a person to
    bless with `kb bless lessons`. Metrics go in every run. The receipt in the report is rendered
    from what `--apply` returned, not from what was planned.
+
+8. **Teach, when a person will work in the repo.** Hand the map to `dev-onboard-teach`. It explains
+   from the map only and records what the map could not answer in `teach-gaps.json`, which the
+   next run picks up in step 1.
 
 Log every decision that changes the run's path (an area cut, a dropped card, a route action, a
 skipped write) with `scripts/decide.py --log "$EVID/decisions.tsv"`.

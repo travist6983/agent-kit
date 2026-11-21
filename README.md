@@ -23,7 +23,7 @@ self-hosted-tracker shop run the same skills with a different config file.
 | | |
 |---|---|
 | **What it is** | Autonomous Claude Code agents that take a ticket to a reviewed pull request, with a deterministic gate between every step |
-| **Skills** | 35 atomic skills and loop recipes: intake, repro, fix, verify, regression, code review, ship, prod-verify, explore, dream, harden, onboard |
+| **Skills** | 36 atomic skills and loop recipes: intake, repro, fix, verify, regression, code review, ship, prod-verify, explore, dream, harden, onboard |
 | **Integrations** | 10 vendor-neutral adapter roles (issue tracker, VCS host, CI/CD, sandbox, evidence store and more), picked in one config file |
 | **Memory** | A shared Postgres + pgvector knowledge brain, so selectors, flaky-test history and fix patterns carry over to the next run |
 | **Safety** | Dry-run and staging-only by default, blast-radius limits, budget caps, a global kill switch flipped only by a human |
@@ -97,7 +97,7 @@ the others reuse the same skills, brain, and safety model.
 | **Sensitive / pre-release defects** | Same pipeline, then **stage** for human QA — never auto-ship | `dev-loop-feature-prerelease` |
 | **Features / stories** | Plan → implement → verify against acceptance criteria → stage | `dev-loop-feature-complete` |
 | **Pull requests** | Sweep the VCS host for unreviewed PRs, review each once per head commit | `dev-loop-pr-review` |
-| **New codebases** | Survey → read every area two ways → map → blind quiz → relearn only what was missed → remember what was verified | `dev-loop-onboard` |
+| **New codebases** | Survey → read every area two ways → map → blind quiz → relearn only what was missed → remember what was verified → walk a person through it | `dev-loop-onboard`, `dev-onboard-teach` |
 | **Learning** | Explore features, propose expectations, consolidate lessons, turn recurring corrections into checks | `qa-explore`, `human-explore`, `qa-dream`, `dev-harden` |
 
 > The win is **composition**: the same atomic skills (repro, fix, verify, regression,
