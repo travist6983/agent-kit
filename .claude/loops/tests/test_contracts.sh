@@ -83,6 +83,9 @@ must_pass "$C/qa-regression.json" "$C/samples/EXAMPLE-blocked-slice-empty/regres
 must_fail "$C/qa-regression.json" "$C/samples/EXAMPLE-bad-green-zero-tests/regression.json"
 
 # onboarding loop (v1.0.0: the map every claim cites, and the blind quiz that grades it)
+must_pass "$C/dev-onboard-survey.json" "$C/samples/EXAMPLE-onboard/survey.json"
+# negative: a command purpose outside the vocabulary must FAIL (the survey never invents a kind)
+must_fail "$C/dev-onboard-survey.json" "$C/samples/EXAMPLE-onboard-bad-command/survey.json"
 must_pass "$C/dev-onboard-map.json" "$C/samples/EXAMPLE-onboard/map.json"
 must_pass "$C/qa-onboard-quiz.json" "$C/samples/EXAMPLE-onboard/quiz.json"
 # negative: an off-enum failure_class must FAIL (locks the classify-before-relearn vocabulary)

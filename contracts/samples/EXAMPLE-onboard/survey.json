@@ -1,0 +1,130 @@
+{
+  "project": "ledgerly",
+  "commit": null,
+  "source": "tree",
+  "totals": {
+    "files": 13,
+    "code_files": 7,
+    "code_lines": 79,
+    "skipped": 0
+  },
+  "languages": [
+    {
+      "name": "Python",
+      "files": 8,
+      "lines": 95
+    }
+  ],
+  "manifests": [
+    "Makefile",
+    "pyproject.toml"
+  ],
+  "commands": [
+    {
+      "purpose": "run",
+      "name": "run",
+      "run": "make run",
+      "path": "Makefile",
+      "line": 1,
+      "source": "declared"
+    },
+    {
+      "purpose": "test",
+      "name": "test",
+      "run": "make test",
+      "path": "Makefile",
+      "line": 4,
+      "source": "declared"
+    },
+    {
+      "purpose": "lint",
+      "name": "lint",
+      "run": "make lint",
+      "path": "Makefile",
+      "line": 7,
+      "source": "declared"
+    }
+  ],
+  "entry_points": [
+    {
+      "path": "app/main.py",
+      "line": 20,
+      "reason": "manifest"
+    }
+  ],
+  "tests": {
+    "files": 1,
+    "dirs": [
+      "tests"
+    ]
+  },
+  "docs": [
+    "FIXTURE.md",
+    "README.md",
+    "docs/decisions/0001-store-in-memory.md"
+  ],
+  "decisions": [
+    "docs/decisions/0001-store-in-memory.md"
+  ],
+  "hotspots": [],
+  "history": {
+    "commits_scanned": 0,
+    "shallow": false
+  },
+  "areas": [
+    {
+      "id": "app",
+      "paths": [
+        "app/__init__.py",
+        "app/main.py"
+      ],
+      "files": 2,
+      "lines": 21,
+      "languages": [
+        "Python"
+      ],
+      "depends_on": [
+        "invoices"
+      ],
+      "tests": [
+        "tests/test_invoices.py"
+      ]
+    },
+    {
+      "id": "invoices",
+      "paths": [
+        "app/invoices/"
+      ],
+      "files": 3,
+      "lines": 48,
+      "languages": [
+        "Python"
+      ],
+      "depends_on": [],
+      "tests": [
+        "tests/test_invoices.py"
+      ]
+    },
+    {
+      "id": "members",
+      "paths": [
+        "app/members/"
+      ],
+      "files": 2,
+      "lines": 10,
+      "languages": [
+        "Python"
+      ],
+      "depends_on": [],
+      "tests": []
+    }
+  ],
+  "notes": [
+    "not a git checkout: no commit, no hotspots, no history for the why stage"
+  ],
+  "timing": {
+    "started_at": "2026-11-21T00:00:00Z",
+    "ended_at": "2026-11-21T00:00:01Z",
+    "duration_s": 1.0
+  }
+}

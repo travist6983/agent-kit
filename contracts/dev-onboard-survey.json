@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "loops/contracts/dev-onboard-survey.json",
+  "title": "dev-onboard-survey survey.json: a deterministic first look at a codebase",
+  "version": "1.0.0",
+  "status": "proposed",
+  "description": "Written by dev-onboard-survey (scripts/survey.py, no model) to <evid_root>/onboard/<project>/survey.json. It is the onboarding loop's orientation: what the repo is made of, the commands the repo itself declares, where execution starts, where the record lives, which files change most, and a first cut of areas sized for one reader each. Everything in it is counted or read from a file, never guessed, so two runs on the same commit write the same survey apart from timing. The how and why stages fan out over its areas; dev-onboard-map seeds the map's areas from it; the staleness check re-runs it. See docs/onboarding-loop.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["project", "commit", "source", "totals", "languages", "commands", "entry_points", "docs", "areas"],
+  "properties": {
+    "project": { "type": "string" },
+    "commit": { "type": ["string", "null"], "description": "HEAD's full SHA when the repo is a git checkout, null otherwise. A map built from a null-commit survey cannot be refreshed incrementally." },
+    "source": { "type": "string", "enum": ["git", "tree"], "description": "git: the file list is `git ls-files`, so ignored files are already out. tree: a plain directory walk with the default excludes." },
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["files", "code_files", "code_lines"],
+      "properties": {
+        "files": { "type": "integer", "minimum": 0 },
+        "code_files": { "type": "integer", "minimum": 0 },
+        "code_lines": { "type": "integer", "minimum": 0 },
+        "skipped": { "type": "integer", "minimum": 0, "description": "Files left out as binary, generated, vendored or too large to read." }
+      }
+    },
+    "languages": {
+      "type": "array",
+      "description": "Code languages by line count, largest first.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "files", "lines"],
+        "properties": {
+          "name": { "type": "string" },
+          "files": { "type": "integer", "minimum": 0 },
+          "lines": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "manifests": { "type": "array", "items": { "type": "string" }, "description": "Build and package manifests found (package.json, pyproject.toml, go.mod, Cargo.toml, Makefile, ...)." },
+    "commands": {
+      "type": "array",
+      "description": "Commands the repo itself declares, each with the file and line it was read from. Never invented: a command with source `convention` is the toolchain's documented default for a manifest that declares none (go test ./... for a go.mod).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["purpose", "run", "path", "source"],
+        "properties": {
+          "purpose": { "type": "string", "enum": ["build", "test", "lint", "format", "run", "typecheck", "other"] },
+          "name": { "type": "string", "description": "The target or script name as declared." },
+          "run": { "type": "string", "description": "How to invoke it, e.g. `make test` or `npm run lint`." },
+          "path": { "type": "string" },
+          "line": { "type": ["integer", "null"], "minimum": 1 },
+          "source": { "type": "string", "enum": ["declared", "convention"] }
+        }
+      }
+    },
+    "entry_points": {
+      "type": "array",
+      "description": "Where execution starts, each with why the survey thinks so.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "reason"],
+        "properties": {
+          "path": { "type": "string" },
+          "line": { "type": ["integer", "null"], "minimum": 1 },
+          "reason": { "type": "string", "enum": ["manifest", "main-guard", "main-func", "conventional-name"] }
+        }
+      }
+    },
+    "tests": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "files": { "type": "integer", "minimum": 0 },
+        "dirs": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "docs": { "type": "array", "items": { "type": "string" }, "description": "Prose a newcomer should read: READMEs, docs/, contributing and architecture notes." },
+    "decisions": { "type": "array", "items": { "type": "string" }, "description": "Decision records (ADRs, RFCs, docs/decisions). The why stage starts here." },
+    "hotspots": {
+      "type": "array",
+      "description": "Files touched by the most commits in the recent history window, most first. Empty without git history.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "commits"],
+        "properties": {
+          "path": { "type": "string" },
+          "commits": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "history": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "commits_scanned": { "type": "integer", "minimum": 0 },
+        "shallow": { "type": "boolean", "description": "True on a shallow clone: the why stage will find less of the record, and should say so." }
+      }
+    },
+    "areas": {
+      "type": "array",
+      "description": "A first cut of the units to fan out over, each sized for one reader. Path-based and deterministic; dev-onboard-map may rename, merge or split them.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "paths", "files", "lines"],
+        "properties": {
+          "id": { "type": "string" },
+          "paths": { "type": "array", "items": { "type": "string" } },
+          "files": { "type": "integer", "minimum": 0 },
+          "lines": { "type": "integer", "minimum": 0 },
+          "languages": { "type": "array", "items": { "type": "string" } },
+          "depends_on": { "type": "array", "items": { "type": "string" }, "description": "Other area ids this one imports from, read from import statements where the survey can parse them (Python, JavaScript, TypeScript). Absent edges mean not detected, not absent." },
+          "tests": { "type": "array", "items": { "type": "string" }, "description": "Test files whose name or imports point at this area." },
+          "hotspot_commits": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "notes": { "type": "array", "items": { "type": "string" }, "description": "What the survey could not do and why, in plain words (no git, shallow history, an area too large to split)." },
+    "timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["started_at", "ended_at"],
+      "properties": {
+        "started_at": { "type": "string" },
+        "ended_at": { "type": "string" },
+        "duration_s": { "type": "number", "minimum": 0 }
+      }
+    },
+    "attempt": { "type": "integer", "minimum": 1 },
+    "retry_reason": { "type": "string" }
+  }
+}

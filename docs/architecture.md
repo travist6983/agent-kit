@@ -383,6 +383,7 @@ adapter layer, and is held to the loop-readiness checklist in
 | `dev-pre-pr` | The last gate before a PR: one readiness verdict (`ready` / `warnings` / `blocked`) from the loop's evidence. **Fails closed on `verify.json`** — missing, stale, malformed or not-`pass` all block at every tier. Deterministic standards scan on added lines; reconciles `regression.json` + `review.json` by freshness; re-runs the build when that evidence is stale. Has no edit tool. | — |
 | `dev-escalate` | Hand a stuck loop to a human warm, from a configurable template: attempt log, failure class, repro + expected/actual, verdicts, decisions, every recording. Assigns per area, transitions the ticket. Posting is dry-run until the recipe authorizes. | (the ticket is the signal) |
 | `dev-pr-feed` | The VCS-host PR surface: list PRs unreviewed at their current head, pull one into a read-only worktree, post findings as review comments, remember what was reviewed. Keyed on PR id + head commit. Fails closed on the R9 pause before any live post. | — |
+| `dev-onboard-survey` | The onboarding loop's first look at a codebase, with no model in it: languages, the commands the repo declares (file and line), entry points, tests, docs and decision records, churn hotspots, and areas sized for one reader each with their import edges. Same commit, same survey. See `docs/onboarding-loop.md`. | none |
 
 ### QA / evaluator / brain (`qa-*`)
 

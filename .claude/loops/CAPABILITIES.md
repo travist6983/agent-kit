@@ -52,6 +52,7 @@ between steps; workflow variables are not a seam.
 | `qa-run-case` | atomic | Run one structured case against a live environment; propose a grade | `qa-run-case.json` → `case-run.json` | — |
 | `qa-diagnose` | atomic | Diagnose one failed run, propose a minimal diff; never applies it | `qa-diagnose.json` → `diagnose.json` | — |
 | `qa-onboard-quiz` | atomic | The onboarding loop's evaluator: a blind exam of a codebase map (writer, examiner, judge) graded by a script that checks every cite | `qa-onboard-quiz.json` → `quiz.json` | writes metrics |
+| `dev-onboard-survey` | atomic | The onboarding loop's first look: a deterministic, zero-model scan of languages, declared commands, entry points, docs, hotspots and a first cut of areas | `dev-onboard-survey.json` → `survey.json` | none |
 | `qa-explore` | producer | Walk a feature before there is a bug; map it; propose expectations; draft a ticket | — | writes `app_map`, `flakiness`; proposes `expectations` |
 | `human-explore` | producer | A human drives; the only path that blesses an expectation to canonical | — | writes canonical `expectations` |
 | `qa-dream` | producer | Scheduled consolidation: deterministic harvest, outbox replay, compressed lessons | dream brief + report | writes `app_map`, `fix_lessons`, `flakiness`, metrics; proposes `expectations` |
@@ -233,6 +234,12 @@ never a silent skip and never an unclassified retry.
 - Inputs: `REPO` (read only), `MAP` (`dev-onboard-map.json` → `map.json`), `ROUND`, optional `CARRYOVER` (last round's lost questions) and `CHANGED_FILES`.
 - Outputs: `quiz.json`: `status ∈ {pass, fail, blocked}`, `score`, per-area scores with a floor, and per question `grade ∈ {correct, partial, wrong, missing, discarded}` and `failure_class ∈ {none, missing, wrong, vague, stale, why-gap, bad-key, outside-map}`.
 - Brain: writes `onboard_quiz_score` metrics · Stops: three separate fresh-context agents, never one; a missing grade, a broken question set or an examiner that read the code blocks the round instead of scoring it; never edits the repo or the map.
+
+**`dev-onboard-survey`**
+- Purpose: orientation before any reading. `survey.py` counts and reads, never guesses: languages by lines, manifests, the commands the repo itself declares (file and line), entry points, tests, docs and decision records, churn hotspots, and areas sized for one reader each with the import edges between them.
+- Inputs: `REPO` (read only), `PROJECT`, optional `--max-area-lines` and `--history`.
+- Outputs: `survey.json`: `areas[]` (id, paths, size, `depends_on`, tests, churn), `commands[]` (`declared` or `convention`), `entry_points[]`, `notes[]` for what it could not see (no git, shallow clone).
+- Brain: none · Stops: no model call, no network; never runs a command it finds; same commit, same survey.
 
 ### Loop recipes
 
