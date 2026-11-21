@@ -386,6 +386,7 @@ adapter layer, and is held to the loop-readiness checklist in
 | `dev-onboard-survey` | The onboarding loop's first look at a codebase, with no model in it: languages, the commands the repo declares (file and line), entry points, tests, docs and decision records, churn hotspots, and areas sized for one reader each with their import edges. Same commit, same survey. See `docs/onboarding-loop.md`. | none |
 | `dev-onboard-how` | The how lens of the onboarding loop: one read-only agent per area writes a card of atomic claims about what the code does, each citing file, lines and a symbol; `check_card.py` proves every cite. Relearn modes fix only what the quiz showed was missing, wrong or vague. | none |
 | `dev-onboard-why` | The why lens: reasons from the record (commits, the pull requests they name, decision docs), quoted with a ref or marked as inference with an honest confidence; what the record does not answer is a gap, never a story. | none |
+| `dev-onboard-map` | The architect lens and assembly step: an agent writes the cross-area view as data (summary, names, merges, one owner per piece of state, where new code goes); a script merges it with the cards, keeps a verified claim only while it is unchanged, and lints the result before the quiz sees it. | none |
 
 ### QA / evaluator / brain (`qa-*`)
 
