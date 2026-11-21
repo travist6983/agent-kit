@@ -1,0 +1,228 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "loops/contracts/dev-onboard-card.json",
+  "title": "dev-onboard-how / dev-onboard-why card: one area, one lens, every claim cited",
+  "version": "1.0.0",
+  "status": "proposed",
+  "description": "Written by one dev-onboard-how or dev-onboard-why agent to <evid_root>/onboard/<project>/cards/<area>.<lens>.json. A card is one reader's account of one area through one lens: how (what the code is and does, cited to file and line) or why (the reasons, cited to the record or marked as inference). check_card.py checks it against the repo before dev-onboard-map reads it, so a claim that cites nothing real never reaches the map. Claims share the map's claim shape. See docs/onboarding-loop.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "project",
+    "commit",
+    "area",
+    "lens",
+    "mode",
+    "claims"
+  ],
+  "properties": {
+    "project": {
+      "type": "string"
+    },
+    "commit": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "The commit the reader looked at; the survey's commit."
+    },
+    "area": {
+      "type": "string",
+      "description": "The survey area id this card covers."
+    },
+    "lens": {
+      "type": "string",
+      "enum": [
+        "how",
+        "why"
+      ]
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "fresh",
+        "missing",
+        "correct",
+        "deepen"
+      ],
+      "description": "fresh = first read. missing = the map had nothing on the focus topics. correct = claims named in focus were graded wrong and are re-checked from the code. deepen = answers were vague; narrow the cites and walk the flow. The router picks the mode from the quiz's failure class."
+    },
+    "focus": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "For a relearn: the question topics or claim ids this card was asked about. Empty on a fresh read."
+    },
+    "summary": {
+      "type": "string",
+      "description": "Two or three sentences on this area through this lens, the way a senior engineer would say it out loud."
+    },
+    "claims": {
+      "type": "array",
+      "description": "Atomic, cited claims, same shape as map claims.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "area",
+          "kind",
+          "text",
+          "cites",
+          "evidence"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "<area>.h<n> on a how card, <area>.w<n> on a why card. dev-onboard-map keeps the id, so a question that cites it stays valid across rounds."
+          },
+          "area": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "what",
+              "how",
+              "where",
+              "owner",
+              "why",
+              "rule",
+              "gotcha",
+              "command"
+            ],
+            "description": "what = what a thing is. how = a runtime flow or mechanism. where = where something lives. owner = which module owns a piece of state or a decision. why = the reason it is built this way. rule = where new code of a given kind belongs (the architect lens). gotcha = a trap a newcomer would hit. command = how to build, test, run or lint."
+          },
+          "text": {
+            "type": "string",
+            "description": "The claim in one or two plain sentences. No hedging words; confidence carries the hedge."
+          },
+          "cites": {
+            "type": "array",
+            "description": "What the claim rests on. Code cites carry path and lines; record cites carry ref. Empty only for a why claim marked source=inference.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Repo-relative file path."
+                },
+                "line_start": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "line_end": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "symbol": {
+                  "type": "string",
+                  "description": "A name that must appear in the cited lines. The grader checks it, which catches a cite that drifted."
+                },
+                "ref": {
+                  "type": "string",
+                  "description": "A record pointer for a why claim: commit:<sha>, pr:<number>, doc:<path>."
+                }
+              }
+            }
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "said",
+              "pointed",
+              "walked",
+              "ran"
+            ],
+            "description": "How far the claim was proven. said = asserted only (never enough for a non-why claim). pointed = a real file and line. walked = the flow was traced step by step and the bad case does not reach. ran = a command or test that calls the real code showed it."
+          },
+          "confidence": {
+            "type": "string",
+            "enum": [
+              "certain",
+              "likely",
+              "guessing"
+            ],
+            "description": "Mainly for why claims. certain = the record says so in the authors' words. likely = a strong inference. guessing = filling a gap. A why claim that is an inference may not be certain."
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "code",
+              "record",
+              "inference"
+            ],
+            "description": "Where the claim came from."
+          }
+        }
+      }
+    },
+    "drops": {
+      "type": "array",
+      "description": "Correct mode: map claims this reader checked and found wrong, with what the code actually says. dev-onboard-map removes them instead of patching them.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "reason"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "replaced_by": {
+            "type": "string",
+            "description": "The new claim id that says it correctly, when there is one."
+          }
+        }
+      }
+    },
+    "gaps": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "What this reader could not answer from its sources, in plain words. On a why card these are questions the record does not answer; they go to the map's open questions, never get filled with a guess."
+    },
+    "read": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Files or record refs the reader opened, for the decision log."
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "retry_reason": {
+      "type": "string"
+    },
+    "timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "started_at",
+        "ended_at"
+      ],
+      "properties": {
+        "started_at": {
+          "type": "string"
+        },
+        "ended_at": {
+          "type": "string"
+        },
+        "duration_s": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

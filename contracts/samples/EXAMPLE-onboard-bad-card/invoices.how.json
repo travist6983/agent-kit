@@ -1,0 +1,86 @@
+{
+  "project": "ledgerly",
+  "commit": null,
+  "area": "invoices",
+  "lens": "who",
+  "mode": "fresh",
+  "focus": [],
+  "summary": "A small invoicing core: InvoiceService holds the rules and every state change, MemoryStore keeps rows. Callers only ever go through the service.",
+  "claims": [
+    {
+      "id": "invoices.h1",
+      "area": "invoices",
+      "kind": "owner",
+      "text": "InvoiceService owns every invoice state change; MemoryStore only persists rows.",
+      "cites": [
+        {
+          "path": "app/invoices/service.py",
+          "line_start": 8,
+          "line_end": 23,
+          "symbol": "class InvoiceService"
+        }
+      ],
+      "evidence": "pointed",
+      "source": "code"
+    },
+    {
+      "id": "invoices.h2",
+      "area": "invoices",
+      "kind": "how",
+      "text": "pay() loads the invoice, refuses it unless its status is open by raising InvoiceError, then sets it to paid and writes it back with store.update.",
+      "cites": [
+        {
+          "path": "app/invoices/service.py",
+          "line_start": 17,
+          "line_end": 23,
+          "symbol": "def pay"
+        }
+      ],
+      "evidence": "walked",
+      "source": "code"
+    },
+    {
+      "id": "invoices.h3",
+      "area": "invoices",
+      "kind": "gotcha",
+      "text": "store.get returns a copy, so changing the returned dict does nothing until update() is called.",
+      "cites": [
+        {
+          "path": "app/invoices/store.py",
+          "line_start": 15,
+          "line_end": 16,
+          "symbol": "def get"
+        }
+      ],
+      "evidence": "pointed",
+      "source": "code"
+    },
+    {
+      "id": "invoices.h4",
+      "area": "invoices",
+      "kind": "rule",
+      "text": "A new invoice rule belongs in InvoiceService, never in the store, which stays a dumb row keeper.",
+      "cites": [
+        {
+          "path": "app/invoices/service.py",
+          "line_start": 1,
+          "line_end": 1,
+          "symbol": "owns every state change"
+        }
+      ],
+      "evidence": "pointed",
+      "source": "code"
+    }
+  ],
+  "drops": [],
+  "gaps": [],
+  "read": [
+    "app/invoices/service.py",
+    "app/invoices/store.py"
+  ],
+  "timing": {
+    "started_at": "2026-11-21T00:00:00Z",
+    "ended_at": "2026-11-21T00:02:00Z",
+    "duration_s": 120.0
+  }
+}

@@ -53,6 +53,8 @@ between steps; workflow variables are not a seam.
 | `qa-diagnose` | atomic | Diagnose one failed run, propose a minimal diff; never applies it | `qa-diagnose.json` → `diagnose.json` | — |
 | `qa-onboard-quiz` | atomic | The onboarding loop's evaluator: a blind exam of a codebase map (writer, examiner, judge) graded by a script that checks every cite | `qa-onboard-quiz.json` → `quiz.json` | writes metrics |
 | `dev-onboard-survey` | atomic | The onboarding loop's first look: a deterministic, zero-model scan of languages, declared commands, entry points, docs, hotspots and a first cut of areas | `dev-onboard-survey.json` → `survey.json` | none |
+| `dev-onboard-how` | atomic | The how lens: one read-only agent per area writes cited claims about what the code does; `check_card.py` proves every cite | `dev-onboard-card.json` → `cards/<area>.how.json` | none |
+| `dev-onboard-why` | atomic | The why lens: reasons from the record (commits, pull requests, decision docs) or marked as inference; refs checked | `dev-onboard-card.json` → `cards/<area>.why.json` | none |
 | `qa-explore` | producer | Walk a feature before there is a bug; map it; propose expectations; draft a ticket | — | writes `app_map`, `flakiness`; proposes `expectations` |
 | `human-explore` | producer | A human drives; the only path that blesses an expectation to canonical | — | writes canonical `expectations` |
 | `qa-dream` | producer | Scheduled consolidation: deterministic harvest, outbox replay, compressed lessons | dream brief + report | writes `app_map`, `fix_lessons`, `flakiness`, metrics; proposes `expectations` |
@@ -240,6 +242,18 @@ never a silent skip and never an unclassified retry.
 - Inputs: `REPO` (read only), `PROJECT`, optional `--max-area-lines` and `--history`.
 - Outputs: `survey.json`: `areas[]` (id, paths, size, `depends_on`, tests, churn), `commands[]` (`declared` or `convention`), `entry_points[]`, `notes[]` for what it could not see (no git, shallow clone).
 - Brain: none · Stops: no model call, no network; never runs a command it finds; same commit, same survey.
+
+**`dev-onboard-how`**
+- Purpose: explain one area from the code as atomic claims (what, where, how, owner, rule, gotcha, command), each citing file, lines and a symbol, with evidence pointed, walked or ran. Modes fresh, missing, correct (wrong claims go to `drops[]`, never patched in place), deepen.
+- Inputs: `REPO` (read only), `SURVEY`, `AREA`, `MODE`, `FOCUS` from the router.
+- Outputs: `cards/<area>.how.json`, checked by `scripts/check_card.py` (also used by the why lens).
+- Brain: none · Stops: never edits the repo; a card that fails the check goes back to its reader once, then the area is logged unlearned; no why claims.
+
+**`dev-onboard-why`**
+- Purpose: why one area is built this way, from the record. `record_bundle.py` gathers the commits that touched it (the introducing one always kept), the pull request numbers they mention and the decision docs that point at it; the reader opens pull requests through `vcs_host` read operations.
+- Inputs: `REPO` (read only), `SURVEY`, `AREA`, `MODE` (`fresh` or `missing` for a why-gap).
+- Outputs: `cards/<area>.record.json` and `cards/<area>.why.json`: record claims cite `commit:`, `pr:` or `doc:`; inferences are `likely` or `guessing`; unanswered questions go in `gaps`.
+- Brain: none · Stops: posts nothing; names no people; an inference is never `certain`.
 
 ### Loop recipes
 
