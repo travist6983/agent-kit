@@ -6,7 +6,7 @@ Claude Code mods (plugins of function hooks) that ship with the kit. The kit rep
 |---|---|
 | ship | Row above the prompt: branch, changes, commits to push, last deploy. `/ship` commits, pushes and deploys with the repo's saved recipe; `/ship pr`, `/ship set <cmd>`, `/ship show`. The first `/ship` in a repo works the deploy out and saves it. |
 | dev-servers | `/servers` pane of running dev servers with URLs. `/up` starts the project's saved servers, `/bounce` restarts them. The first `/up` has Claude start them and save the recipe. |
-| burn-meter | Status line with turn time, steps and cost; a toast every 5 min on long turns. `/budget 5`, `/budget 5 hard`, `/budget off`; `/workflows off \| on`. |
+| burn-meter | Status line with turn time, steps and cost; a toast every 5 min on long turns. `/budget 5`, `/budget 5 hard`, `/budget off`; `/fanout off \| on` blocks or allows multi-agent workflows (renamed from `/workflows`, which is now built in). |
 | secret-catcher | Pulls API keys out of prompts before the model sees them, saves them to `<config>/secrets/<project>.env` (mode 600) and leaves `$NAME` placeholders. |
 | traffic-control | Shows other live Claude sessions in the same repo and locks push/deploy per repo so parallel sessions can't collide. `/traffic` pane. |
 | pr | Status line `PR #42 draft · CI 4/5 · 2 threads`. `/ci` and `/threads` pane, a toast as each check finishes, and a `review_threads` tool so "fix the review comments" works. Needs an authenticated `gh`. |
