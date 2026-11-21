@@ -1,0 +1,68 @@
+{
+  "skill_name": "dev-loop-onboard",
+  "evals": [
+    {
+      "id": 1,
+      "name": "onboard-a-fresh-repo",
+      "prompt": "onboard onto the repo in .claude/loops/tests/fixtures/onboard-repo, project ledgerly. i want a map i can trust.",
+      "expected_output": "Checks the pause flag, runs the survey, spawns one how and one why agent per area in a single batch, builds the map, runs the blind quiz with three separate agents, routes the round with onboard_router.py and acts on its action. Ends with a write back plan and a report that leads with anything still lost.",
+      "files": [],
+      "assertions": [
+        "The how and why readers are Agent spawns, not Skill calls, sent in one batch",
+        "onboard_router.py decides the next move after every quiz round",
+        "mark_verified.py runs after each route",
+        "onboard_writeback.py runs as a dry run before any --apply",
+        "No file in the target repo is modified"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "relearn-only-what-was-lost",
+      "prompt": "round 1 failed: members scored 0.5 on a missing question and invoices lost one vague question. carry on.",
+      "expected_output": "Runs only the router's two jobs: dev-onboard-how in missing mode on members and in deepen mode on invoices, each told the question's topic and not its key. Reassembles the map with the old map as --prior and quizzes round 2 with carryover.json included. Does not re-read the other areas.",
+      "files": [],
+      "assertions": [
+        "Only the areas in route.json jobs are re-read",
+        "No relearn reader is given an answer key",
+        "Round 2 includes the carried questions unchanged",
+        "assemble_map.py gets --prior"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "stagnation-stops",
+      "prompt": "q6 was missing in round 1 and missing again in round 2. try a third read of members.",
+      "expected_output": "Declines a third read: the router returned stop-stagnant because q6 was lost twice for the same reason. Writes back the verified claims, reports q6 and its area as still unknown, and suggests what a person could answer or which record to look in.",
+      "files": [],
+      "assertions": [
+        "No third relearn of members is started",
+        "The report names q6 as still unknown",
+        "Write back still runs, with only verified claims as active"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "bad-keys-are-not-the-map",
+      "prompt": "the quiz came back blocked with too many bad keys. relearn the areas those questions were about.",
+      "expected_output": "Does not relearn: a blocked round with bad-key-rate is the question writer's fault. Follows the router's requiz with a fresh writer and leaves the map unchanged. If the next round blocks for the same reason, escalates.",
+      "files": [],
+      "assertions": [
+        "No how or why reader is spawned for the blocked round",
+        "The next quiz uses a fresh writer",
+        "A second bad-key block escalates"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "refresh-after-changes",
+      "prompt": "the ledgerly repo moved on since we mapped it. refresh the map.",
+      "expected_output": "Runs map_staleness.py against the saved map, relearns only the stale areas (re-surveying first if any changed path belongs to no area, or everything if the map's commit is unknown), quizzes with --changed-files so stale questions are classed stale, and writes back.",
+      "files": [],
+      "assertions": [
+        "map_staleness.py runs before any reader",
+        "Only stale_areas are re-read when the status is stale",
+        "grade_quiz.py gets --changed-files"
+      ]
+    }
+  ]
+}

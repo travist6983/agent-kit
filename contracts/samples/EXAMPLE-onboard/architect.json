@@ -1,0 +1,20 @@
+{
+  "summary": "Ledgerly is a small invoicing service: a rules layer (InvoiceService) over a swappable store, plus member invites. Everything enters through app/main.py.",
+  "areas": {
+    "app": { "id": "entry", "name": "Entry point", "purpose": "Wire the store into the service and run one command." },
+    "invoices": { "name": "Invoices", "purpose": "Create, pay and total invoices." },
+    "members": { "name": "Members", "purpose": "Invite members by email." }
+  },
+  "claims": [
+    {
+      "id": "entry.a1",
+      "area": "entry",
+      "kind": "rule",
+      "text": "Wiring belongs in build_service; nothing else constructs a store or a service.",
+      "cites": [{ "path": "app/main.py", "line_start": 8, "line_end": 9, "symbol": "def build_service" }],
+      "evidence": "pointed",
+      "source": "code"
+    }
+  ],
+  "open_questions": []
+}

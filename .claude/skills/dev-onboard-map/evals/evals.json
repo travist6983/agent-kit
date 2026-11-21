@@ -1,0 +1,42 @@
+{
+  "skill_name": "dev-onboard-map",
+  "evals": [
+    {
+      "id": 1,
+      "name": "assemble-the-fixture-map",
+      "prompt": "all round 1 cards for ledgerly are in contracts/samples/EXAMPLE-onboard/cards and the survey is next to them. build the map.",
+      "expected_output": "Reads the cards and the survey, writes architect.json with a plain summary, renames app to entry (it holds only the entry point), gives each area a purpose, and adds an owner or rule claim that spans areas, cited. Runs assemble_map.py and check_map.py; reports the claim count, that members has no claims yet (a likely quiz gap), and the open question from the why card.",
+      "files": [],
+      "assertions": [
+        "architect.json is written and passed to assemble_map.py with --architect",
+        "map.json is produced by assemble_map.py, not written by hand",
+        "check_map.py is run and exits 0",
+        "The reply names members as an area with no claims"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "two-owners-is-an-error",
+      "prompt": "the entry card says main.py owns invoice status and the invoices card says InvoiceService does. just keep both in the map.",
+      "expected_output": "Refuses to keep two owner claims for the same state. Opens the cited lines, finds that only InvoiceService.pay changes status, keeps that owner claim and sends the entry claim back to the how lens in correct mode (or records the contradiction as an open question if the lines do not settle it). check_map.py would reject both.",
+      "files": [],
+      "assertions": [
+        "The final map has one owner claim for invoice status",
+        "The decision is backed by the cited lines or left as an open question",
+        "map.json is not hand-edited to silence check_map.py"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "relearn-keeps-verified-only-when-unchanged",
+      "prompt": "round 2 relearned invoices in correct mode. rebuild the map from the round 1 map and the new card.",
+      "expected_output": "Runs assemble_map.py with --prior pointing at the round 1 map. Dropped claims are gone, the replacement claims are unverified, unchanged claims keep their verified_round, and the reply reports the dropped and kept counts from the script.",
+      "files": [],
+      "assertions": [
+        "--prior is passed",
+        "The reply reports how many claims were dropped and how many kept their verification",
+        "No claim's verified_round is set by hand"
+      ]
+    }
+  ]
+}

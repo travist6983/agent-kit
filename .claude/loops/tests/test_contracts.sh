@@ -94,6 +94,9 @@ must_pass "$C/dev-onboard-map.json" "$C/samples/EXAMPLE-onboard/map.json"
 must_pass "$C/qa-onboard-quiz.json" "$C/samples/EXAMPLE-onboard/quiz.json"
 # negative: an off-enum failure_class must FAIL (locks the classify-before-relearn vocabulary)
 must_fail "$C/qa-onboard-quiz.json" "$C/samples/EXAMPLE-onboard-bad-class/quiz.json"
+must_pass "$C/dev-loop-onboard.json" "$C/samples/EXAMPLE-onboard/route.json"
+# negative: an action the recipe does not know and a reader mode that does not exist
+must_fail "$C/dev-loop-onboard.json" "$C/samples/EXAMPLE-onboard-bad-route/route.json"
 
 echo "  contracts: $pass passed, $fail failed"
 [ "$fail" = 0 ]
