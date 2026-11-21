@@ -43,6 +43,11 @@
       "name": "recipe-run",
       "source": "./mods/recipe-run",
       "description": "Live recipe run pane: stage ladder, retries, router verdicts and spend, plus an inbox of blocking and non-blocking questions loops leave for a human"
+    },
+    {
+      "name": "mods-panel",
+      "source": "./mods/mods-panel",
+      "description": "Mods panel: every agent-kit mod in one pane with live status and on/off switches, the recipe run and its questions, session spend and limits, plus a compact band above the prompt"
     }
   ]
 }
