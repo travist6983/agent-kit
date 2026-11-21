@@ -159,3 +159,45 @@ test('/mods band off persists and hands the row back to recipe-run', async ($, o
   const open = await $.command.run({ command: 'mods', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } })
   expect(open.text).toBe('Mods panel open: 2 of 8 mods on, 1 blocking questions, $3.18 this session.')
 })
+
+test('glass is on by default, stays off once turned off, and comes back on with /mods glass on', async ($, on) => {
+  const kit = fakeKit(on)
+  const looks: unknown[] = []
+  let cleared = 0
+  on('theme.set', (_, e) => {
+    looks.push(e)
+    return { value: { isDrawn: true as const, requestId: 'backdrop-1' } }
+  })
+  on('theme.clear', () => {
+    cleared += 1
+    return { value: { isDrawn: false as const, reason: 'cleared' } }
+  })
+  const cmd = (args: string) => $.command.run({ command: 'mods', args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } })
+
+  // A first session with nothing saved: the look is set as the mod loads.
+  await $.session.start({ cwd: '/repo', surface: 'desktop', isInteractive: true })
+  expect(looks).toHaveLength(1)
+  expect(looks[0]).toMatchObject({ backdrop: { scene: 'mods-glass', glass: { blur: 28, opacity: 0.55 } }, overrideColorScheme: 'dark' })
+
+  const offText = await cmd('glass off')
+  expect(offText.text).toContain('Mods glass off')
+  expect(cleared).toBe(1)
+  expect(kit.store.get('isGlassOn')).toBe(false)
+
+  // Off is remembered: the next session sets no look.
+  await $.session.start({ cwd: '/repo', surface: 'desktop', isInteractive: true })
+  expect(looks).toHaveLength(1)
+
+  const onText = await cmd('glass on')
+  expect(onText.text).toContain('Mods glass on')
+  expect(looks).toHaveLength(2)
+  expect(kit.store.get('isGlassOn')).toBe(true)
+})
+
+test('the glass backdrop draws its scene in the desktop app', async ($, on) => {
+  fakeKit(on)
+  const BACKDROP = { plugin: 'mods-panel', component: 'Backdrop', requestId: 'backdrop-1', props: { scene: 'mods-glass', plugin: 'mods-panel', glass: { blur: 28, tint: '#16161c', opacity: 0.55 } } } as const
+  const desk = await $.ui.mount({ ...BACKDROP, surface: 'desktop' })
+  expect(await desk.find({ type: 'Svg' })).toBeTruthy()
+  await desk.unmount()
+})

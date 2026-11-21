@@ -21,6 +21,7 @@ import {
   sessionRows,
   summary,
 } from './view'
+import { GLASS_LOOK, GLASS_SCENE_ID, SCENE } from './glass'
 import type { Card, QuestionIn, Snapshot } from './view'
 
 const PANE = 'mods'
@@ -195,10 +196,13 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const saved = (await $.store.get('isBandOn')) as boolean | undefined
     if (typeof saved === 'boolean') await update($, bandAtom, () => saved)
+    // Glass is on by default: set at every session start (a look doesn't outlive its session)
+    // until the person turns it off with /mods glass off, which is saved.
+    if ((await $.store.get('isGlassOn')) !== false) await $.theme.set(GLASS_LOOK).catch(() => undefined)
     await $.command.register({
       name: 'mods',
-      description: 'Mods panel: every agent-kit mod, its live status and an on/off switch. /mods band on|off for the row above the prompt',
-      argumentHint: '[band on|off]',
+      description: 'Mods panel: every agent-kit mod, its live status and an on/off switch. /mods band on|off for the row above the prompt, /mods glass on|off for the frosted look',
+      argumentHint: '[band on|off] [glass on|off]',
     })
     await refresh($).catch(() => undefined)
     $.clock.every(30_000, () => void refresh($).catch(() => undefined))
@@ -237,7 +241,22 @@ export const register: Register = on => {
       await $.store.set('isBandOn', isOn)
       return { text: isOn ? 'Mods band on above the prompt.' : 'Mods band off. recipe-run draws its own row again.' }
     }
-    if (arg !== '') return { text: 'Usage: /mods, /mods band on, /mods band off' }
+    if (arg === 'glass on') {
+      const set = await $.theme.set(GLASS_LOOK)
+      await $.store.set('isGlassOn', true)
+      return {
+        text: set.isDrawn
+          ? 'Mods glass on: frosted panels over a dark backdrop in the desktop app. /mods glass off clears it.'
+          : `Mods glass is saved and shows in the desktop and mobile apps; this one draws no look (${set.reason}).`,
+      }
+    }
+    if (arg === 'glass off') {
+      // There is one theme per session, so this clears whatever look stands; it runs only on this ask.
+      await $.theme.clear()
+      await $.store.set('isGlassOn', false)
+      return { text: 'Mods glass off: back to the app\'s own look.' }
+    }
+    if (arg !== '') return { text: 'Usage: /mods, /mods band on|off, /mods glass on|off' }
     const opened = await openPane($)
     const s = await snapshot($)
     const sum = summary(s, cards(s))
@@ -252,6 +271,14 @@ export const register: Register = on => {
     const text = answersContext(todo)
     await update($, pendingAtom, () => [])
     return text ? next({ ...e, context: [...(e.context ?? []), text] }) : next(e)
+  })
+
+  // ---- the glass backdrop (desktop and mobile only; the terminal draws no look)
+
+  on('ui.render', { component: 'Backdrop' }, async ($, e, next) => {
+    if (e.props.scene !== GLASS_SCENE_ID || (e.surface !== 'desktop' && e.surface !== 'mobile')) return next(e)
+    const { Svg } = $.ui.resolve(e)
+    return <Svg source={SCENE} alt="Slow orange, blue and violet light drifting behind frosted glass" />
   })
 
   // ---- the band above the prompt
