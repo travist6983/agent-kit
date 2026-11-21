@@ -5,6 +5,9 @@ export type Server = {
   command: string
   cwd: string
   age: string
+  // what runs, from the command path (vite, roughdraft), and the project its folder belongs to
+  tool: string | null
+  project: string | null
 }
 
 export type RecipeEntry = {

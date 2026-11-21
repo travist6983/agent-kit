@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { answersContext, band, cards, filled, ladder, limitRows, openQuestions, power, recipeView, sessionRows, span, summary } from '../hooks/view'
+import { answersContext, appLabel, band, cards, filled, ladder, limitRows, openQuestions, power, recipeView, serverRows, sessionRows, span, summary } from '../hooks/view'
 import type { QuestionIn, RunIn, Snapshot } from '../hooks/view'
 
 const NOW = Date.parse('2026-11-21T12:00:00Z')
@@ -174,4 +174,20 @@ test('the band falls back to session spend and limits when no run is live', () =
   expect(b.meta).toBe('5h 54% · weekly 31%')
   expect(b.spend).toBe('$3.18')
   expect(b.limit).toBe(null)
+})
+
+test('server rows carry the app, the folder and the full command, and skip stopped pids', () => {
+  const dev = {
+    servers: [
+      { pid: 2, port: 7373, process: 'node', command: '/usr/local/bin/node /Users/me/.npm-global/lib/node_modules/roughdraft/dist/child.js', age: '1:00', cwd: '/Users/me/notes', tool: 'roughdraft', project: null },
+      { pid: 1, port: 5173, process: 'node', command: 'node vite', age: '2:00', cwd: '?' },
+    ],
+    recipe: [],
+  }
+  const rows = serverRows(dev)
+  expect(rows.map(r => r.port)).toEqual([5173, 7373])
+  expect(rows[0]).toMatchObject({ app: 'node', folder: 'folder unknown' })
+  expect(rows[1]).toMatchObject({ app: 'roughdraft', folder: '~/notes', command: '/usr/local/bin/node ~/.npm-global/lib/node_modules/roughdraft/dist/child.js' })
+  expect(appLabel({ ...dev.servers[0]!, project: 'travis-terry' })).toBe('roughdraft in travis-terry')
+  expect(serverRows(dev, [2]).map(r => r.pid)).toEqual([1])
 })

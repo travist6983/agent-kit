@@ -22,6 +22,10 @@ declare module 'claude-code' {
       answered: PanelAnswer[]
       pending: PanelAnswer[]
       isBandOn: boolean
+      // the pid whose Stop was pressed once and waits for a second press to confirm
+      stopArmed: number | null
+      // pids stopped from the panel, hidden until dev-servers' next scan drops them
+      stopped: number[]
     }
   }
 }

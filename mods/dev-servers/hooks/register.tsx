@@ -25,6 +25,44 @@ async function projectRoot($: EngineInterface) {
   return top.exitCode === 0 ? top.stdout.trim() : cwd
 }
 
+// The tool a command runs, from its path: .../node_modules/.bin/vite -> vite,
+// .../node_modules/@scope/pkg/... -> @scope/pkg. Null when the path says nothing.
+function toolOf(command: string) {
+  const bin = command.match(/node_modules\/\.bin\/([\w.@-]+)/)
+  if (bin) return bin[1] ?? null
+  const pkg = command.match(/node_modules\/((?:@[\w.-]+\/)?[\w.-]+)\//)
+  return pkg ? (pkg[1] ?? null) : null
+}
+
+// The project a folder belongs to: the nearest package.json name (under its git repo's name when
+// it lacks it), else the git repo's folder name.
+// Cached per folder for the session, since a scan runs every 15 seconds.
+const projects = new Map<string, string | null>()
+async function projectOf($: EngineInterface, cwd: string) {
+  if (cwd === '?' || cwd === '/') return null
+  if (projects.has(cwd)) return projects.get(cwd) ?? null
+  let pkg: string | null = null
+  const near = await $.process.run([
+    'sh',
+    '-c',
+    'd="$1"; while [ "$d" != / ]; do [ -f "$d/package.json" ] && { cat "$d/package.json"; exit 0; }; d=$(dirname "$d"); done; exit 1',
+    'project',
+    cwd,
+  ])
+  if (near.exitCode === 0) {
+    try {
+      const n = (JSON.parse(near.stdout) as { name?: unknown }).name
+      if (typeof n === 'string' && n !== '') pkg = n
+    } catch {}
+  }
+  const top = await $.process.run(['git', '-C', cwd, 'rev-parse', '--show-toplevel'])
+  const repo = top.exitCode === 0 ? top.stdout.trim().split('/').pop() || null : null
+  // A package named "web" or "api" says little alone: show it under its repo, as pm-tool/web.
+  const name = pkg && repo && !pkg.includes(repo) ? `${repo}/${pkg}` : (pkg ?? repo)
+  projects.set(cwd, name)
+  return name
+}
+
 async function scan($: EngineInterface): Promise<Server[]> {
   const ls = await $.process.run(['lsof', '-nP', '-iTCP', '-sTCP:LISTEN', '-Fpcn'])
   const byPid = new Map<number, { process: string; ports: Set<number> }>()
@@ -60,6 +98,9 @@ async function scan($: EngineInterface): Promise<Server[]> {
     if (m) info.set(Number(m[1]), { age: m[2] ?? '', command: m[3] ?? '' })
   }
 
+  const named = new Map<string, string | null>()
+  for (const dir of new Set(cwds.values())) named.set(dir, await projectOf($, dir))
+
   const out: Server[] = []
   for (const p of pids) {
     const row = byPid.get(p)
@@ -72,6 +113,8 @@ async function scan($: EngineInterface): Promise<Server[]> {
         command: info.get(p)?.command ?? row.process,
         cwd: cwds.get(p) ?? '?',
         age: info.get(p)?.age ?? '',
+        tool: toolOf(info.get(p)?.command ?? ''),
+        project: named.get(cwds.get(p) ?? '?') ?? null,
       })
     }
   }
@@ -230,7 +273,8 @@ export const register: Register = on => {
         <Text color="green">● </Text>
         <Text>http://localhost:{s.port} </Text>
         <Text dimColor>
-          {s.process} · {shortPath(s.cwd)} · {s.age}{' '}
+          {s.tool ?? s.process}
+          {s.project ? ` in ${s.project}` : ''} · {shortPath(s.cwd)} · {s.age}{' '}
         </Text>
         <Button key={`open${s.port}`} label="Open" plain onPress={() => void $.process.run(['open', `http://localhost:${s.port}`])} />
         <Text> </Text>

@@ -52,6 +52,8 @@ function fakeKit(on: Engine, others: Record<string, unknown> = {}) {
   const store = new Map<string, unknown>()
   const runs: string[][] = []
   const appended: string[] = []
+  // pid -> port it listens on, for the lsof check before and after a Stop
+  const listening = new Map<number, number>()
   for (const plugin of ['recipe-run', 'burn-meter', 'traffic-control', 'ship', 'dev-servers', 'pr', 'brain']) {
     on('state.get', { plugin } as never, (_: unknown, e: { plugin: string; key: string }) => {
       const value = state[`${e.plugin}/${e.key}`]
@@ -77,6 +79,7 @@ function fakeKit(on: Engine, others: Record<string, unknown> = {}) {
   on('ui.toast', () => ({ value: undefined }))
   on('clock.every', () => ({ value: undefined }))
   on('clock.now', () => ({ value: NOW }))
+  on('clock.sleep', () => ({ value: undefined }))
   on('store.get', (_, e) => ({ value: store.get(e.key) }))
   on('store.set', (_, e) => {
     store.set(e.key, e.value)
@@ -92,9 +95,19 @@ function fakeKit(on: Engine, others: Record<string, unknown> = {}) {
       return { value: ran }
     }
     if (argv[0] === 'claude') return { value: ran }
+    if (argv[0] === 'open') return { value: ran }
+    if (argv[0] === 'lsof') {
+      const pid = Number(argv[argv.indexOf('-p') + 1])
+      const port = Number((argv.find(a => a.startsWith('-iTCP:')) ?? '').slice(6))
+      return { value: listening.get(pid) === port ? { ...ran, stdout: `${pid}\n` } : { ...ran, exitCode: 1 } }
+    }
+    if (argv[0] === 'kill') {
+      listening.delete(Number(argv.at(-1)))
+      return { value: ran }
+    }
     return { value: { ...ran, exitCode: 1, stderr: 'not faked' } }
   })
-  return { store, runs, appended }
+  return { store, runs, appended, listening }
 }
 
 test('the strip, the cards and the run ladder read the other mods, on every surface', async ($, on) => {
@@ -200,4 +213,27 @@ test('the glass backdrop draws its scene in the desktop app', async ($, on) => {
   const desk = await $.ui.mount({ ...BACKDROP, surface: 'desktop' })
   expect(await desk.find({ type: 'Svg' })).toBeTruthy()
   await desk.unmount()
+})
+
+test('the dev-servers card names the app and folder, and Stop asks once before it kills', async ($, on) => {
+  const server = { pid: 82373, port: 5173, process: 'node', command: '/Users/me/repos/web/node_modules/.bin/vite --port 5173', age: '09-01:49:02', cwd: '/Users/me/repos/pm-tool/web', tool: 'vite', project: 'pm-tool-web' }
+  const kit = fakeKit(on, { 'dev-servers/servers': [server], 'dev-servers/recipe': [] })
+  kit.listening.set(82373, 5173)
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'expand-dev-servers' })
+  expect(await ui.find({ type: 'Text', text: /vite in pm-tool-web/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /^~\/repos\/pm-tool\/web$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /\$ ~\/repos\/web\/node_modules\/\.bin\/vite --port 5173/ })).toBeTruthy()
+
+  await ui.press({ key: 'dev-stop-82373-5173' })
+  expect(kit.runs.some(a => a[0] === 'kill')).toBe(false)
+  await ui.press({ key: 'dev-stop-no-82373-5173' })
+  await ui.press({ key: 'dev-stop-82373-5173' })
+  await ui.press({ key: 'dev-stop-yes-82373-5173' })
+  expect(kit.runs).toContainEqual(['kill', '82373'])
+  expect(kit.runs).not.toContainEqual(['kill', '-9', '82373'])
+  expect(await ui.find({ type: 'Text', text: /No dev servers are listening/ })).toBeTruthy()
+  await ui.unmount()
 })
