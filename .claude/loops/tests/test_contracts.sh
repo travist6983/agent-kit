@@ -83,10 +83,20 @@ must_pass "$C/qa-regression.json" "$C/samples/EXAMPLE-blocked-slice-empty/regres
 must_fail "$C/qa-regression.json" "$C/samples/EXAMPLE-bad-green-zero-tests/regression.json"
 
 # onboarding loop (v1.0.0: the map every claim cites, and the blind quiz that grades it)
+must_pass "$C/dev-onboard-survey.json" "$C/samples/EXAMPLE-onboard/survey.json"
+# negative: a command purpose outside the vocabulary must FAIL (the survey never invents a kind)
+must_fail "$C/dev-onboard-survey.json" "$C/samples/EXAMPLE-onboard-bad-command/survey.json"
+must_pass "$C/dev-onboard-card.json" "$C/samples/EXAMPLE-onboard/cards/invoices.how.json"
+must_pass "$C/dev-onboard-card.json" "$C/samples/EXAMPLE-onboard/cards/invoices.why.json"
+# negative: a lens other than how or why must FAIL (the two lenses are the only readers)
+must_fail "$C/dev-onboard-card.json" "$C/samples/EXAMPLE-onboard-bad-card/invoices.how.json"
 must_pass "$C/dev-onboard-map.json" "$C/samples/EXAMPLE-onboard/map.json"
 must_pass "$C/qa-onboard-quiz.json" "$C/samples/EXAMPLE-onboard/quiz.json"
 # negative: an off-enum failure_class must FAIL (locks the classify-before-relearn vocabulary)
 must_fail "$C/qa-onboard-quiz.json" "$C/samples/EXAMPLE-onboard-bad-class/quiz.json"
+must_pass "$C/dev-loop-onboard.json" "$C/samples/EXAMPLE-onboard/route.json"
+# negative: an action the recipe does not know and a reader mode that does not exist
+must_fail "$C/dev-loop-onboard.json" "$C/samples/EXAMPLE-onboard-bad-route/route.json"
 
 echo "  contracts: $pass passed, $fail failed"
 [ "$fail" = 0 ]

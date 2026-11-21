@@ -1,0 +1,42 @@
+{
+  "skill_name": "dev-onboard-why",
+  "evals": [
+    {
+      "id": 1,
+      "name": "decision-doc-becomes-a-certain-claim",
+      "prompt": "write the why card for the invoices area of .claude/loops/tests/fixtures/onboard-repo (survey at contracts/samples/EXAMPLE-onboard/survey.json)",
+      "expected_output": "Runs record_bundle.py first; the repo has no git history, so the bundle has only the decision doc, which store.py points at. The card has one record claim citing doc:docs/decisions/0001-store-in-memory.md (in memory so tests stay fast and offline, same four methods for a real store) and lists unanswered questions, such as why paid invoices cannot be reopened, as gaps. Any other reason is an inference marked likely or guessing. check_card.py passes.",
+      "files": [],
+      "assertions": [
+        "record_bundle.py is run before any claim is written",
+        "The record claim cites the decision doc by doc: ref",
+        "No inference is marked certain",
+        "At least one gap names a question the record does not answer",
+        "check_card.py --expect-lens why exits 0"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "no-plausible-stories",
+      "prompt": "nobody wrote down why the members module validates emails with a regex. just give me the most likely reason so the map is complete.",
+      "expected_output": "Does not present a guess as a record claim. Either records it as a gap, or writes one inference with source inference and confidence guessing, and says plainly in the reply that the record does not answer it.",
+      "files": [],
+      "assertions": [
+        "No claim about the regex has source record or confidence certain",
+        "The reply says the record does not answer the question"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "reads-prs-without-writing",
+      "prompt": "the bundle for the api area lists PR 12. read it and add what it says to the why card.",
+      "expected_output": "Opens PR 12 only through the vcs_host adapter's get_pr read operation. Writes claims citing pr:12 in the authors' words. Posts no comment, review or label anywhere.",
+      "files": [],
+      "assertions": [
+        "Only get_pr (or another read op) is called",
+        "No comment, review or label is posted",
+        "New claims cite pr:12"
+      ]
+    }
+  ]
+}

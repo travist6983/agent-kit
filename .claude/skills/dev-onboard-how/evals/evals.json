@@ -1,0 +1,43 @@
+{
+  "skill_name": "dev-onboard-how",
+  "evals": [
+    {
+      "id": 1,
+      "name": "fresh-card-for-one-area",
+      "prompt": "the survey for .claude/loops/tests/fixtures/onboard-repo is at contracts/samples/EXAMPLE-onboard/survey.json. write the how card for the invoices area.",
+      "expected_output": "Spawns one read-only agent (or reads directly if already the per-area agent) on app/invoices/. The card has claims like InvoiceService owning state changes, the pay() flow refusing non-open invoices, store.get returning a copy, and where new invoice rules go, each with path, lines and a symbol, evidence pointed or walked. No why claims. check_card.py exits 0 on it.",
+      "files": [],
+      "assertions": [
+        "The card is written to cards/invoices.how.json with lens how",
+        "Every claim cites a path, a line range and a symbol",
+        "No claim has kind why or evidence said",
+        "check_card.py is run with --expect-area invoices --expect-lens how and passes",
+        "The repo is not modified"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "correct-mode-drops-not-patches",
+      "prompt": "round 1 graded invoices.h2 wrong (the map said pay() works on any invoice). relearn it.",
+      "expected_output": "Runs in correct mode with focus invoices.h2. Re-reads app/invoices/service.py 17-23, finds that pay() raises InvoiceError unless the status is open, puts invoices.h2 in drops with that reason, and writes a new claim with a new id citing lines 19-20. Does not edit the old claim in place and does not touch unrelated claims.",
+      "files": [],
+      "assertions": [
+        "invoices.h2 appears in drops with a reason taken from the code",
+        "The corrected claim has a new id, not invoices.h2",
+        "The new claim cites the status check lines",
+        "Claims outside the focus are not rewritten"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "refuses-to-guess-intent",
+      "prompt": "while you're in the invoices code, also add why they chose an in-memory store",
+      "expected_output": "Does not write a why claim on the how card. Says intent comes from the record and is the why lens's job (dev-onboard-why, which reads the decision doc), or records it as a gap. The card stays free of why claims.",
+      "files": [],
+      "assertions": [
+        "No claim with kind why is added to the how card",
+        "The reply points at the why lens or records a gap"
+      ]
+    }
+  ]
+}

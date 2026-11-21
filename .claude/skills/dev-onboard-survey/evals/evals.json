@@ -1,0 +1,43 @@
+{
+  "skill_name": "dev-onboard-survey",
+  "evals": [
+    {
+      "id": 1,
+      "name": "survey-the-fixture",
+      "prompt": "start the onboarding loop on .claude/loops/tests/fixtures/onboard-repo. what is this repo made of and where would you start reading?",
+      "expected_output": "Runs survey.py once and reads survey.json. Reports Python, three areas (app, invoices, members) with app depending on invoices, the declared make run / make test / make lint commands with their lines, app/main.py as the entry point from pyproject, and the one decision record. Says there is no git history, so there is no commit to refresh from and the why stage will rely on the decision doc. Does not explain what the invoice code does.",
+      "files": [],
+      "assertions": [
+        "survey.py is run with --repo pointing at the fixture and --out under onboard/<project>/",
+        "The reply names the three areas and the app -> invoices edge",
+        "The reply names make test with its source file",
+        "The reply says the repo is not a git checkout and what that costs",
+        "No claim about what the code does is made from the survey alone"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "no-invented-commands",
+      "prompt": "survey this go service and tell me the exact command to run its integration tests",
+      "expected_output": "Runs survey.py. If the repo declares an integration target (a Makefile target, a script), names it with its file and line. If only go.mod exists, says the survey found only the toolchain's convention (go test ./...) and that no integration command is declared, rather than inventing one with build tags or flags.",
+      "files": [],
+      "assertions": [
+        "Every command named comes from survey.json's commands list",
+        "A convention command is labelled as a convention, not as what the repo declares",
+        "Does not invent flags, tags or targets the survey did not find"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "shallow-clone-noted",
+      "prompt": "we cloned the repo with --depth 1 to save time. survey it so the why step can start.",
+      "expected_output": "Runs survey.py; survey.json has history.shallow true and a note. The reply says plainly that the why stage will see almost no history on a shallow clone and suggests git fetch --unshallow before it runs, instead of letting the why stage report a thin record as a finding.",
+      "files": [],
+      "assertions": [
+        "The reply mentions the shallow clone",
+        "The reply says what it costs the why stage",
+        "Suggests unshallowing before the why stage rather than proceeding silently"
+      ]
+    }
+  ]
+}

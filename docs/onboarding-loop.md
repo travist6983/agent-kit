@@ -47,7 +47,7 @@ possible judge of it. Three things fix that:
 | Quiz | `qa-onboard-quiz` | The evaluator. Writer (code only) ∥ examiner (map only) ∥ judge (key and answer only), then `grade_quiz.py`. | `quiz/round-<n>/quiz.json` |
 | Route | `dev-loop-onboard` | `onboard_router.py` turns each lost question into a next move for its area, enforces the round cap and the R5 consumption cap, and detects stagnation. | `route.json` |
 | Write back | `dev-loop-onboard` | `onboard_writeback.py` promotes verified, navigational claims to the brain's `lessons` store (kind `codebase`), records metrics, and keeps the full map as a file. | brain rows, metrics |
-| Teach | `dev-onboard-teach` | For a person: explains the codebase plainly from the map, at their pace, and turns any question the map could not answer into a gap the next round relearns. | updated gaps |
+| Teach | `dev-onboard-teach` | For a person: explains the codebase plainly from the map, at their pace, keeping every claim's standing (verified, unverified, inference), and turns any question the map could not answer into a gap the next round relearns (`record_gap.py`). | `teach-gaps.json` |
 
 How and why for the same area run in parallel, because neither reads the other's output (the
 fake-edge test in `docs/graph-engineering.md`). The quiz's three roles are separate fresh-context
@@ -128,8 +128,10 @@ A claim is promoted to the brain only after a question that leaned on it was ans
 
 ## Refresh
 
-A map records the commit it describes. On the next run the staleness check diffs from that commit,
-maps the changed files to areas, and relearns only those areas before quizzing again. A repo that
+A map records the commit it describes. On the next run the staleness check (`map_staleness.py`)
+diffs from that commit, maps the changed files to areas, and relearns only those areas before
+quizzing again. A map with no usable commit (built from a tree with no history, or a commit the
+checkout lacks) relearns everything, because a partial refresh from an unknown base would be a guess. A repo that
 moved a little costs a little.
 
 ## Where the ideas come from

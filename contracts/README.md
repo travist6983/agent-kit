@@ -29,8 +29,11 @@ URLs come from the `evidence_store` adapter, and the evidence root is `evidence.
 | `qa-run-chatbot.json` | 1.0.0 | `qa-run-chatbot` | `<evid_root>/<key>/chatbot-run.json` | per-case rows | `status` |
 | `qa-diagnose.json` | 1.0.0 | `qa-diagnose` | `<evid_root>/<key>/diagnose.json` | the run record's diagnosis (propose-only) | `failure_layer` |
 | `qa-loop-release-ac.json` | 2.0.0 | `qa-loop-release-ac` | `<evid_root>/release-ac/<version>/ac-matrix.json` | QA / release-owner facing | `summary.verdict` |
+| `dev-onboard-survey.json` | 1.0.0 | `dev-onboard-survey` | `<evid_root>/onboard/<project>/survey.json` | how / why fan-out; `dev-onboard-map` seeds areas | none (a data artifact) |
+| `dev-onboard-card.json` | 1.0.0 | `dev-onboard-how` · `dev-onboard-why` | `<evid_root>/onboard/<project>/cards/<area>.<lens>.json` | `dev-onboard-map` (after `check_card.py`) | `lens` |
 | `dev-onboard-map.json` | 1.0.0 | `dev-onboard-map` (proposed) | `<evid_root>/onboard/<project>/map.json` | `qa-onboard-quiz` examiner; write back | none (a data artifact) |
 | `qa-onboard-quiz.json` | 1.0.0 | `qa-onboard-quiz` | `<evid_root>/onboard/<project>/quiz/round-<n>/quiz.json` | the onboarding loop's router | `status` + `failure_class` |
+| `dev-loop-onboard.json` | 1.0.0 | `dev-loop-onboard` (`onboard_router.py`, proposed) | `<evid_root>/onboard/<project>/quiz/round-<n>/route.json` | the recipe; `mark_verified.py` | `action` |
 
 `status: "ratified"` schemas are locked; `status: "proposed"` ones follow every convention below and
 graduate on the repo owner's sign-off. Treat a proposed shape as stable intent, not as locked.

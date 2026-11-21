@@ -383,6 +383,11 @@ adapter layer, and is held to the loop-readiness checklist in
 | `dev-pre-pr` | The last gate before a PR: one readiness verdict (`ready` / `warnings` / `blocked`) from the loop's evidence. **Fails closed on `verify.json`** — missing, stale, malformed or not-`pass` all block at every tier. Deterministic standards scan on added lines; reconciles `regression.json` + `review.json` by freshness; re-runs the build when that evidence is stale. Has no edit tool. | — |
 | `dev-escalate` | Hand a stuck loop to a human warm, from a configurable template: attempt log, failure class, repro + expected/actual, verdicts, decisions, every recording. Assigns per area, transitions the ticket. Posting is dry-run until the recipe authorizes. | (the ticket is the signal) |
 | `dev-pr-feed` | The VCS-host PR surface: list PRs unreviewed at their current head, pull one into a read-only worktree, post findings as review comments, remember what was reviewed. Keyed on PR id + head commit. Fails closed on the R9 pause before any live post. | — |
+| `dev-onboard-survey` | The onboarding loop's first look at a codebase, with no model in it: languages, the commands the repo declares (file and line), entry points, tests, docs and decision records, churn hotspots, and areas sized for one reader each with their import edges. Same commit, same survey. See `docs/onboarding-loop.md`. | none |
+| `dev-onboard-how` | The how lens of the onboarding loop: one read-only agent per area writes a card of atomic claims about what the code does, each citing file, lines and a symbol; `check_card.py` proves every cite. Relearn modes fix only what the quiz showed was missing, wrong or vague. | none |
+| `dev-onboard-why` | The why lens: reasons from the record (commits, the pull requests they name, decision docs), quoted with a ref or marked as inference with an honest confidence; what the record does not answer is a gap, never a story. | none |
+| `dev-onboard-teach` | The human end of the onboarding loop: explains a codebase from its map, one area at a time from where work enters, with every claim's standing intact, and records the questions the map could not answer as gaps the next run relearns. | none |
+| `dev-onboard-map` | The architect lens and assembly step: an agent writes the cross-area view as data (summary, names, merges, one owner per piece of state, where new code goes); a script merges it with the cards, keeps a verified claim only while it is unchanged, and lints the result before the quiz sees it. | none |
 
 ### QA / evaluator / brain (`qa-*`)
 
@@ -422,6 +427,7 @@ adapter layer, and is held to the loop-readiness checklist in
 | `dev-loop-feature-prerelease` | Recipe ③ — sensitive / pre-release defects; stages for human QA; never ships. |
 | `dev-loop-feature-complete` | Recipe ④ — story → plan → implement → verify vs acceptance criteria → stage; never auto-ships. |
 | `dev-loop-pr-review` | Recipe ⑤ — the scheduled PR-review sweep, bounded per tick, dry-run until armed. |
+| `dev-loop-onboard` | The onboarding loop: gets an agent up to speed on a codebase it has never seen, proves the map with a blind quiz, relearns only what the quiz showed was missing or wrong, and writes the verified parts to the brain. Read only on the target repo. See `docs/onboarding-loop.md`. |
 | `qa-loop-release-ac` | Given a release version, find its PRs through `vcs_host` and the tickets they deliver, reconcile against the tracker's fix version, confirm the build is deployed through `ci_cd`, extract every acceptance scenario, write a case file per browser scenario and execute each through `qa-run-case` (chat ones through `qa-run-chatbot`), and report a per-ticket, per-scenario matrix that names every scenario needing a person instead of skipping it. |
 
 ### Named integrations

@@ -52,6 +52,11 @@ between steps; workflow variables are not a seam.
 | `qa-run-case` | atomic | Run one structured case against a live environment; propose a grade | `qa-run-case.json` → `case-run.json` | — |
 | `qa-diagnose` | atomic | Diagnose one failed run, propose a minimal diff; never applies it | `qa-diagnose.json` → `diagnose.json` | — |
 | `qa-onboard-quiz` | atomic | The onboarding loop's evaluator: a blind exam of a codebase map (writer, examiner, judge) graded by a script that checks every cite | `qa-onboard-quiz.json` → `quiz.json` | writes metrics |
+| `dev-onboard-survey` | atomic | The onboarding loop's first look: a deterministic, zero-model scan of languages, declared commands, entry points, docs, hotspots and a first cut of areas | `dev-onboard-survey.json` → `survey.json` | none |
+| `dev-onboard-how` | atomic | The how lens: one read-only agent per area writes cited claims about what the code does; `check_card.py` proves every cite | `dev-onboard-card.json` → `cards/<area>.how.json` | none |
+| `dev-onboard-why` | atomic | The why lens: reasons from the record (commits, pull requests, decision docs) or marked as inference; refs checked | `dev-onboard-card.json` → `cards/<area>.why.json` | none |
+| `dev-onboard-teach` | atomic | Explain the map to a person at their pace, from where work enters, keeping every claim's standing; unanswered questions become relearn gaps | `teach-gaps.json` | none |
+| `dev-onboard-map` | atomic | Assemble the map: the architect's lens as data, a deterministic merge that keeps a verified claim only while unchanged, and a lint for uncited claims, broken cites and two owners | `dev-onboard-map.json` → `map.json` | none |
 | `qa-explore` | producer | Walk a feature before there is a bug; map it; propose expectations; draft a ticket | — | writes `app_map`, `flakiness`; proposes `expectations` |
 | `human-explore` | producer | A human drives; the only path that blesses an expectation to canonical | — | writes canonical `expectations` |
 | `qa-dream` | producer | Scheduled consolidation: deterministic harvest, outbox replay, compressed lessons | dream brief + report | writes `app_map`, `fix_lessons`, `flakiness`, metrics; proposes `expectations` |
@@ -61,6 +66,7 @@ between steps; workflow variables are not a seam.
 | `dev-loop-feature-prerelease` | recipe | Recipe ③: sensitive / pre-release defects; stages for human QA; never ships | — | via atoms |
 | `dev-loop-feature-complete` | recipe | Recipe ④: story → plan → implement → verify vs acceptance criteria → stage | — | via atoms |
 | `dev-loop-pr-review` | recipe | Recipe ⑤: the scheduled, bounded PR-review sweep; dry-run until armed | — | via atoms |
+| `dev-loop-onboard` | recipe | The onboarding loop: survey, how ∥ why per area, map, blind quiz, relearn only what was lost, write back verified claims; read only on the target repo | `dev-loop-onboard.json` → `route.json` | writes `lessons` (kind `codebase`) and metrics through its write back |
 | `qa-loop-release-ac` | recipe | Every acceptance scenario in a release, from its version number, to a per-ticket matrix | `qa-loop-release-ac.json` → `ac-matrix.json` | — |
 | `qa-run-chatbot` | integration | Run a conversational test set and grade every case; the chat sibling of `qa-run-case` | `qa-run-chatbot.json` → `chatbot-run.json` | — |
 | `qa-ui-parity-sweep` | integration | Baseline vs candidate environment, graded differences, coverage per route; read-only, time-boxed | `parity-report.md` | writes metrics + source-map rows |
@@ -232,14 +238,51 @@ never a silent skip and never an unclassified retry.
 - Purpose: decide whether a codebase map is good enough to work from. A writer who read only the code writes questions with cited answer keys; an examiner who holds only the map answers them, citing the claims it used; a judge grades each answer against its key. `grade_quiz.py` then checks every cite against the repo, discards broken keys, enforces the examiner's blindness, scores the round and classifies every lost question. Design: `docs/onboarding-loop.md`.
 - Inputs: `REPO` (read only), `MAP` (`dev-onboard-map.json` → `map.json`), `ROUND`, optional `CARRYOVER` (last round's lost questions) and `CHANGED_FILES`.
 - Outputs: `quiz.json`: `status ∈ {pass, fail, blocked}`, `score`, per-area scores with a floor, and per question `grade ∈ {correct, partial, wrong, missing, discarded}` and `failure_class ∈ {none, missing, wrong, vague, stale, why-gap, bad-key, outside-map}`.
-- Brain: writes `onboard_quiz_score` metrics · Stops: three separate fresh-context agents, never one; a missing grade, a broken question set or an examiner that read the code blocks the round instead of scoring it; never edits the repo or the map.
+- Brain: writes `onboard_quiz_score` when run standalone (inside the loop the write back records it) · Stops: three separate fresh-context agents, never one; a missing grade, a broken question set or an examiner that read the code blocks the round instead of scoring it; never edits the repo or the map.
+
+**`dev-onboard-survey`**
+- Purpose: orientation before any reading. `survey.py` counts and reads, never guesses: languages by lines, manifests, the commands the repo itself declares (file and line), entry points, tests, docs and decision records, churn hotspots, and areas sized for one reader each with the import edges between them.
+- Inputs: `REPO` (read only), `PROJECT`, optional `--max-area-lines` and `--history`.
+- Outputs: `survey.json`: `areas[]` (id, paths, size, `depends_on`, tests, churn), `commands[]` (`declared` or `convention`), `entry_points[]`, `notes[]` for what it could not see (no git, shallow clone).
+- Brain: none · Stops: no model call, no network; never runs a command it finds; same commit, same survey.
+
+**`dev-onboard-how`**
+- Purpose: explain one area from the code as atomic claims (what, where, how, owner, rule, gotcha, command), each citing file, lines and a symbol, with evidence pointed, walked or ran. Modes fresh, missing, correct (wrong claims go to `drops[]`, never patched in place), deepen.
+- Inputs: `REPO` (read only), `SURVEY`, `AREA`, `MODE`, `FOCUS` from the router.
+- Outputs: `cards/<area>.how.json`, checked by `scripts/check_card.py` (also used by the why lens).
+- Brain: none · Stops: never edits the repo; a card that fails the check goes back to its reader once, then the area is logged unlearned; no why claims.
+
+**`dev-onboard-why`**
+- Purpose: why one area is built this way, from the record. `record_bundle.py` gathers the commits that touched it (the introducing one always kept), the pull request numbers they mention and the decision docs that point at it; the reader opens pull requests through `vcs_host` read operations.
+- Inputs: `REPO` (read only), `SURVEY`, `AREA`, `MODE` (`fresh` or `missing` for a why-gap).
+- Outputs: `cards/<area>.record.json` and `cards/<area>.why.json`: record claims cite `commit:`, `pr:` or `doc:`; inferences are `likely` or `guessing`; unanswered questions go in `gaps`.
+- Brain: none · Stops: posts nothing; names no people; an inference is never `certain`.
+
+**`dev-onboard-map`**
+- Purpose: one consistent model from many readers' cards. An agent writes `architect.json` (summary, area names and purposes, renames and merges, cross-area `owner` and `rule` claims); `assemble_map.py` merges survey, cards and lens the same way every time and renders `map.md`; `check_map.py` lints.
+- Inputs: `SURVEY`, the round's checked cards, `architect.json`, and on a relearn the prior map.
+- Outputs: `map.json` (contract `dev-onboard-map.json`) and `map.md`. On a relearn a fresh card replaces its area's claims for its lens only, `drops[]` are removed, and an unchanged claim keeps `verified_round`.
+- Brain: none · Stops: never hand-edits `map.json`; two `owner` claims for one symbol, an uncited claim, a broken cite or a certain inference is an error.
+
+**`dev-onboard-teach`**
+- Purpose: the human end. `lesson_plan.py` orders the map from an area nothing calls down through what it calls, claims plain to deep, each with its standing (verified, unverified, inference with its confidence), and a diagram that gains one area per step. The teacher answers only from the map and the lines it cites, stops after every area, and never quizzes the person unasked.
+- Inputs: `MAP`, `REPO` (read only), optional `FOCUS` area.
+- Outputs: the conversation, and `teach-gaps.json`: every question the map could not answer, once each; `record_gap.py --jobs` turns the open ones into router-shaped relearn jobs.
+- Brain: none · Stops: never edits the map or the repo; never states an unverified claim as tested or an inference as fact.
+
+**`dev-loop-onboard`**
+- Purpose: the recipe. Sequences survey → how ∥ why (one pair per area, `Agent` spawns in one batch) → map → quiz, and after every round acts on `onboard_router.py`: `relearn` (only the areas and failure classes lost), `requiz` (a blocked round swaps the role at fault; the map is untouched), `write-back`, `stop-rounds`, `stop-stagnant` (a question lost twice the same way), `stop-budget`, `halt-paused`, `escalate`. `mark_verified.py` stamps the claims each round verified; `map_staleness.py` limits a refresh to the areas whose files moved; `decide.py` keeps `decisions.tsv`.
+- Inputs: `REPO` (read only), `PROJECT`, and on a refresh the saved `map.json`.
+- Outputs: under `<evid_root>/onboard/<project>/`: every stage's files, `quiz/round-<n>/route.json` (contract `dev-loop-onboard.json`) and `carryover.json`, `writeback.json`, `decisions.tsv`.
+- Brain: `onboard_writeback.py`, dry run by default: verified `owner`, `rule`, `gotcha`, `command` and `where` claims as `active` lessons of kind `codebase`; unverified ones `proposed` only when the map passed; metrics `onboard_quiz_score`, `onboard_bad_key_rate`, `onboard_rounds_to_pass` · Stops: `onboard_loop` bounds, R5, R9; never edits the target repo, opens a pull request or posts anywhere.
 
 ### Loop recipes
 
 All five `dev-loop-*` recipes share one engine (`dev-loop-defect/references/recipe-engine.md`,
 `scripts/recipe_router.py`, `check_convergence.py`). After every stage the router returns one of
 `advance · re-fix · re-repro · reject · escalate · rollback · stop-budget · halt-paused`; the
-recipe acts on it and nothing else. Every external system is a role in `stack.config`; a role at
+recipe acts on it and nothing else. `dev-loop-onboard` is not one of the five: it takes no ticket
+and ships nothing, so it has its own router (`onboard_router.py`, in the onboarding lane above). Every external system is a role in `stack.config`; a role at
 `none` yields a structured `blocked` with `adapter-unavailable:<role>`, which escalates.
 
 **`dev-loop-defect`** (①) — `dev-intake → infra-worktree → qa-repro → dev-fix →` [`qa-verify ∥ qa-regression ∥ dev-code-review`, blind, as `Agent` spawns] `→ checker → dev-pre-pr → infra-ship → infra-prod-verify`, teardown in a `finally`. Owns the retry cap, the R5 budget comparison, the R9 pause check and the `fix_lessons` write after verify passes. Stops: any router verdict other than `advance`; `staging_only` set → no prod lane.
