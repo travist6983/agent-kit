@@ -1,0 +1,54 @@
+{
+  "skill_name": "dev-onboard-teach",
+  "evals": [
+    {
+      "id": 1,
+      "name": "walk-me-through",
+      "prompt": "i'm new on ledgerly. walk me through how this codebase works. the map is at contracts/samples/EXAMPLE-onboard/map.json",
+      "expected_output": "Runs lesson_plan.py, opens with the summary, the make commands and that it will start at the entry point, then asks whether to go in order. Explains one area at a time with its diagram step and cites, and stops after each area.",
+      "files": [],
+      "assertions": [
+        "lesson_plan.py is run before explaining",
+        "The first reply is short and ends by letting the person steer",
+        "No more than one area is explained before the person answers",
+        "Claims are given with their file and line"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "hedges-survive",
+      "prompt": "why is the invoice store in memory? and is the double pay check really there?",
+      "expected_output": "Answers why from the decision doc the map cites, keeping its confidence, and says the double pay claim is in the map but has not been tested by the quiz yet, showing the cited lines so the person can see for themselves.",
+      "files": [],
+      "assertions": [
+        "The why answer names its source in the record",
+        "An unverified claim is not stated as tested fact",
+        "No answer comes from outside the map or the lines it cites"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "unknown-becomes-a-gap",
+      "prompt": "how do members get removed?",
+      "expected_output": "Says plainly the map has nothing on removing members, checks whether the cited members code settles it and says which it read, and records the question with record_gap.py under members with lens how. Mentions it will be relearned next run.",
+      "files": [],
+      "assertions": [
+        "The reply says the map does not cover it",
+        "record_gap.py is run with --area members",
+        "No invented answer is given"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "no-quiz-unless-asked",
+      "prompt": "ok i think i get invoices. test me to make sure.",
+      "expected_output": "Since the person asked, offers two short questions answered by verified invoices claims (or says none are verified yet and offers to walk the code instead), gives the cited answer after each, and never quizzes at the end of an area unless asked.",
+      "files": [],
+      "assertions": [
+        "Questions are only asked because the person asked",
+        "Each answer comes with its cite",
+        "No question rests on an unverified or inferred claim without saying so"
+      ]
+    }
+  ]
+}

@@ -55,6 +55,7 @@ between steps; workflow variables are not a seam.
 | `dev-onboard-survey` | atomic | The onboarding loop's first look: a deterministic, zero-model scan of languages, declared commands, entry points, docs, hotspots and a first cut of areas | `dev-onboard-survey.json` → `survey.json` | none |
 | `dev-onboard-how` | atomic | The how lens: one read-only agent per area writes cited claims about what the code does; `check_card.py` proves every cite | `dev-onboard-card.json` → `cards/<area>.how.json` | none |
 | `dev-onboard-why` | atomic | The why lens: reasons from the record (commits, pull requests, decision docs) or marked as inference; refs checked | `dev-onboard-card.json` → `cards/<area>.why.json` | none |
+| `dev-onboard-teach` | atomic | Explain the map to a person at their pace, from where work enters, keeping every claim's standing; unanswered questions become relearn gaps | `teach-gaps.json` | none |
 | `dev-onboard-map` | atomic | Assemble the map: the architect's lens as data, a deterministic merge that keeps a verified claim only while unchanged, and a lint for uncited claims, broken cites and two owners | `dev-onboard-map.json` → `map.json` | none |
 | `qa-explore` | producer | Walk a feature before there is a bug; map it; propose expectations; draft a ticket | — | writes `app_map`, `flakiness`; proposes `expectations` |
 | `human-explore` | producer | A human drives; the only path that blesses an expectation to canonical | — | writes canonical `expectations` |
@@ -262,6 +263,12 @@ never a silent skip and never an unclassified retry.
 - Inputs: `SURVEY`, the round's checked cards, `architect.json`, and on a relearn the prior map.
 - Outputs: `map.json` (contract `dev-onboard-map.json`) and `map.md`. On a relearn a fresh card replaces its area's claims for its lens only, `drops[]` are removed, and an unchanged claim keeps `verified_round`.
 - Brain: none · Stops: never hand-edits `map.json`; two `owner` claims for one symbol, an uncited claim, a broken cite or a certain inference is an error.
+
+**`dev-onboard-teach`**
+- Purpose: the human end. `lesson_plan.py` orders the map from an area nothing calls down through what it calls, claims plain to deep, each with its standing (verified, unverified, inference with its confidence), and a diagram that gains one area per step. The teacher answers only from the map and the lines it cites, stops after every area, and never quizzes the person unasked.
+- Inputs: `MAP`, `REPO` (read only), optional `FOCUS` area.
+- Outputs: the conversation, and `teach-gaps.json`: every question the map could not answer, once each; `record_gap.py --jobs` turns the open ones into router-shaped relearn jobs.
+- Brain: none · Stops: never edits the map or the repo; never states an unverified claim as tested or an inference as fact.
 
 **`dev-loop-onboard`**
 - Purpose: the recipe. Sequences survey → how ∥ why (one pair per area, `Agent` spawns in one batch) → map → quiz, and after every round acts on `onboard_router.py`: `relearn` (only the areas and failure classes lost), `requiz` (a blocked round swaps the role at fault; the map is untouched), `write-back`, `stop-rounds`, `stop-stagnant` (a question lost twice the same way), `stop-budget`, `halt-paused`, `escalate`. `mark_verified.py` stamps the claims each round verified; `map_staleness.py` limits a refresh to the areas whose files moved; `decide.py` keeps `decisions.tsv`.
