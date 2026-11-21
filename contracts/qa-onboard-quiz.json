@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "loops/contracts/qa-onboard-quiz.json",
+  "title": "qa-onboard-quiz quiz.json: the blind exam of a codebase map",
+  "version": "1.0.0",
+  "status": "proposed",
+  "description": "Written by qa-onboard-quiz (scripts/grade_quiz.py) to <evid_root>/onboard/<project>/quiz/round-<n>/quiz.json. The onboarding loop's evaluator. Three blind agents take part and none sees another's inputs: a question writer reads the CODE (never the map) and writes questions with answer keys cited to file and line; an examiner reads the MAP (never the code) and answers; a judge reads the key and the answer and grades them. The grader script then checks every cite against the real files, so a key that points at nothing is thrown out and an answer that cites code no map claim cites is caught as an examiner that peeked. The router branches on `status` and reads `questions[].failure_class` to pick the next move per area. See docs/onboarding-loop.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["project", "commit", "round", "status", "score", "threshold", "counts", "questions"],
+  "properties": {
+    "project": { "type": "string" },
+    "commit": { "type": "string", "description": "The map's commit. The questions were written against this tree." },
+    "round": { "type": "integer", "minimum": 1 },
+    "status": {
+      "type": "string",
+      "enum": ["pass", "fail", "blocked"],
+      "description": "The one branch field. pass = score >= threshold, no area below area_floor, and the question set was trustworthy. fail = a real negative: the map could not answer enough. blocked = could not tell (no scored questions, a missing judge grade, too many bad keys, or an examiner that was not blind). Only fail routes to relearning; blocked retries the quiz or escalates."
+    },
+    "blocked_reason": {
+      "type": "string",
+      "enum": ["no-questions", "missing-input", "missing-grade", "bad-key-rate", "examiner-not-blind"],
+      "description": "Set only when status is blocked."
+    },
+    "score": { "type": "number", "minimum": 0, "maximum": 1, "description": "Mean question score over scored questions: correct 1, partial 0.5, everything else 0. Discarded questions are not scored." },
+    "threshold": { "type": "number", "minimum": 0, "maximum": 1 },
+    "area_floor": { "type": "number", "minimum": 0, "maximum": 1, "description": "No area with at least two scored questions may score below this, so a strong area cannot hide a blind one." },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "scored", "correct", "partial", "wrong", "missing", "discarded"],
+      "properties": {
+        "total": { "type": "integer", "minimum": 0 },
+        "scored": { "type": "integer", "minimum": 0 },
+        "correct": { "type": "integer", "minimum": 0 },
+        "partial": { "type": "integer", "minimum": 0 },
+        "wrong": { "type": "integer", "minimum": 0 },
+        "missing": { "type": "integer", "minimum": 0 },
+        "discarded": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "by_area": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "area id -> {scored, score, below_floor}. The router relearns areas, not questions."
+    },
+    "questions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "area", "grade", "failure_class", "score"],
+        "properties": {
+          "id": { "type": "string" },
+          "kind": { "type": "string", "enum": ["locate", "trace", "predict", "why", "owner"] },
+          "area": { "type": "string" },
+          "question": { "type": "string" },
+          "grade": { "type": "string", "enum": ["correct", "partial", "wrong", "missing", "discarded"] },
+          "failure_class": {
+            "type": "string",
+            "enum": ["none", "missing", "wrong", "vague", "stale", "why-gap", "bad-key", "outside-map"],
+            "description": "Why this question was lost, which decides what changes next. missing = the map has nothing on it. wrong = the map says something the code contradicts. vague = right neighbourhood, no precise cite. stale = the code it rests on changed since the map's commit. why-gap = a why question the record was never mined for. bad-key = the writer's key cites nothing real, so the question is discarded. outside-map = the answer cites code no named map claim cites."
+          },
+          "score": { "type": "number", "minimum": 0, "maximum": 1 },
+          "from_claims": { "type": "array", "items": { "type": "string" }, "description": "The map claims the examiner answered from. A wrong answer points the router at these claims." },
+          "key_cite_check": { "type": "string", "enum": ["ok", "bad-path", "bad-line", "symbol-absent", "none"] },
+          "answer_cite_check": { "type": "string", "enum": ["ok", "bad-path", "bad-line", "symbol-absent", "unknown-claim", "none"] },
+          "note": { "type": "string" }
+        }
+      }
+    },
+    "judged_blind": { "type": "boolean", "description": "True only when writer, examiner and judge were separate fresh-context agents. A quiz graded by the agent that wrote the map is not a quiz." },
+    "models": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "writer": { "type": "string" },
+        "examiner": { "type": "string" },
+        "judge": { "type": "string" }
+      }
+    },
+    "attempt": { "type": "integer", "minimum": 1 },
+    "retry_reason": { "type": "string" },
+    "timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["started_at", "ended_at"],
+      "properties": {
+        "started_at": { "type": "string" },
+        "ended_at": { "type": "string" },
+        "duration_s": { "type": "number", "minimum": 0 }
+      }
+    }
+  }
+}

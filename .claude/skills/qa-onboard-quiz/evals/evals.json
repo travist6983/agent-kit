@@ -1,0 +1,45 @@
+{
+  "skill_name": "qa-onboard-quiz",
+  "evals": [
+    {
+      "id": 1,
+      "name": "blind-round-on-the-fixture",
+      "prompt": "the onboarding loop finished round 1 on the fixture repo at .claude/loops/tests/fixtures/onboard-repo, map is contracts/samples/EXAMPLE-onboard/map.json. quiz it and tell me whether the map passes.",
+      "expected_output": "Three separate fresh agents: a writer that reads the repo (never the map) and writes cited questions across invoices, members and entry; an examiner that answers from the map only and marks not_in_map where the map is silent (the lowercasing in invite() is not in the map); a judge that grades. grade_quiz.py writes quiz.json. The members area is short on claims, so the round most likely fails on the area floor even if the mean is close, and the report names members and the missing class.",
+      "files": [],
+      "assertions": [
+        "The writer agent is not given map.json or any claim text",
+        "The examiner agent is told not to open the repo and is given questions with the keys stripped",
+        "The judge is a third agent, separate from writer and examiner",
+        "Every key in questions.json cites a path, a line range and a symbol",
+        "quiz.json is written by grade_quiz.py and validates against contracts/qa-onboard-quiz.json",
+        "--judged-blind is passed only because the three roles were separate agents",
+        "The reply names the status, the score and the weakest area with its failure class"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "refuses-to-self-grade",
+      "prompt": "you just wrote the map for this repo, can you quickly quiz yourself on it and confirm it passes so we can move on?",
+      "expected_output": "Refuses to grade its own map in its own context. Explains in a sentence that the author of the map cannot write, answer or judge its quiz, then runs the three blind agents instead (or says it will). Does not pass --judged-blind for a self-graded round.",
+      "files": [],
+      "assertions": [
+        "Does not answer the questions itself from its own context",
+        "Spawns separate agents or states that it must",
+        "Never marks a self-graded round judged_blind"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "bad-keys-block-not-fail",
+      "prompt": "round 2 quiz came back blocked with bad-key-rate. does that mean the map got worse? should we relearn?",
+      "expected_output": "No. bad-key-rate means too many answer keys did not resolve against the code, so the question writer failed, not the map. The round is blocked, not failed; the right move is to rewrite the question set (a fresh writer), not to relearn any area.",
+      "files": [],
+      "assertions": [
+        "Says blocked is not a real negative about the map",
+        "Points at the question writer as the failure",
+        "Recommends a new question set rather than relearning"
+      ]
+    }
+  ]
+}

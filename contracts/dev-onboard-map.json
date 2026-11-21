@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "loops/contracts/dev-onboard-map.json",
+  "title": "dev-onboard-map map.json: the learned model of one codebase, every claim cited",
+  "version": "1.0.0",
+  "status": "proposed",
+  "description": "Written by dev-onboard-map to <evid_root>/onboard/<project>/map.json, read by qa-onboard-quiz (the examiner answers from THIS file and nothing else), dev-onboard-teach, the staleness check and the brain write-back. It is the onboarding loop's product: a codebase described as areas plus atomic claims, where every claim says what it rests on. A claim about how the code behaves cites file and line. A claim about why it is that way cites the record (a commit, a pull request, a decision doc) or says it is an inference. The quiz grades the map, not the agent that wrote it, so a map that cannot answer a question is a map bug with an area and a class. See docs/onboarding-loop.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["project", "commit", "summary", "areas", "claims"],
+  "properties": {
+    "project": { "type": "string", "description": "The project name, the same one qa-kb stamps on brain rows." },
+    "commit": { "type": "string", "description": "The full commit SHA of the code this map describes. The staleness check diffs from here, so a map with no real commit is stale everywhere." },
+    "generated_at": { "type": "string", "description": "ISO-8601 UTC." },
+    "summary": { "type": "string", "description": "What this system is, in two or three plain sentences a senior engineer would say out loud: the general name for the thing, then what this codebase uses it for." },
+    "areas": {
+      "type": "array",
+      "description": "The units the codebase splits into. An area is the grain of fan-out, of quiz scoring and of relearning. Seeded from survey.json and corrected by the how cards.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "paths"],
+        "properties": {
+          "id": { "type": "string", "description": "Stable short id, lowercase, used by claims, questions and router work items." },
+          "name": { "type": "string" },
+          "paths": { "type": "array", "items": { "type": "string" }, "description": "Path prefixes this area covers. The staleness check maps changed files to areas through these." },
+          "purpose": { "type": "string", "description": "One sentence: the job this area does for the system." },
+          "depends_on": { "type": "array", "items": { "type": "string" }, "description": "Area ids this area calls into." }
+        }
+      }
+    },
+    "claims": {
+      "type": "array",
+      "description": "Atomic facts. One claim says one thing and can be checked on its own.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "area", "kind", "text", "cites", "evidence"],
+        "properties": {
+          "id": { "type": "string", "description": "Stable id, e.g. invoices.c3. The examiner names claim ids in its answers; the grader checks they exist." },
+          "area": { "type": "string" },
+          "kind": {
+            "type": "string",
+            "enum": ["what", "how", "where", "owner", "why", "rule", "gotcha", "command"],
+            "description": "what = what a thing is. how = a runtime flow or mechanism. where = where something lives. owner = which module owns a piece of state or a decision. why = the reason it is built this way. rule = where new code of a given kind belongs (the architect lens). gotcha = a trap a newcomer would hit. command = how to build, test, run or lint."
+          },
+          "text": { "type": "string", "description": "The claim in one or two plain sentences. No hedging words; confidence carries the hedge." },
+          "cites": {
+            "type": "array",
+            "description": "What the claim rests on. Code cites carry path and lines; record cites carry ref. Empty only for a why claim marked source=inference.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": { "type": "string", "description": "Repo-relative file path." },
+                "line_start": { "type": "integer", "minimum": 1 },
+                "line_end": { "type": "integer", "minimum": 1 },
+                "symbol": { "type": "string", "description": "A name that must appear in the cited lines. The grader checks it, which catches a cite that drifted." },
+                "ref": { "type": "string", "description": "A record pointer for a why claim: commit:<sha>, pr:<number>, doc:<path>." }
+              }
+            }
+          },
+          "evidence": {
+            "type": "string",
+            "enum": ["said", "pointed", "walked", "ran"],
+            "description": "How far the claim was proven. said = asserted only (never enough for a non-why claim). pointed = a real file and line. walked = the flow was traced step by step and the bad case does not reach. ran = a command or test that calls the real code showed it."
+          },
+          "confidence": {
+            "type": "string",
+            "enum": ["certain", "likely", "guessing"],
+            "description": "Mainly for why claims. certain = the record says so in the authors' words. likely = a strong inference. guessing = filling a gap. A why claim that is an inference may not be certain."
+          },
+          "source": { "type": "string", "enum": ["code", "record", "inference"], "description": "Where the claim came from." },
+          "verified_round": { "type": ["integer", "null"], "minimum": 1, "description": "The quiz round in which a question that leaned on this claim was answered correctly. The write-back promotes only verified claims." }
+        }
+      }
+    },
+    "commands": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "build / test / lint / run as the repo itself declares them (from survey.json), each a string. Copied, never invented."
+    },
+    "open_questions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "What the code and the record do not answer. Saying so is a finding, not a failure."
+    },
+    "timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["started_at", "ended_at"],
+      "properties": {
+        "started_at": { "type": "string" },
+        "ended_at": { "type": "string" },
+        "duration_s": { "type": "number", "minimum": 0 }
+      }
+    }
+  }
+}

@@ -82,5 +82,11 @@ must_pass "$C/qa-regression.json" "$C/samples/EXAMPLE-defect-loop/regression.jso
 must_pass "$C/qa-regression.json" "$C/samples/EXAMPLE-blocked-slice-empty/regression.json"
 must_fail "$C/qa-regression.json" "$C/samples/EXAMPLE-bad-green-zero-tests/regression.json"
 
+# onboarding loop (v1.0.0: the map every claim cites, and the blind quiz that grades it)
+must_pass "$C/dev-onboard-map.json" "$C/samples/EXAMPLE-onboard/map.json"
+must_pass "$C/qa-onboard-quiz.json" "$C/samples/EXAMPLE-onboard/quiz.json"
+# negative: an off-enum failure_class must FAIL (locks the classify-before-relearn vocabulary)
+must_fail "$C/qa-onboard-quiz.json" "$C/samples/EXAMPLE-onboard-bad-class/quiz.json"
+
 echo "  contracts: $pass passed, $fail failed"
 [ "$fail" = 0 ]

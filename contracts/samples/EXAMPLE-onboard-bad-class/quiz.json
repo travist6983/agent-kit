@@ -1,0 +1,145 @@
+{
+  "project": "ledgerly",
+  "commit": "0000000000000000000000000000000000000000",
+  "round": 1,
+  "threshold": 0.8,
+  "area_floor": 0.6,
+  "judged_blind": true,
+  "status": "fail",
+  "score": 0.7857,
+  "counts": {
+    "total": 7,
+    "discarded": 0,
+    "scored": 7,
+    "correct": 5,
+    "partial": 1,
+    "wrong": 0,
+    "missing": 1
+  },
+  "by_area": {
+    "invoices": {
+      "scored": 4,
+      "score": 0.875,
+      "below_floor": false
+    },
+    "members": {
+      "scored": 2,
+      "score": 0.5,
+      "below_floor": true
+    },
+    "entry": {
+      "scored": 1,
+      "score": 1.0,
+      "below_floor": false
+    }
+  },
+  "questions": [
+    {
+      "id": "q1",
+      "kind": "owner",
+      "area": "invoices",
+      "question": "Which code is allowed to change an invoice's status?",
+      "grade": "correct",
+      "failure_class": "none",
+      "score": 1.0,
+      "key_cite_check": "ok",
+      "from_claims": [
+        "invoices.c1"
+      ],
+      "answer_cite_check": "ok",
+      "note": "names the service as the owner"
+    },
+    {
+      "id": "q2",
+      "kind": "trace",
+      "area": "invoices",
+      "question": "What happens when you pay an invoice that is already paid?",
+      "grade": "partial",
+      "failure_class": "confused",
+      "score": 0.5,
+      "key_cite_check": "ok",
+      "from_claims": [
+        "invoices.c2"
+      ],
+      "answer_cite_check": "ok",
+      "note": "says refused but not that InvoiceError is raised"
+    },
+    {
+      "id": "q3",
+      "kind": "predict",
+      "area": "invoices",
+      "question": "If you edit the dict returned by store.get without calling update, does total_due change?",
+      "grade": "correct",
+      "failure_class": "none",
+      "score": 1.0,
+      "key_cite_check": "ok",
+      "from_claims": [
+        "invoices.c5"
+      ],
+      "answer_cite_check": "ok",
+      "note": "matches"
+    },
+    {
+      "id": "q4",
+      "kind": "why",
+      "area": "invoices",
+      "question": "Why is there no database?",
+      "grade": "correct",
+      "failure_class": "none",
+      "score": 1.0,
+      "key_cite_check": "ok",
+      "from_claims": [
+        "invoices.c4"
+      ],
+      "answer_cite_check": "ok",
+      "note": "matches the decision doc"
+    },
+    {
+      "id": "q5",
+      "kind": "locate",
+      "area": "members",
+      "question": "Where would a malformed email be rejected?",
+      "grade": "correct",
+      "failure_class": "none",
+      "score": 1.0,
+      "key_cite_check": "ok",
+      "from_claims": [
+        "members.c1"
+      ],
+      "answer_cite_check": "ok",
+      "note": "right file and function"
+    },
+    {
+      "id": "q6",
+      "kind": "trace",
+      "area": "members",
+      "question": "What does invite() do to the email before returning?",
+      "grade": "missing",
+      "failure_class": "missing",
+      "score": 0.0,
+      "key_cite_check": "ok",
+      "answer_cite_check": "none",
+      "from_claims": []
+    },
+    {
+      "id": "q7",
+      "kind": "locate",
+      "area": "entry",
+      "question": "Where is the store implementation chosen?",
+      "grade": "correct",
+      "failure_class": "none",
+      "score": 1.0,
+      "key_cite_check": "ok",
+      "from_claims": [
+        "entry.c1"
+      ],
+      "answer_cite_check": "ok",
+      "note": "right function"
+    }
+  ],
+  "timing": {
+    "started_at": "2026-01-01T00:00:00Z",
+    "ended_at": "2026-11-21T01:25:56Z",
+    "duration_s": 27998756.0
+  }
+}
