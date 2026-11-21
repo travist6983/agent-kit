@@ -98,7 +98,8 @@ prints one JSON line with `status`, `score` and `blocked_reason`.
 
 Record the round as a metric so the loop is measurable over time:
 `kb metric --name onboard_quiz_score --value <score> --loop-id dev-loop-onboard --source qa-onboard-quiz`.
-A metric write that fails is reported, never skipped. The quiz writes no knowledge rows; promoting
+Inside `dev-loop-onboard`, skip this step: its write back records every round's score once, so a
+round is never counted twice. A metric write that fails is reported, never skipped. The quiz writes no knowledge rows; promoting
 verified claims is the recipe's write-back step.
 
 ## Key principles
