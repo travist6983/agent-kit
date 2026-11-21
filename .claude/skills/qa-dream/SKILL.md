@@ -260,6 +260,21 @@ signal outranks an `assistant`-voiced one. **Do not edit the skill.** A human or
 `classifier-gap`, `skill-should`, `update-the-skill`, `skill-bug`); `<dream_date>` is the
 pass's `DREAM_DATE`; `<skill-name>` is the skill the evidence names, or `unknown`.
 
+### 6b. Queue recurring fix lessons for hardening (never write a rule)
+
+A fix lesson this pass wrote or bumped with `occurrences >= 2` is a mistake the loop keeps making.
+Append one line to `.claude/loops/harden-queue.jsonl` so `dev-harden` can try to turn it into a
+check that fails, instead of a lesson the next fixer may or may not recall:
+
+```json
+{"fingerprint": "<signature_tag or a short slug of the symptom>", "source": "fix_lesson",
+ "ref": "fix_lessons#<id>", "statement": "<symptom> -> <fix shape>, one sentence", "band": null}
+```
+
+Append only; never rewrite earlier lines. Skip a fingerprint already in the file. Do not draft
+the rule yourself and never touch the conventions file: dev-harden walks the fix ladder, proves
+any rule with fixtures, and a human applies it.
+
 ### 7. Report, then advance the watermark
 
 Write the report at **exactly the `REPORT=` path the runner handed you** —

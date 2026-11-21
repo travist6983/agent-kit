@@ -163,6 +163,11 @@ Exit `3` = at least one non-heuristic critical/high; `2` = could not scan (fail 
 `blocked`, never as clean). Read `references/violation-rules.md` for the rule format, the
 `suppress_marker` escape hatch, and the rules that are deliberately left to a reader.
 
+Each violation carries the rule's `fix` text. When the verdict routes back to a re-fix, pass every
+violation's `fix` to the fixer verbatim: it is written for the agent and says what to do instead,
+which is more than the rule label does. Rules that `dev-harden` proposed and a human applied land
+here the same way (a `_comment_provenance` key records who approved each one).
+
 Then judge the **Half 2** rules — the ones in `conventions.guidelines_file` that no regex decides
 honestly (layer boundaries, tenant scoping, soft-delete bypass, design-token substitution, and
 whatever else the target repo wrote down) — over the changed hunks. Report them in the same shape as

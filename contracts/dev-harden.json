@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "loops/contracts/dev-harden.json",
+  "title": "dev-harden harden.json, one recurring correction, placed as the cheapest check that can catch it",
+  "version": "1.0.0",
+  "status": "proposed",
+  "description": "The output of the dev-harden skill, written to <evid_root>/harden/<fingerprint>/harden.json. One artifact per correction. The skill walks the fix ladder top down (structure, static, verification, prose) and records why every higher band was skipped, so a prose rule can never be written while a check that fails was possible. validate.py enforces this as DEV-HARDEN-L1 (a reason for every higher band; status tied to band and evidence). Consumers branch on `status`. A rule only reaches the gate when a human runs rule_probe.py --apply --by, which flips status to rule-applied and fills `applied`.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "fingerprint", "band", "correction", "why_not_higher", "summary"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["rule-proposed", "rule-applied", "ticket-drafted", "expectation-proposed", "guideline-proposed", "declined", "blocked"],
+      "description": "rule-proposed = a conventions rule passed rule_probe.py and waits for a human --apply; rule-applied = a human applied it, the gate enforces it from the next run; ticket-drafted = the fix belongs in the target repo (an API or architecture change, or a linter rule plus removing the existing copies) and a ticket was drafted for a loop, never filed or coded here; expectation-proposed = only running the app can prove it, an expectation was proposed (a human blesses it via human-explore); guideline-proposed = no higher band can catch it, a guidelines paragraph with a failure example is proposed (never written to the file here); declined = not worth a check (one-off, judgment call already covered, no evidence); blocked = could not finish (R9 pause, probe could not run, brain unreachable). Only blocked may be retried as is."
+    },
+    "fingerprint": { "type": "string", "description": "The candidate's stable id from collect_candidates.py: the drafted rule id, else a slug of the statement. Also the artifact's directory name." },
+    "band": {
+      "type": "string",
+      "enum": ["structure", "static", "verification", "prose", "none"],
+      "description": "The highest band of the fix ladder that can catch this mistake. structure = change the code or API so the mistake cannot be written; static = a lint, type or conventions rule; verification = the agent proves it by running the app; prose = a guidelines line, the last resort; none = declined or blocked before placement."
+    },
+    "correction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["statement", "sources", "occurrences"],
+      "properties": {
+        "statement": { "type": "string", "description": "The mistake and the right move, in one or two sentences." },
+        "sources": { "type": "array", "items": { "type": "string", "enum": ["review", "fix_lesson", "human", "skill-followup", "queue"] } },
+        "refs": { "type": "array", "items": { "type": "string" }, "description": "Where each occurrence was seen: <ticket>/review.json#findings[i], a fix_lessons id, a session id." },
+        "occurrences": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "why_not_higher": {
+      "type": "array",
+      "description": "One entry for every band ABOVE `band` that was considered and rejected, with the reason. Empty only when band is structure (or none). This is the anti-prose guard: a guideline-proposed artifact must show why structure, static and verification could not catch it.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["band", "reason"],
+        "properties": {
+          "band": { "type": "string", "enum": ["structure", "static", "verification"] },
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    "rule": { "type": "object", "additionalProperties": true, "description": "band=static, conventions route: the exact rule object rule_probe.py proved (format: dev-pre-pr/references/violation-rules.md). Its `fix` is the message the next agent reads at the gate." },
+    "probe": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["status"],
+      "properties": {
+        "status": { "type": "string", "enum": ["probe-pass", "probe-fail", "not-run"] },
+        "failures": { "type": "array", "items": { "type": "string" }, "description": "Failure classes from rule_probe.py when it failed." },
+        "existing_copies": { "type": "integer", "minimum": 0, "description": "Inventory count: copies of the mistake already in the target repo." },
+        "would_block": { "type": "boolean" }
+      }
+    },
+    "ticket_draft": { "type": ["string", "null"], "description": "Path of the drafted ticket (issue_tracker ticket shape), for band=structure, a target linter rule, or the cleanup of existing copies. Drafted, never filed." },
+    "expectation": { "type": ["string", "null"], "description": "band=verification: the proposed expectation statement (proposed through qa-kb, never blessed here)." },
+    "guideline": { "type": ["string", "null"], "description": "band=prose: the proposed guidelines paragraph, including one example of the failure." },
+    "applied": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["by", "at"],
+      "properties": {
+        "by": { "type": "string" },
+        "at": { "type": "string" }
+      }
+    },
+    "decline_reason": { "type": ["string", "null"] },
+    "summary": { "type": "string" },
+    "attempt": { "type": "integer", "minimum": 1 },
+    "retry_reason": { "type": ["string", "null"] },
+    "timing": { "type": "object", "additionalProperties": true }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "status": "guideline-proposed",
+  "fingerprint": "name-the-tenant-in-new-query-helpers",
+  "band": "prose",
+  "correction": {
+    "statement": "New query helpers keep taking a raw id where the codebase convention is to take the workspace first, so the scope filter is easy to forget.",
+    "sources": ["human"],
+    "refs": ["session 7f2c"],
+    "occurrences": 1
+  },
+  "why_not_higher": [
+    { "band": "structure", "reason": "The scoped base query already exists; the miss is in new helpers that do not use it, which is a design judgment per helper." },
+    { "band": "static", "reason": "A regex cannot tell a helper that needs scoping from one that is global by design; every draft rule fired on the global ones." },
+    { "band": "verification", "reason": "The defect only shows with two workspaces holding colliding ids, which the replay oracle does not seed." }
+  ],
+  "probe": { "status": "not-run" },
+  "ticket_draft": null,
+  "expectation": null,
+  "guideline": "New query helpers take the workspace as their first argument and build on the scoped base query. Wrong: findTask(id). Right: findTask(workspace, id).",
+  "applied": null,
+  "decline_reason": null,
+  "summary": "No check can catch this without false positives, so a guidelines paragraph with a failure example is proposed for a human to add."
+}

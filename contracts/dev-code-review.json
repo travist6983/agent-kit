@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "loops/contracts/dev-code-review.json",
   "title": "dev-code-review review.json — machine review verdict (incl. R3 masking judge)",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "status": "ratified",
   "description": "The ratified output of the dev-code-review skill, written to <evid_root>/<key>/review.json. The recipe branches on `verdict` (approve advances, request-changes routes back to dev-fix); `masking` carries the R3 symptom-masking judge's call. Ratified against samples/EXAMPLE-defect-loop/review.json.",
   "type": "object",
@@ -33,7 +33,20 @@
           "severity": { "type": "string", "enum": ["critical", "high", "medium", "low"] },
           "confidence": { "type": "integer", "minimum": 0, "maximum": 100 },
           "file": { "type": "string" },
-          "issue": { "type": "string" }
+          "issue": { "type": "string" },
+          "harden": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["band", "why"],
+            "description": "OPTIONAL (v1.2.0). Set when the reviewer judges this is a mistake a check could catch, so it should not be corrected by hand again. The reviewer only DRAFTS: it never writes a rule, a queue line or the conventions file. dev-harden collects these blocks between runs, groups them by candidate_rule.id across tickets, proves the rule with rule_probe.py and proposes it; a human applies it; dev-pre-pr enforces it from then on.",
+            "properties": {
+              "band": { "type": "string", "enum": ["structure", "static", "verification", "prose"], "description": "The highest fix-ladder band the reviewer believes can catch it." },
+              "why": { "type": "string", "description": "The recurring mistake and the right move, in one sentence." },
+              "candidate_rule": { "type": "object", "additionalProperties": true, "description": "band=static only: a draft conventions rule (dev-pre-pr/references/violation-rules.md). Its `fix` is written TO the next agent: what to do instead and where the real fix lives." },
+              "must_trip": { "type": "string", "description": "A line the draft rule must flag, usually the offending line from this diff." },
+              "must_pass": { "type": "string", "description": "The compliant version the rule must NOT flag." }
+            }
+          }
         }
       }
     },

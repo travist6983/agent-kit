@@ -1,0 +1,31 @@
+{
+  "status": "safe",
+  "key": "PROJ-123",
+  "change": "Moves the open state of the task menu into the parent and has the popover read it. The part the diff does not spell out: the popover no longer closes itself on blur; the parent's outside-click handler now does.",
+  "safety_fact": {
+    "statement": "Every consumer of TaskMenu passes an onClose handler, so moving close ownership to the parent leaves no menu that can never close.",
+    "rung": 4,
+    "proof_kind": "ran",
+    "ref": "web/src/tasks/TaskMenu.tsx:12",
+    "command": "node runs/PROJ-123/collateral/consumers.mjs",
+    "output": "3 TaskMenu consumers found; 3 pass onClose; exit 0"
+  },
+  "risks": [
+    {
+      "how": "A keyboard user who tabs out no longer closes the menu, because blur no longer closes it.",
+      "where": "web/src/tasks/TaskMenu.tsx:40",
+      "likelihood": "medium",
+      "cost": "low",
+      "check": "Tab out of the open menu and read whether aria-expanded is still true."
+    }
+  ],
+  "cleared": [
+    {
+      "what": "Server state",
+      "why": "The diff touches no request or response shape.",
+      "where": "web/src/api/tasks.ts"
+    }
+  ],
+  "before_merge": "Run runs/PROJ-123/collateral/consumers.mjs in CI so a new consumer without onClose fails.",
+  "summary": "Safe at rung 4: every consumer passes onClose. One medium, low-cost keyboard risk to check."
+}

@@ -96,8 +96,9 @@ Fields of a rule:
 
 `id` · `severity` (critical|high|medium|low) · `include_path` (regex on the repo-relative path) ·
 `exclude_path` (optional) · `skip_tests` (bool, uses `test_path_regex`) · `pattern` (regex on the
-added line) · `rule` (the label) · `fix` (what to do instead — this is what the developer actually
-reads) · `heuristic` (bool) · `confirm_question` (required when `heuristic` is true — how a reader
+added line) · `rule` (the label) · `fix` (what to do instead — this is what the developer, or the agent on a re-fix, actually
+reads; at least 40 characters and more than the label, which `dev-harden/scripts/rule_probe.py --audit`
+checks) · `heuristic` (bool) · `confirm_question` (required when `heuristic` is true — how a reader
 confirms or clears it) · `layer` (optional free label, e.g. a `projects[].name`) · `type`:
 
 - `line` (default) — flag every added line matching `pattern`.

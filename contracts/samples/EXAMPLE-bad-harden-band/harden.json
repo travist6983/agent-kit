@@ -1,0 +1,46 @@
+{
+  "status": "rule-proposed",
+  "fingerprint": "no-zero-delay-timer",
+  "band": "lint",
+  "correction": {
+    "statement": "Fixes for a one-frame flash keep wrapping the close call in a zero-delay timer. The real fix is to keep the open state in one place.",
+    "sources": [
+      "review",
+      "fix_lesson"
+    ],
+    "refs": [
+      "PROJ-123/review.json#findings[0]",
+      "PROJ-140/review.json#findings[1]",
+      "fix_lessons#88"
+    ],
+    "occurrences": 3
+  },
+  "why_not_higher": [
+    {
+      "band": "structure",
+      "reason": "No single API change removes timers from the codebase; the state ownership fix is per component and goes in the cleanup ticket."
+    }
+  ],
+  "rule": {
+    "id": "no-zero-delay-timer",
+    "severity": "high",
+    "include_path": "\\.(js|jsx|ts|tsx)$",
+    "skip_tests": true,
+    "pattern": "\\bsetTimeout\\s*\\([^;]*,\\s*0\\s*\\)",
+    "rule": "Zero-delay timer used to paper over an ordering bug",
+    "fix": "Do not add a timer here. The flash means two pieces of state disagree for one frame: keep the value in one place and have the other read it.",
+    "heuristic": false
+  },
+  "probe": {
+    "status": "probe-pass",
+    "failures": [],
+    "existing_copies": 2,
+    "would_block": true
+  },
+  "ticket_draft": "runs/tickets/HARDEN-no-zero-delay-timer.md",
+  "expectation": null,
+  "guideline": null,
+  "applied": null,
+  "decline_reason": null,
+  "summary": "Proposed a blocking conventions rule with an agent-facing fix message; drafted a cleanup ticket for the 2 existing timers so the next agent has nothing to copy. Waits for a human --apply."
+}
