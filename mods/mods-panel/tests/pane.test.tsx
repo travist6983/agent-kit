@@ -160,7 +160,7 @@ test('/mods band off persists and hands the row back to recipe-run', async ($, o
   expect(open.text).toBe('Mods panel open: 2 of 8 mods on, 1 blocking questions, $3.18 this session.')
 })
 
-test('/mods glass sets a frosted look, comes back next session, and clears on off', async ($, on) => {
+test('glass is on by default, stays off once turned off, and comes back on with /mods glass on', async ($, on) => {
   const kit = fakeKit(on)
   const looks: unknown[] = []
   let cleared = 0
@@ -172,22 +172,26 @@ test('/mods glass sets a frosted look, comes back next session, and clears on of
     cleared += 1
     return { value: { isDrawn: false as const, reason: 'cleared' } }
   })
-  await $.session.start({ cwd: '/repo', surface: 'desktop', isInteractive: true })
-  expect(looks).toHaveLength(0)
-
   const cmd = (args: string) => $.command.run({ command: 'mods', args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } })
-  const onText = await cmd('glass on')
-  expect(onText.text).toContain('Mods glass on')
-  expect(looks[0]).toMatchObject({ backdrop: { scene: 'mods-glass', glass: { blur: 28, opacity: 0.55 } }, overrideColorScheme: 'dark' })
-  expect(kit.store.get('isGlassOn')).toBe(true)
 
+  // A first session with nothing saved: the look is set as the mod loads.
   await $.session.start({ cwd: '/repo', surface: 'desktop', isInteractive: true })
-  expect(looks).toHaveLength(2)
+  expect(looks).toHaveLength(1)
+  expect(looks[0]).toMatchObject({ backdrop: { scene: 'mods-glass', glass: { blur: 28, opacity: 0.55 } }, overrideColorScheme: 'dark' })
 
   const offText = await cmd('glass off')
   expect(offText.text).toContain('Mods glass off')
   expect(cleared).toBe(1)
   expect(kit.store.get('isGlassOn')).toBe(false)
+
+  // Off is remembered: the next session sets no look.
+  await $.session.start({ cwd: '/repo', surface: 'desktop', isInteractive: true })
+  expect(looks).toHaveLength(1)
+
+  const onText = await cmd('glass on')
+  expect(onText.text).toContain('Mods glass on')
+  expect(looks).toHaveLength(2)
+  expect(kit.store.get('isGlassOn')).toBe(true)
 })
 
 test('the glass backdrop draws its scene in the desktop app', async ($, on) => {

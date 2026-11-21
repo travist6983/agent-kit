@@ -196,8 +196,9 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const saved = (await $.store.get('isBandOn')) as boolean | undefined
     if (typeof saved === 'boolean') await update($, bandAtom, () => saved)
-    // A look doesn't outlive the session, so the glass the person turned on is set again here.
-    if ((await $.store.get('isGlassOn')) === true) await $.theme.set(GLASS_LOOK).catch(() => undefined)
+    // Glass is on by default: set at every session start (a look doesn't outlive its session)
+    // until the person turns it off with /mods glass off, which is saved.
+    if ((await $.store.get('isGlassOn')) !== false) await $.theme.set(GLASS_LOOK).catch(() => undefined)
     await $.command.register({
       name: 'mods',
       description: 'Mods panel: every agent-kit mod, its live status and an on/off switch. /mods band on|off for the row above the prompt, /mods glass on|off for the frosted look',
