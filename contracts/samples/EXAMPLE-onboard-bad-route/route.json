@@ -1,0 +1,44 @@
+{
+  "project": "ledgerly",
+  "round": 1,
+  "max_rounds": 3,
+  "quiz_status": "fail",
+  "jobs": [
+    {
+      "area": "members",
+      "skill": "dev-onboard-how",
+      "mode": "reread",
+      "questions": [
+        "q6"
+      ]
+    }
+  ],
+  "carryover": [
+    "q2",
+    "q6"
+  ],
+  "verified_claims": [
+    "invoices.c1",
+    "invoices.c5",
+    "invoices.c4",
+    "members.c1",
+    "entry.c1"
+  ],
+  "stagnant": [],
+  "below_floor": [
+    "members"
+  ],
+  "commit": "0000000000000000000000000000000000000000",
+  "score": 0.7857,
+  "budget": {
+    "spent": 0.0,
+    "cap": 15.0
+  },
+  "action": "retry-everything",
+  "reason": "2 lost question(s) across 2 area(s)",
+  "timing": {
+    "started_at": "2026-01-01T00:00:00Z",
+    "ended_at": "2026-01-01T00:00:01Z",
+    "duration_s": 1.0
+  }
+}

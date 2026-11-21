@@ -1,0 +1,205 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "loops/contracts/dev-loop-onboard.json",
+  "title": "dev-loop-onboard route.json: the next move after a quiz round",
+  "version": "1.0.0",
+  "status": "proposed",
+  "description": "Written by dev-loop-onboard (scripts/onboard_router.py, no model) to <evid_root>/onboard/<project>/quiz/round-<n>/route.json after every quiz round. It reads that round's quiz.json and every earlier round's, and turns the result into exactly one action plus the work that action needs: per-area relearn jobs keyed by failure class, the lost questions that carry into the next round, the claims this round verified, and the questions lost twice the same way. The recipe acts on `action` and nothing else decides it. See docs/onboarding-loop.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "project",
+    "round",
+    "max_rounds",
+    "quiz_status",
+    "action",
+    "reason",
+    "jobs",
+    "carryover",
+    "verified_claims",
+    "stagnant"
+  ],
+  "properties": {
+    "project": {
+      "type": "string"
+    },
+    "commit": {
+      "type": "string"
+    },
+    "round": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "max_rounds": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "quiz_status": {
+      "type": "string",
+      "enum": [
+        "pass",
+        "fail",
+        "blocked"
+      ]
+    },
+    "score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "write-back",
+        "relearn",
+        "requiz",
+        "stop-rounds",
+        "stop-stagnant",
+        "stop-budget",
+        "halt-paused",
+        "escalate"
+      ],
+      "description": "The one branch field. write-back = the map passed. relearn = run the jobs, reassemble the map, quiz again. requiz = the round could not be trusted (bad keys, a peeking examiner, a missing grade); quiz again with the roles named in requiz, without relearning. stop-rounds = out of rounds; hand back what is still unknown. stop-stagnant = a question was lost twice for the same reason; reading the same files again will not help. stop-budget = the R5 consumption cap was reached. halt-paused = the R9 pause flag is set. escalate = the round is blocked in a way another quiz cannot fix, or blocked twice for the same reason."
+    },
+    "reason": {
+      "type": "string"
+    },
+    "jobs": {
+      "type": "array",
+      "description": "Relearn work, one item per area and mode. Empty unless action is relearn.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "area",
+          "skill",
+          "mode",
+          "questions"
+        ],
+        "properties": {
+          "area": {
+            "type": "string"
+          },
+          "skill": {
+            "type": "string",
+            "enum": [
+              "dev-onboard-survey",
+              "dev-onboard-how",
+              "dev-onboard-why"
+            ]
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "fresh",
+              "missing",
+              "correct",
+              "deepen",
+              "resurvey"
+            ],
+            "description": "The reader's mode, as dev-onboard-card.json names it, plus resurvey for the survey step. missing = the map had nothing on these topics (how, or why for a why-gap). correct = the named claims were graded wrong; drop them and write what the code says. deepen = the answers were vague; narrower cites, walk the flow. resurvey = the code moved; survey the area again, then a fresh how read."
+          },
+          "questions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The lost question ids this job answers. The reader is told the topic, not the answer key."
+          },
+          "drop_claims": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Claim ids a wrong answer leaned on. A correct-mode card lists them as drops."
+          },
+          "topics": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The lost questions' text, so the reader knows what to look for."
+          }
+        }
+      }
+    },
+    "requiz": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fresh_writer": {
+          "type": "boolean"
+        },
+        "fresh_examiner": {
+          "type": "boolean"
+        },
+        "rejudge": {
+          "type": "boolean"
+        }
+      },
+      "description": "Which roles to replace on a requiz. A blocked round is never the map's fault."
+    },
+    "carryover": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Question ids lost this round, carried unchanged into the next round beside new ones. Bad-key and outside-map questions are not carried: they were never the map's fault."
+    },
+    "verified_claims": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Claim ids a correctly answered question leaned on, with a clean answer cite. mark_verified.py stamps these with this round."
+    },
+    "stagnant": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Question ids lost in this round and the one before it with the same failure class."
+    },
+    "below_floor": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Areas scoring under the area floor this round."
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "spent": {
+          "type": "number",
+          "minimum": 0
+        },
+        "cap": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "started_at",
+        "ended_at"
+      ],
+      "properties": {
+        "started_at": {
+          "type": "string"
+        },
+        "ended_at": {
+          "type": "string"
+        },
+        "duration_s": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

@@ -128,8 +128,10 @@ A claim is promoted to the brain only after a question that leaned on it was ans
 
 ## Refresh
 
-A map records the commit it describes. On the next run the staleness check diffs from that commit,
-maps the changed files to areas, and relearns only those areas before quizzing again. A repo that
+A map records the commit it describes. On the next run the staleness check (`map_staleness.py`)
+diffs from that commit, maps the changed files to areas, and relearns only those areas before
+quizzing again. A map with no usable commit (built from a tree with no history, or a commit the
+checkout lacks) relearns everything, because a partial refresh from an unknown base would be a guess. A repo that
 moved a little costs a little.
 
 ## Where the ideas come from

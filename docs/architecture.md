@@ -426,6 +426,7 @@ adapter layer, and is held to the loop-readiness checklist in
 | `dev-loop-feature-prerelease` | Recipe ③ — sensitive / pre-release defects; stages for human QA; never ships. |
 | `dev-loop-feature-complete` | Recipe ④ — story → plan → implement → verify vs acceptance criteria → stage; never auto-ships. |
 | `dev-loop-pr-review` | Recipe ⑤ — the scheduled PR-review sweep, bounded per tick, dry-run until armed. |
+| `dev-loop-onboard` | The onboarding loop: gets an agent up to speed on a codebase it has never seen, proves the map with a blind quiz, relearns only what the quiz showed was missing or wrong, and writes the verified parts to the brain. Read only on the target repo. See `docs/onboarding-loop.md`. |
 | `qa-loop-release-ac` | Given a release version, find its PRs through `vcs_host` and the tickets they deliver, reconcile against the tracker's fix version, confirm the build is deployed through `ci_cd`, extract every acceptance scenario, write a case file per browser scenario and execute each through `qa-run-case` (chat ones through `qa-run-chatbot`), and report a per-ticket, per-scenario matrix that names every scenario needing a person instead of skipping it. |
 
 ### Named integrations
