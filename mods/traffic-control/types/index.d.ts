@@ -21,6 +21,6 @@ export type Lock = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'traffic-control': { me: string; peers: Peer[]; locks: Lock[] }
+    'traffic-control': { me: string; peers: Peer[]; locks: Lock[]; open: string[] | null }
   }
 }

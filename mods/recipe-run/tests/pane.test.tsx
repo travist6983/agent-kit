@@ -127,3 +127,25 @@ test('ask_human saves a blocking question when nobody can answer', async ($, on)
   const bad = await $.tool.call({ tool: 'mcp__recipe-run__ask_human', question: 'Rename it?', kind: 'non-blocking' })
   expect(String(bad.result)).toContain('needs a default')
 })
+
+test('the desktop app draws the styled sections, card bars and the spend-vs-cap meter', async ($, on) => {
+  fakeRepo(on)
+  on('tool.call', (_, e) => {
+    if (e.tool === 'Bash') return { result: { stdout: '{"action": "advance", "reason": "ok"}\n', stderr: '', interrupted: false } }
+    return { result: {} }
+  })
+  await $.session.start({ cwd: '/repo', surface: 'desktop', isInteractive: true })
+  await $.tool.call({ tool: 'Bash', command: `${ROUTER} --stage fix --result pass --attempt 1 --max 3 --budget-spent 9 --budget-cap 10` })
+
+  const desk = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await desk.find({ type: 'Svg' })).toBeTruthy()
+  expect(await desk.find({ type: 'Text', text: /^Needs a look/ })).toBeTruthy()
+  expect(await desk.find({ type: 'Text', text: /^Live/ })).toBeTruthy()
+  await desk.press({ key: 'answer-now' })
+  expect(await desk.find({ type: 'Text', text: /Drop the legacy status column\?/ })).toBeTruthy()
+  await desk.unmount()
+
+  const term = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await term.find({ type: 'Svg' })).toBeFalsy()
+  await term.unmount()
+})

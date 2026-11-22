@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { Elements, EngineInterface, Register, RenderChildren } from 'claude-code'
 
 import type { Answer, Question, RunView, Tone, Verdict } from '../types'
 import {
@@ -19,6 +19,8 @@ import {
   toAnswer,
   toQuestion,
 } from './run'
+import { C, PILL, SECTION_COLOR, SECTION_TITLE, barSvg, burnSvg } from './chrome'
+import type { Pill } from './chrome'
 
 const PANE = 'recipe-run'
 const INBOX = '_inbox' // where a question with no run key goes
@@ -178,6 +180,15 @@ async function answer($: EngineInterface, q: Question, text: string) {
 
 const TONE_COLOR: Record<Tone, string | undefined> = { good: 'green', bad: 'red', warn: 'yellow', none: undefined }
 const TONE_MARK: Record<Tone, string> = { good: '●', bad: '●', warn: '●', none: '○' }
+const TONE_GUI: Record<Tone, string | undefined> = { good: C.green, bad: '#E58A8A', warn: C.amber, none: undefined }
+
+function clockTime(at: number) {
+  try {
+    return new Date(at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  } catch {
+    return ''
+  }
+}
 
 function verdictLine(v: Verdict) {
   const tries = v.attempt !== null ? ` ${v.attempt}/${v.max ?? 3}` : ''
@@ -344,111 +355,371 @@ export const register: Register = on => {
     )
   })
 
+  // ---- the pane: header, stat tiles, then sections. Blocking questions sit in "Needs a look"
+  // (amber), the run in "Live" (blue) while it moves, or dim "Last run" once it has gone quiet.
+
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Button, Input, Text } = $.ui.resolve(e)
+    const els = $.ui.resolve(e)
+    const { Box, Button, Input, Text } = els
+    // Desktop, VS Code and mobile draw SVG and the palette; the terminal keeps its own colours.
+    const isGui = e.surface !== 'terminal'
+    const Svg = isGui ? ((els as Partial<Elements['desktop']>).Svg ?? undefined) : undefined
+    const gui = <T,>(v: T) => (isGui ? v : undefined)
+    const tight = isGui ? ('xs' as const) : 0
     const run = await read($, runAtom)
     const open = await read($, openAtom)
     const tab = await read($, tabAtom)
     const pinned = await read($, pinnedAtom)
     const selected = await read($, selectedAtom)
+    const now = await $.clock.now()
     const blocking = open.filter(q => q.kind === 'blocking').length
+    const cols = Math.max(30, e.props.bodyColumns ?? 44)
+    const wide = Math.max(8, Math.min(24, cols - 14))
+    const toneColor = (t: Tone) => (isGui ? TONE_GUI[t] : TONE_COLOR[t])
 
-    const header = (
-      <Box key="tabs">
-        <Button key="tab-run" label="Run" variant={tab === 'run' ? 'primary' : undefined} onPress={() => void update($, tabAtom, () => 'run')} />
-        <Text> </Text>
-        <Button
-          key="tab-questions"
-          label={`Questions (${open.length}${blocking > 0 ? `, ${blocking} blocking` : ''})`}
-          variant={tab === 'questions' ? 'primary' : undefined}
-          onPress={() => void update($, tabAtom, () => 'questions')}
-        />
-        <Text> </Text>
-        <Button key="refresh" label="Refresh" plain onPress={() => void refresh($)} />
+    // ---- small parts
+
+    const pill = (p: Pill) => (
+      <Text bold size="caption" color={PILL[p.tone].fg} backgroundColor={gui(PILL[p.tone].bg)}>
+        {` ${p.text.toUpperCase()} `}
+      </Text>
+    )
+
+    const hairline = (k: string) => (Svg ? <Svg key={k} source={barSvg(C.divider, 1)} alt="" height={1} /> : null)
+
+    const heading = (k: string, title: string, color: string | undefined, count: number | null) => (
+      <Text key={k} bold color={color} dimColor={color === undefined}>
+        {title}
+        {count !== null && <Text dimColor> {count}</Text>}
+      </Text>
+    )
+
+    // A card: round border, a coloured bar along the top on GUI, then its rows.
+    const card = (k: string, color: string, children: RenderChildren) => (
+      <Box
+        key={k}
+        flexDirection="column"
+        borderStyle="round"
+        borderColor={isGui ? C.line : color}
+        backgroundColor={gui(C.card)}
+        paddingX={1}
+        gap={tight}
+      >
+        {Svg && (
+          <Box position="absolute" top={0} left={1} right={1}>
+            <Svg source={barSvg(color, 4, 2)} alt="" height={4} />
+          </Box>
+        )}
+        {children}
       </Box>
     )
 
-    if (tab === 'questions') {
-      return (
-        <Box flexDirection="column">
-          {header}
-          {open.length === 0 && <Text dimColor>No open questions. Loops leave them with the ask_human tool or in runs/KEY/questions.jsonl.</Text>}
-          {open.map(q => (
-            <Box key={`q-${q.key}-${q.id}`} flexDirection="column" marginTop={1}>
-              <Text color={q.kind === 'blocking' ? 'red' : 'yellow'} bold>
-                {q.kind === 'blocking' ? 'Blocking' : 'Non-blocking'} · {q.key} · from {q.from}
-              </Text>
-              <Text>{q.question}</Text>
-              {q.context && <Text dimColor>{q.context}</Text>}
-              {q.default && <Text dimColor>If nobody answers: {q.default}</Text>}
-              {q.options.length > 0 && (
-                <Box>
-                  {q.options.map((o, i) => (
-                    <Button key={`a-${q.key}-${q.id}-${i}`} label={o} onPress={() => void answer($, q, o)} />
-                  ))}
-                </Box>
-              )}
-              <Input key={`in-${q.key}-${q.id}`} placeholder="Type an answer and press Enter" onSubmit={value => void answer($, q, value)} />
-            </Box>
-          ))}
+    const header = (
+      <Box key="head" flexDirection="row" justifyContent="space-between" alignItems="center">
+        <Text>
+          <Text bold size="heading">
+            Recipe run
+          </Text>
+          <Text dimColor> {pinned ? `pinned to ${pinned}` : 'following the newest run'}</Text>
+        </Text>
+        <Box flexDirection="row" gap={1} alignItems="center">
+          {run && run.updatedAt > 0 && (
+            <Text dimColor size="footnote">
+              ↻ {clockTime(run.updatedAt)}
+            </Text>
+          )}
+          <Button key="refresh" variant="secondary" hotkey="r" label="Refresh" onPress={() => void refresh($)} />
+          <Button key="close" role="dismiss" plain dimColor label="✕" onPress={() => $.ui.close({ id: PANE })} />
         </Box>
+      </Box>
+    )
+
+    const tabs = (
+      <Box key="tabs" flexDirection="row" gap={1}>
+        <Button key="tab-run" label="Run" variant={tab === 'run' ? 'primary' : 'secondary'} onPress={() => void update($, tabAtom, () => 'run')} />
+        <Button
+          key="tab-questions"
+          variant={tab === 'questions' ? 'primary' : 'secondary'}
+          onPress={() => void update($, tabAtom, () => 'questions')}
+        >
+          <Text color={blocking > 0 && tab !== 'questions' ? C.amber : undefined}>
+            {`Questions (${open.length}${blocking > 0 ? `, ${blocking} blocking` : ''})`}
+          </Text>
+        </Button>
+      </Box>
+    )
+
+    const frame = (...body: RenderChildren[]) => (
+      <Box flexDirection="column" gap={1} backgroundColor={gui(C.pane)} paddingX={isGui ? 2 : 0} paddingY={isGui ? 1 : 0}>
+        {header}
+        {tabs}
+        {body}
+      </Box>
+    )
+
+    // ---- the Questions tab
+
+    const questionCard = (q: Question) => {
+      const isBlocking = q.kind === 'blocking'
+      return card(
+        `q-${q.key}-${q.id}`,
+        isBlocking ? SECTION_COLOR.look : C.line,
+        <Box flexDirection="column" gap={tight}>
+          <Box flexDirection="row" alignItems="center" gap={1}>
+            {pill({ text: isBlocking ? 'Blocking' : 'Can wait', tone: isBlocking ? 'warn' : 'live' })}
+            <Text color={gui(C.dim)} dimColor={!isGui} wrap="truncate-end">
+              {q.key} · from {q.from}
+            </Text>
+          </Box>
+          <Text bold color={gui(C.name)}>
+            {q.question}
+          </Text>
+          {q.context && (
+            <Text color={gui(C.dim)} dimColor={!isGui}>
+              {q.context}
+            </Text>
+          )}
+          {q.default && (
+            <Box backgroundColor={gui(C.inset)} paddingX={1}>
+              <Text dimColor>If nobody answers: {q.default}</Text>
+            </Box>
+          )}
+          {q.options.length > 0 && (
+            <Box flexDirection="row" flexWrap="wrap" gap={1}>
+              {q.options.map((o, i) => (
+                <Button key={`a-${q.key}-${q.id}-${i}`} variant="secondary" label={o} onPress={() => void answer($, q, o)} />
+              ))}
+            </Box>
+          )}
+          <Input key={`in-${q.key}-${q.id}`} placeholder="Type an answer and press Enter" onSubmit={value => void answer($, q, value)} />
+        </Box>,
+      )
+    }
+
+    if (tab === 'questions') {
+      const must = open.filter(q => q.kind === 'blocking')
+      const can = open.filter(q => q.kind !== 'blocking')
+      return frame(
+        open.length === 0 && (
+          <Text key="no-q" dimColor>
+            No open questions. Loops leave them with the ask_human tool or in runs/KEY/questions.jsonl.
+          </Text>
+        ),
+        must.length > 0 && (
+          <Box key="sec-look" flexDirection="column" gap={isGui ? 'sm' : 0}>
+            {heading('h-look', SECTION_TITLE.look, SECTION_COLOR.look, must.length)}
+            {must.map(questionCard)}
+          </Box>
+        ),
+        can.length > 0 && (
+          <Box key="sec-can" flexDirection="column" gap={isGui ? 'sm' : 0}>
+            {heading('h-can', 'Can wait', undefined, can.length)}
+            {can.map(questionCard)}
+          </Box>
+        ),
       )
     }
 
     if (!run) {
+      return frame(
+        <Text key="no-run" dimColor>
+          No run under runs/ yet. Start a recipe, or /recipe KEY to follow one.
+        </Text>,
+      )
+    }
+
+    // ---- the Run tab
+
+    const cur = run.stages.find(s => s.isCurrent) ?? null
+    const sel = run.stages.find(s => s.id === selected) ?? cur
+    const last = run.verdicts.at(-1) ?? null
+    const max = last?.max ?? 3
+    const budget = [...run.verdicts].reverse().find(v => v.budgetSpent !== null) ?? null
+    const spend = spendText(run.verdicts)
+    const pct = budget?.budgetSpent != null && budget.budgetCap ? Math.round((budget.budgetSpent / budget.budgetCap) * 100) : null
+    const isHot = pct !== null && pct >= 80
+    const isLive = now - run.updatedAt < RECENT_MS
+
+    const tile = (k: string, label: string, value: RenderChildren, below?: RenderChildren) => (
+      <Box key={k} flexDirection="column" width="33%" flexGrow={1} flexShrink={1} borderStyle="round" borderColor={C.line} backgroundColor={gui(C.card)} paddingX={1}>
+        <Text dimColor size="caption">
+          {label}
+        </Text>
+        {value}
+        {below}
+      </Box>
+    )
+
+    const meter = (k: string, n: number, frac: number, color: string) => {
+      const lit = Math.max(0, Math.min(n, Math.round((Number.isFinite(frac) ? frac : 0) * n)))
       return (
-        <Box flexDirection="column">
-          {header}
-          <Text dimColor>No run under runs/ yet. Start a recipe, or /recipe KEY to follow one.</Text>
+        <Box key={k} flexDirection="row">
+          <Text color={color}>{'█'.repeat(lit)}</Text>
+          <Text dimColor>{'░'.repeat(n - lit)}</Text>
         </Box>
       )
     }
 
-    const sel = run.stages.find(s => s.id === selected) ?? run.stages.find(s => s.isCurrent) ?? null
-    const spend = spendText(run.verdicts)
-    return (
-      <Box flexDirection="column">
-        {header}
-        <Text bold>
-          {run.key}
-          {run.recipe ? ` · ${run.recipe}` : ''}
-          {run.tier ? ` · ${run.tier}` : ''}
-          {pinned ? ' · pinned' : ''}
-        </Text>
-        {run.stages.map(s => (
-          <Box key={`st-${s.id}`}>
-            <Text color={TONE_COLOR[s.tone]}>{s.isCurrent ? '▸' : TONE_MARK[s.tone]} </Text>
-            <Button
-              key={`stage-${s.id}`}
-              plain
-              label={`${s.label}${s.outcome ? `: ${s.outcome}` : ''}${s.attempts > 1 ? ` (try ${s.attempts})` : ''}`}
-              onPress={() => void update($, selectedAtom, () => s.id)}
-            />
-          </Box>
-        ))}
-        {sel?.detail && (
-          <Box flexDirection="column" marginTop={1}>
-            <Text bold>{sel.label}</Text>
-            <Text dimColor>{sel.detail}</Text>
-          </Box>
+    const strip = (
+      <Box key="strip" flexDirection="row" gap={1}>
+        {tile(
+          'tile-stage',
+          'Stage',
+          <Text bold size="title" color={cur ? toneColor(cur.tone) ?? gui(C.name) : undefined} dimColor={!cur} wrap="truncate-end">
+            {cur ? cur.label : 'done'}
+          </Text>,
         )}
-        {run.verdicts.length > 0 && (
-          <Box flexDirection="column" marginTop={1}>
-            <Text bold>Router</Text>
-            {run.verdicts.slice(-6).map((v, i) => (
-              <Text key={`v-${i}-${v.at}`} color={v.action === 'advance' ? undefined : v.action.startsWith('re-') ? 'yellow' : 'red'}>
-                {verdictLine(v)}
-              </Text>
-            ))}
-          </Box>
+        {tile(
+          'tile-attempt',
+          'Attempt',
+          <Text bold size="title" tabular color={cur && cur.attempts > 1 ? C.amber : undefined} dimColor={!cur || cur.attempts === 0}>
+            {cur && cur.attempts > 0 ? `${cur.attempts}/${max}` : '–'}
+          </Text>,
         )}
-        {spend && <Text dimColor>Spend: {spend}</Text>}
-        {open.length > 0 && (
-          <Text color={blocking > 0 ? 'red' : 'yellow'}>
-            {open.length} open question{open.length === 1 ? '' : 's'}. Open the Questions tab to answer.
-          </Text>
+        {tile(
+          'tile-spend',
+          'Spend vs cap',
+          <Text tabular>
+            <Text bold size="title" color={budget ? C.orange : undefined} dimColor={!budget}>
+              {budget?.budgetSpent != null ? `$${budget.budgetSpent.toFixed(2)}` : 'n/a'}
+            </Text>
+            {budget?.budgetCap != null && <Text dimColor size="footnote"> / ${budget.budgetCap.toFixed(2)}</Text>}
+          </Text>,
+          pct !== null &&
+            (Svg ? (
+              <Svg key="spend-bar" source={burnSvg(pct, isHot, 16)} alt={`${pct}% of the budget cap spent`} />
+            ) : (
+              meter('spend-bar', Math.max(6, Math.floor(wide / 2)), pct / 100, isHot ? C.orange : C.tan)
+            )),
         )}
       </Box>
+    )
+
+    // Blocking questions first: one card with the main action that opens the Questions tab.
+    const firstAsk = open.find(q => q.kind === 'blocking') ?? open[0]
+    const asks =
+      open.length > 0 && firstAsk ? (
+        <Box key="sec-asks" flexDirection="column" gap={isGui ? 'sm' : 0}>
+          {blocking > 0 ? heading('h-asks', SECTION_TITLE.look, SECTION_COLOR.look, blocking) : heading('h-asks', 'Can wait', undefined, open.length)}
+          {card(
+            'card-asks',
+            blocking > 0 ? SECTION_COLOR.look : C.line,
+            <Box flexDirection="column" gap={tight}>
+              <Box flexDirection="row" justifyContent="space-between" alignItems="center" gap={1}>
+                <Box flexDirection="row" alignItems="center" gap={1} flexShrink={1}>
+                  {pill({ text: blocking > 0 ? 'Waiting on you' : 'Can wait', tone: blocking > 0 ? 'warn' : 'live' })}
+                  <Text bold color={gui(C.name)} wrap="truncate-end">
+                    {open.length} open question{open.length === 1 ? '' : 's'}
+                  </Text>
+                </Box>
+                <Button key="answer-now" variant={blocking > 0 ? 'primary' : 'secondary'} label="Answer" onPress={() => void update($, tabAtom, () => 'questions')} />
+              </Box>
+              <Text color={gui(C.dim)} dimColor={!isGui} wrap="truncate-end">
+                {firstAsk.question} · {firstAsk.key}
+              </Text>
+            </Box>,
+          )}
+        </Box>
+      ) : null
+
+    const verdictTone = (action: string): Pill['tone'] => (action === 'advance' ? 'live' : action.startsWith('re-') ? 'attn' : 'warn')
+    const runColor = isLive ? SECTION_COLOR.live : C.missing
+    const status = [cur ? `${cur.label}${cur.attempts > 0 ? ` ${cur.attempts}/${max}` : ''}` : 'every stage written', last ? describeAction(last.action) : null]
+      .filter(Boolean)
+      .join(' · ')
+
+    const ladder = (
+      <Box key="ladder" flexDirection="column">
+        {run.stages.map(s => (
+          <Box key={`st-${s.id}`} flexDirection="row" justifyContent="space-between" alignItems="center" gap={1} backgroundColor={gui(sel?.id === s.id ? C.inset : undefined)}>
+            <Box flexDirection="row" alignItems="center">
+              <Text color={toneColor(s.tone)}>{s.isCurrent ? '▸' : TONE_MARK[s.tone]} </Text>
+              <Button
+                key={`stage-${s.id}`}
+                plain
+                dimColor={s.outcome === null && !s.isCurrent}
+                label={s.label}
+                onPress={() => void update($, selectedAtom, () => s.id)}
+              />
+            </Box>
+            <Text dimColor={s.tone !== 'bad' && s.tone !== 'warn'} color={s.tone === 'bad' || s.tone === 'warn' ? toneColor(s.tone) : undefined} wrap="truncate-end">
+              {s.outcome ?? ''}
+              {s.attempts > 1 ? ` · try ${s.attempts}` : ''}
+            </Text>
+          </Box>
+        ))}
+      </Box>
+    )
+
+    const detail = sel?.detail ? (
+      <Box key="detail" flexDirection="column" backgroundColor={gui(C.inset)} paddingX={1}>
+        <Text bold>{sel.label}</Text>
+        <Text dimColor>{sel.detail}</Text>
+      </Box>
+    ) : null
+
+    const router =
+      run.verdicts.length > 0 ? (
+        <Box key="router" flexDirection="column" gap={tight}>
+          <Text bold>Router's last calls</Text>
+          {run.verdicts.slice(-6).map((v, i) => (
+            <Box key={`v-${i}-${v.at}`} flexDirection="row" alignItems="center" gap={1} backgroundColor={gui(C.inset)} paddingX={isGui ? 1 : 0}>
+              {pill({ text: v.action, tone: verdictTone(v.action) })}
+              <Text color={v.action === 'advance' ? undefined : PILL[verdictTone(v.action)].fg} wrap="wrap">
+                {verdictLine(v)}
+              </Text>
+            </Box>
+          ))}
+        </Box>
+      ) : null
+
+    const spendRow = spend ? (
+      <Box key="spend" flexDirection="column">
+        <Text dimColor>Spend: {spend}</Text>
+        {pct !== null && !Svg && meter('spend-meter', wide, pct / 100, isHot ? C.orange : C.tan)}
+      </Box>
+    ) : null
+
+    const runCard = card(
+      'card-run',
+      runColor,
+      <Box flexDirection="column" gap={tight}>
+        <Box flexDirection="row" justifyContent="space-between" alignItems="center" gap={1}>
+          <Box flexDirection="row" alignItems="center" gap={1} flexShrink={1}>
+            {last && pill({ text: last.action, tone: verdictTone(last.action) })}
+            <Text bold color={gui(C.name)} wrap="truncate-end">
+              {run.key}
+              {run.recipe ? ` · ${run.recipe}` : ''}
+              {run.tier ? ` · ${run.tier}` : ''}
+              {pinned ? ' · pinned' : ''}
+            </Text>
+          </Box>
+          {budget?.budgetSpent != null && (
+            <Text bold tabular color={isHot ? C.amber : undefined}>
+              ${budget.budgetSpent.toFixed(2)}
+            </Text>
+          )}
+        </Box>
+        <Text color={gui(C.dim)} dimColor={!isGui} wrap="truncate-end">
+          {status}
+        </Text>
+        <Box key="open-run" flexDirection="column" gap={tight} marginTop={isGui ? 0 : 1}>
+          {hairline('hr-run')}
+          {ladder}
+          {detail}
+          {router}
+          {spendRow}
+        </Box>
+      </Box>,
+    )
+
+    return frame(
+      strip,
+      asks,
+      <Box key="sec-run" flexDirection="column" gap={isGui ? 'sm' : 0}>
+        {isLive ? heading('h-run', SECTION_TITLE.live, SECTION_COLOR.live, null) : heading('h-run', 'Last run', undefined, null)}
+        {runCard}
+      </Box>,
     )
   })
 }

@@ -1,12 +1,16 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { Elements, EngineInterface, Register, RenderChildren } from 'claude-code'
 
 import type { Lock, Peer } from '../types'
+import { C, PILL, SECTION_COLOR, SECTION_TITLE, barSvg } from './chrome'
+import type { Pill, Section } from './chrome'
 
 const PANE = 'traffic'
 const meAtom = atom({ plugin: 'traffic-control', key: 'me' } as const, '')
 const peersAtom = atom({ plugin: 'traffic-control', key: 'peers' } as const, [])
 const locksAtom = atom({ plugin: 'traffic-control', key: 'locks' } as const, [])
+// which cards the pane has open; null until the person toggles one (held locks start open)
+const openAtom = atom({ plugin: 'traffic-control', key: 'open' } as const, null)
 
 const BEAT_MS = 20_000
 const LIVE_MS = 90_000
@@ -91,6 +95,14 @@ function lockKey(root: string, kind: string) {
   return `${root.replace(/[^\w.-]/g, '_')}__${kind}.json`
 }
 
+function clockTime(at: number) {
+  try {
+    return new Date(at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  } catch {
+    return ''
+  }
+}
+
 function ago(ms: number) {
   const s = Math.round(ms / 1000)
   return s < 90 ? `${s}s` : `${Math.round(s / 60)}m`
@@ -154,38 +166,238 @@ export const register: Register = on => {
     }
   }).catch(($, e, next) => next(e))
 
+  // ---- the pane: header, stat tiles, then held locks (Needs a look), busy sessions (Live) and
+  // idle sessions (Idle) as cards. Desktop, VS Code and mobile get the palette and SVG bars; the
+  // terminal keeps the same layout in plain text.
+
+  type Card = {
+    id: string
+    section: Section
+    pill: Pill | null
+    name: string
+    key: { text: string; isHot: boolean } | null
+    status: string
+    details: [string, string][]
+    command?: string
+  }
+
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text } = $.ui.resolve(e)
+    const els = $.ui.resolve(e)
+    const { Box, Button, Text } = els
+    const isGui = e.surface !== 'terminal'
+    const Svg = isGui ? ((els as Partial<Elements['desktop']>).Svg ?? undefined) : undefined
+    const gui = <T,>(v: T) => (isGui ? v : undefined)
+    const tight = isGui ? ('xs' as const) : 0
     const me = await read($, meAtom)
     const peers = await read($, peersAtom)
     const locks = await read($, locksAtom)
     const now = await $.clock.now()
-    const roots = [...new Set(peers.map(p => p.root))]
+    const mine = peers.find(p => p.id === me)
+    const here = mine?.root ?? ''
 
-    return (
-      <Box flexDirection="column">
-        {peers.length === 0 && <Text dimColor>No live sessions.</Text>}
-        {roots.map(root => (
-          <Box key={root} flexDirection="column" marginBottom={1}>
-            <Text bold>{base(root)}</Text>
-            {locks
-              .filter(l => l.root === root)
-              .map(l => (
-                <Text key={l.key} color="yellow">
-                  🔒 {l.kind} held by {l.label} · {ago(now - l.at)}
-                </Text>
-              ))}
-            {peers
-              .filter(p => p.root === root)
-              .map(p => (
-                <Text key={p.id} dimColor={p.id !== me}>
-                  {p.id === me ? '▸ ' : '  '}
-                  {p.label} · {p.branch}
-                  {p.worktree !== root ? ` · worktree ${base(p.worktree)}` : ''} · {p.lastTool || 'idle'} · {ago(now - p.lastSeen)}
-                </Text>
-              ))}
+    const lockCards: Card[] = locks.map(l => ({
+      id: l.key,
+      section: 'look',
+      pill: { text: l.kind, tone: 'warn' },
+      name: base(l.root),
+      key: { text: ago(now - l.at), isHot: true },
+      status: `🔒 ${l.kind} held by ${l.label}${l.holder === me ? ' (you)' : ''}`,
+      details: [
+        ['Repo', l.root],
+        ['Holder', l.label],
+        ['Started', `${ago(now - l.at)} ago`],
+        ['Expires', `in ${ago(Math.max(0, LOCK_MS - (now - l.at)))} unless it finishes first`],
+      ],
+      command: l.command,
+    }))
+    const peerCard = (p: Peer): Card => ({
+      id: p.id,
+      section: p.lastTool !== '' ? 'live' : 'idle',
+      pill:
+        p.id === me
+          ? { text: 'you', tone: 'live' }
+          : here !== '' && p.worktree === mine?.worktree
+            ? { text: 'same checkout', tone: 'attn' }
+            : null,
+      name: p.label,
+      key: { text: ago(now - p.lastSeen), isHot: false },
+      status: `${base(p.root)} · ${p.branch}${p.worktree !== p.root ? ` · worktree ${base(p.worktree)}` : ''} · ${p.lastTool || 'idle'}`,
+      details: [
+        ['Repo', p.root],
+        ['Worktree', p.worktree],
+        ['Branch', p.branch],
+        ['Folder', p.cwd],
+        ['Last tool', p.lastTool || 'none yet'],
+        ['Seen', `${ago(now - p.lastSeen)} ago`],
+      ],
+    })
+    const all = [...lockCards, ...peers.map(peerCard)]
+    const open = new Set((await read($, openAtom)) ?? lockCards.map(c => c.id))
+    const setOpen = (id: string) =>
+      update($, openAtom, cur => {
+        const set = new Set(cur ?? lockCards.map(c => c.id))
+        if (set.has(id)) set.delete(id)
+        else set.add(id)
+        return [...set]
+      })
+
+    const others = peers.filter(p => p.id !== me)
+    const busy = others.filter(p => p.lastTool !== '').length
+    const sameRepo = others.filter(p => p.root === here).length
+
+    const header = (
+      <Box key="head" flexDirection="row" justifyContent="space-between" alignItems="center">
+        <Text>
+          <Text bold size="heading">
+            Sessions
+          </Text>
+          <Text dimColor> traffic-control</Text>
+        </Text>
+        <Box flexDirection="row" gap={1} alignItems="center">
+          <Text dimColor size="footnote">
+            ↻ {clockTime(mine?.lastSeen ?? now)}
+          </Text>
+          <Button key="refresh" variant="secondary" hotkey="r" label="Refresh" onPress={() => beat($)} />
+          <Button key="close" role="dismiss" plain dimColor label="✕" onPress={() => $.ui.close({ id: PANE })} />
+        </Box>
+      </Box>
+    )
+
+    const tile = (k: string, label: string, value: RenderChildren) => (
+      <Box key={k} flexDirection="column" width="33%" flexGrow={1} flexShrink={1} borderStyle="round" borderColor={C.line} backgroundColor={gui(C.card)} paddingX={1}>
+        <Text dimColor size="caption">
+          {label}
+        </Text>
+        {value}
+      </Box>
+    )
+
+    const strip = (
+      <Box key="strip" flexDirection="row" gap={1}>
+        {tile(
+          'tile-others',
+          'Other sessions',
+          <Text bold size="title" tabular>
+            <Text color={others.length > 0 ? C.green : undefined} dimColor={others.length === 0}>
+              {String(others.length)}
+            </Text>
+            {sameRepo > 0 && (
+              <Text dimColor size="footnote">
+                {' '}
+                {sameRepo} here
+              </Text>
+            )}
+          </Text>,
+        )}
+        {tile(
+          'tile-busy',
+          'Busy',
+          <Text bold size="title" tabular color={busy > 0 ? C.blue : undefined} dimColor={busy === 0}>
+            {String(busy)}
+          </Text>,
+        )}
+        {tile(
+          'tile-lock',
+          'Push lock',
+          <Text bold size="title" color={locks.length > 0 ? C.amber : C.green}>
+            {locks.length > 0 ? `Held${locks.length > 1 ? ` ·${locks.length}` : ''}` : 'Free'}
+          </Text>,
+        )}
+      </Box>
+    )
+
+    const pill = (p: Pill) => (
+      <Text bold size="caption" color={PILL[p.tone].fg} backgroundColor={gui(PILL[p.tone].bg)}>
+        {` ${p.text.toUpperCase()} `}
+      </Text>
+    )
+
+    const hairline = (k: string) => (Svg ? <Svg key={k} source={barSvg(C.divider, 1)} alt="" height={1} /> : null)
+
+    const body = (c: Card) => (
+      <Box key={`body-${c.id}`} flexDirection="column" gap={tight}>
+        {c.command !== undefined && (
+          <Box key={`cmd-${c.id}`} backgroundColor={gui(C.inset)} paddingX={1}>
+            <Text mono size="footnote" wrap="truncate-end">
+              $ {c.command}
+            </Text>
+          </Box>
+        )}
+        {c.details.map(([k, val]) => (
+          <Box key={`d-${c.id}-${k}`} flexDirection="row" justifyContent="space-between" gap={2}>
+            <Text dimColor>{k}</Text>
+            <Text wrap="truncate-middle">{val}</Text>
           </Box>
         ))}
+      </Box>
+    )
+
+    const card = (c: Card) => {
+      const isOpen = open.has(c.id)
+      const color = SECTION_COLOR[c.section]
+      return (
+        <Box
+          key={`card-${c.id}`}
+          flexDirection="column"
+          borderStyle="round"
+          borderColor={isGui ? C.line : c.section === 'idle' ? 'subtle' : color}
+          backgroundColor={gui(C.card)}
+          paddingX={1}
+          gap={tight}
+        >
+          {Svg && (
+            <Box position="absolute" top={0} left={1} right={1}>
+              <Svg source={barSvg(color, 4, 2)} alt="" height={4} />
+            </Box>
+          )}
+          <Box flexDirection="row" justifyContent="space-between" alignItems="center" gap={1}>
+            <Box flexDirection="row" alignItems="center" gap={1} flexShrink={1}>
+              {c.pill && pill(c.pill)}
+              <Button key={`expand-${c.id}`} plain onPress={() => setOpen(c.id)}>
+                <Text bold color={gui(C.name)}>
+                  {c.name}
+                </Text>
+                <Text dimColor>{isOpen ? ' ⌄' : ' ›'}</Text>
+              </Button>
+            </Box>
+            {c.key && (
+              <Text bold tabular color={c.key.isHot ? C.amber : undefined} dimColor={!c.key.isHot}>
+                {c.key.text}
+              </Text>
+            )}
+          </Box>
+          <Text color={gui(C.dim)} dimColor={!isGui} wrap="truncate-end" tabular>
+            {c.status}
+          </Text>
+          {isOpen && (
+            <Box key={`open-${c.id}`} flexDirection="column" gap={tight} marginTop={isGui ? 0 : 1}>
+              {hairline(`hr-${c.id}`)}
+              {body(c)}
+            </Box>
+          )}
+        </Box>
+      )
+    }
+
+    const sections = (['look', 'live', 'idle'] as const).map(sec => {
+      const items = all.filter(c => c.section === sec)
+      if (items.length === 0) return null
+      return (
+        <Box key={`sec-${sec}`} flexDirection="column" gap={isGui ? 'sm' : 0}>
+          <Text bold color={SECTION_COLOR[sec]}>
+            {SECTION_TITLE[sec]} <Text dimColor>{items.length}</Text>
+          </Text>
+          {items.map(card)}
+        </Box>
+      )
+    })
+
+    return (
+      <Box flexDirection="column" gap={1} backgroundColor={gui(C.pane)} paddingX={isGui ? 2 : 0} paddingY={isGui ? 1 : 0}>
+        {header}
+        {strip}
+        {peers.length === 0 && <Text dimColor>No live sessions.</Text>}
+        {sections}
       </Box>
     )
   })

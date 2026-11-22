@@ -1,1 +1,1 @@
-{ "name": "recipe-run", "version": "0.1.0", "description": "Live recipe run pane: stage ladder, retries, router verdicts and spend, plus an inbox of blocking and non-blocking questions loops leave for a human", "types": "./types/index.d.ts" }
+{ "name": "recipe-run", "version": "0.2.0", "description": "Live recipe run pane: stage ladder, retries, router verdicts and spend, plus an inbox of blocking and non-blocking questions loops leave for a human", "types": "./types/index.d.ts" }

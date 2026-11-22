@@ -1,7 +1,9 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { Elements, EngineInterface, Register } from 'claude-code'
 
 import type { BrainHealth, Lesson } from '../types'
+import { C, PILL, SECTION_COLOR, SECTION_TITLE, barSvg } from './chrome'
+import type { Pill, Section } from './chrome'
 import { MAX_RECALL, MIN_SCORE, parseRemember, recallContext, shorten, shouldRecall } from './format'
 
 const PANE = 'brain'
@@ -10,6 +12,7 @@ const recall = atom({ plugin: 'brain', key: 'recall' } as const, null)
 const review = atom({ plugin: 'brain', key: 'review' } as const, [])
 const active = atom({ plugin: 'brain', key: 'active' } as const, [])
 const tab = atom({ plugin: 'brain', key: 'tab' } as const, 'recalled')
+const forgetArmed = atom({ plugin: 'brain', key: 'forgetArmed' } as const, null)
 
 const REFRESH_MS = 5 * 60_000
 const kit = { kb: '' as string, isWarned: false }
@@ -223,84 +226,243 @@ export const register: Register = on => {
     return next(e)
   })
 
+
+  // ---- the pane
+
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Button, Text } = $.ui.resolve(e)
+    const els = $.ui.resolve(e)
+    const { Box, Button, Text } = els
+    // Desktop, VS Code and mobile draw SVG and the palette; the terminal keeps its own colours.
+    const isGui = e.surface !== 'terminal'
+    const Svg = isGui ? ((els as Partial<Elements['desktop']>).Svg ?? undefined) : undefined
+    const gui = <T,>(v: T) => (isGui ? v : undefined)
+    const tight = isGui ? ('xs' as const) : 0
     // not `h`: that name is the JSX factory, and shadowing it blanks the pane
     const hl = await read($, health)
     const r = await read($, recall)
     const proposed = await read($, review)
     const current = await read($, active)
     const which = await read($, tab)
+    const armed = await read($, forgetArmed)
+    const recalledCount = r?.lessons.length ?? 0
 
     const header = (
-      <Box key="tabs" marginBottom={1}>
-        <Button key="t1" hotkey="1" label={`Recalled ${r?.lessons.length ?? 0}`} variant={which === 'recalled' ? 'primary' : undefined} onPress={() => update($, tab, () => 'recalled')} />
-        <Button key="t2" hotkey="2" label={`Review ${proposed.length}`} variant={which === 'review' ? 'primary' : undefined} onPress={() => update($, tab, () => 'review')} />
-        <Button key="t3" hotkey="3" label={`Lessons ${current.length}`} variant={which === 'lessons' ? 'primary' : undefined} onPress={() => update($, tab, () => 'lessons')} />
-        <Button key="refresh" hotkey="r" label="Refresh" onPress={() => void refresh($)} />
+      <Box key="head" flexDirection="row" justifyContent="space-between" alignItems="center">
+        <Text>
+          <Text bold size="heading">
+            Brain
+          </Text>
+          <Text dimColor> {hl?.isOnline ? `${hl.target} · ${hl.scope} · project ${hl.project}` : 'lessons'}</Text>
+        </Text>
+        <Box flexDirection="row" gap={1} alignItems="center">
+          {hl && (
+            <Text dimColor size="footnote">
+              ↻ {clockTime(hl.checkedAt)}
+            </Text>
+          )}
+          <Button key="refresh" variant="secondary" hotkey="r" label="Refresh" onPress={() => void refresh($)} />
+          <Button key="close" role="dismiss" plain dimColor label="✕" onPress={() => $.ui.close({ id: PANE })} />
+        </Box>
       </Box>
     )
-    const line = hl === null
-      ? <Text dimColor>Checking the brain…</Text>
-      : hl.isOnline
-        ? <Text dimColor>{hl.target} · {hl.scope} · project {hl.project}</Text>
-        : <Text color="red">Offline: {hl.reason}. Prompts go through without lessons.</Text>
+
+    const tile = (k: string, label: string, value: string, color: string | undefined, action?: ReturnType<typeof Button>) => (
+      <Box key={k} flexDirection="column" width="33%" flexGrow={1} flexShrink={1} borderStyle="round" borderColor={C.line} backgroundColor={gui(C.card)} paddingX={1}>
+        <Text dimColor size="caption">
+          {label}
+        </Text>
+        <Box flexDirection="row" justifyContent="space-between" alignItems="center">
+          <Text bold size="title" tabular color={color} dimColor={color === undefined}>
+            {value}
+          </Text>
+          {action}
+        </Box>
+      </Box>
+    )
+
+    const strip = (
+      <Box key="strip" flexDirection="row" gap={1}>
+        {tile('tile-lessons', 'Lessons', String(hl?.lessons ?? current.length), C.green)}
+        {tile(
+          'tile-review',
+          'To review',
+          String(proposed.length),
+          proposed.length > 0 ? C.amber : undefined,
+          proposed.length > 0 && which !== 'review' ? <Button key="review-now" variant="secondary" label="Review" onPress={() => update($, tab, () => 'review')} /> : undefined,
+        )}
+        {tile('tile-recalled', 'Recalled', String(recalledCount), recalledCount > 0 ? C.blue : undefined)}
+      </Box>
+    )
+
+    // the one active tab is filled; the others are chips
+    const tabs = (
+      <Box key="tabs" flexDirection="row" gap={1}>
+        <Button key="t1" hotkey="1" label={`Recalled ${recalledCount}`} variant={which === 'recalled' ? 'primary' : 'secondary'} onPress={() => update($, tab, () => 'recalled')} />
+        <Button key="t2" hotkey="2" label={`Review ${proposed.length}`} variant={which === 'review' ? 'primary' : 'secondary'} onPress={() => update($, tab, () => 'review')} />
+        <Button key="t3" hotkey="3" label={`Lessons ${current.length}`} variant={which === 'lessons' ? 'primary' : 'secondary'} onPress={() => update($, tab, () => 'lessons')} />
+      </Box>
+    )
+
+    // ---- small parts
+
+    const pill = (p: Pill) => (
+      <Text bold size="caption" color={PILL[p.tone].fg} backgroundColor={PILL[p.tone].bg}>
+        {` ${p.text.toUpperCase()} `}
+      </Text>
+    )
+
+    const hairline = (k: string) => (Svg ? <Svg key={k} source={barSvg(C.divider, 1)} alt="" height={1} /> : null)
+
+    const heading = (sec: Section, count: number | null, note?: string) => (
+      <Text key={`h-${sec}`} bold color={SECTION_COLOR[sec]}>
+        {SECTION_TITLE[sec]}
+        {count !== null && <Text dimColor> {count}</Text>}
+        {note && <Text dimColor> · {note}</Text>}
+      </Text>
+    )
+
+    const empty = (k: string, text: string) => (
+      <Box key={k} backgroundColor={gui(C.inset)} paddingX={1}>
+        <Text dimColor>{text}</Text>
+      </Box>
+    )
+
+    // A card: coloured top bar, row 1 (pill + id | key number + actions), the lesson, then a dim
+    // meta line under a hairline.
+    const card = (k: string, sec: Section, l: Lesson, keyNum: { text: string; color?: string } | null, actions: ReturnType<typeof Button>[], meta: string, max: number) => (
+      <Box key={k} flexDirection="column" borderStyle="round" borderColor={isGui ? C.line : SECTION_COLOR[sec]} backgroundColor={gui(C.card)} paddingX={1} gap={tight}>
+        {Svg && (
+          <Box position="absolute" top={0} left={1} right={1}>
+            <Svg source={barSvg(SECTION_COLOR[sec], 4, 2)} alt="" height={4} />
+          </Box>
+        )}
+        <Box flexDirection="row" justifyContent="space-between" alignItems="center" gap={1}>
+          <Box flexDirection="row" alignItems="center" gap={1} flexShrink={1}>
+            {pill({ text: l.project === 'global' ? 'global' : l.kind || 'lesson', tone: l.project === 'global' ? 'live' : sec === 'review' ? 'warn' : 'attn' })}
+            <Text bold color={gui(C.name)} tabular>
+              #{l.id}
+            </Text>
+          </Box>
+          <Box flexDirection="row" alignItems="center" gap={1}>
+            {keyNum && (
+              <Text bold tabular color={keyNum.color}>
+                {keyNum.text}
+              </Text>
+            )}
+            {actions}
+          </Box>
+        </Box>
+        <Text>{shorten(l.text, max)}</Text>
+        {hairline(`${k}-hr`)}
+        <Text color={gui(C.dim)} dimColor={!isGui} size="footnote" wrap="truncate-end">
+          {meta}
+        </Text>
+      </Box>
+    )
 
     let body
-    if (which === 'recalled') {
-      body = r === null
-        ? <Text dimColor>Nothing recalled yet. Lessons that match a prompt show here.</Text>
-        : (
-          <Box flexDirection="column">
-            <Text dimColor>For: {r.query}</Text>
-            {r.error && <Text color="red">{r.error}</Text>}
-            {r.lessons.length === 0 && <Text dimColor>No lesson matched.</Text>}
-            {r.lessons.map(l => (
-              <Text key={`r${l.id}`}>
-                <Text color={(l.similarity ?? 0) >= MIN_SCORE ? 'green' : undefined}>{(l.similarity ?? 0).toFixed(2)} </Text>
-                <Text dimColor>[{l.project}] </Text>
-                {shorten(l.text, 160)}
-              </Text>
-            ))}
+    if (hl !== null && !hl.isOnline) {
+      body = (
+        <Box key="sec-offline" flexDirection="column" gap={isGui ? 'sm' : 0}>
+          {heading('offline', null)}
+          <Box backgroundColor={gui(C.inset)} paddingX={1}>
+            <Text color={C.red}>Offline: {hl.reason}. Prompts go through without lessons.</Text>
           </Box>
-        )
+        </Box>
+      )
+    } else if (which === 'recalled') {
+      body = (
+        <Box key="sec-recalled" flexDirection="column" gap={isGui ? 'sm' : 0}>
+          {heading('recalled', r ? r.lessons.length : null)}
+          {hl === null && <Text dimColor>Checking the brain…</Text>}
+          {r === null ? (
+            empty('none-recalled', 'Nothing recalled yet. Lessons that match a prompt show here.')
+          ) : (
+            <Box flexDirection="column" gap={isGui ? 'sm' : 0}>
+              <Text color={gui(C.dim)} dimColor={!isGui} wrap="truncate-end">
+                For: {r.query}
+              </Text>
+              {r.error && <Text color={isGui ? C.red : 'red'}>{r.error}</Text>}
+              {r.lessons.length === 0 && empty('none-matched', 'No lesson matched.')}
+              {r.lessons.map(l => {
+                const score = l.similarity ?? 0
+                return card(`r${l.id}`, 'recalled', l, { text: score.toFixed(2), color: score >= MIN_SCORE ? (isGui ? C.green : 'green') : undefined }, [], `${l.project} · ${l.kind}`, 160)
+              })}
+            </Box>
+          )}
+        </Box>
+      )
     } else if (which === 'review') {
       body = (
-        <Box flexDirection="column">
-          {proposed.length === 0 && <Text dimColor>Nothing waiting. Lessons Claude proposes land here.</Text>}
-          {proposed.map(l => (
-            <Box key={`p${l.id}`} flexDirection="column" marginBottom={1}>
-              <Text>{shorten(l.text, 240)}</Text>
-              <Box>
-                <Text dimColor>#{l.id} · {l.project} · {l.kind} · from {l.source} </Text>
-                <Button key={`ok${l.id}`} label="Approve" variant="primary" onPress={() => void setStatus($, l.id, 'bless')} />
-                <Button key={`no${l.id}`} label="Reject" onPress={() => void setStatus($, l.id, 'reject')} />
-              </Box>
-            </Box>
-          ))}
+        <Box key="sec-review" flexDirection="column" gap={isGui ? 'sm' : 0}>
+          {heading('review', proposed.length)}
+          {proposed.length === 0 && empty('none-review', 'Nothing waiting. Lessons Claude proposes land here.')}
+          {proposed.map(l =>
+            card(
+              `p${l.id}`,
+              'review',
+              l,
+              null,
+              [
+                <Button key={`ok${l.id}`} label="Approve" variant="primary" onPress={() => void setStatus($, l.id, 'bless')} />,
+                <Button key={`no${l.id}`} label="Reject" variant="secondary" onPress={() => void setStatus($, l.id, 'reject')} />,
+              ],
+              `${l.project} · ${l.kind} · from ${l.source}`,
+              240,
+            ),
+          )}
         </Box>
       )
     } else {
       body = (
-        <Box flexDirection="column">
-          {current.length === 0 && <Text dimColor>No active lessons for this project yet. /remember adds one.</Text>}
-          {current.map(l => (
-            <Box key={`a${l.id}`}>
-              <Text dimColor>[{l.project}] </Text>
-              <Text>{shorten(l.text, 150)} </Text>
-              <Button key={`fg${l.id}`} label="Forget" plain onPress={() => void setStatus($, l.id, 'forget')} />
-            </Box>
-          ))}
+        <Box key="sec-lessons" flexDirection="column" gap={isGui ? 'sm' : 0}>
+          {heading('lessons', current.length)}
+          {current.length === 0 && empty('none-lessons', 'No active lessons for this project yet. /remember adds one.')}
+          {current.map(l =>
+            card(
+              `a${l.id}`,
+              'lessons',
+              l,
+              l.occurrences > 1 ? { text: `×${l.occurrences}` } : null,
+              [
+                // two presses: Forget arms it, Confirm forget runs it
+                <Button
+                  key={`fg${l.id}`}
+                  plain
+                  dimColor={armed !== l.id}
+                  onPress={async () => {
+                    if (armed === l.id) {
+                      await update($, forgetArmed, () => null)
+                      await setStatus($, l.id, 'forget')
+                    } else await update($, forgetArmed, () => l.id)
+                  }}
+                >
+                  <Text color={armed === l.id ? C.amber : undefined}>{armed === l.id ? 'Confirm forget' : 'Forget'}</Text>
+                </Button>,
+              ],
+              `${l.project} · ${l.kind} · from ${l.source}`,
+              150,
+            ),
+          )}
         </Box>
       )
     }
 
     return (
-      <Box flexDirection="column">
+      <Box flexDirection="column" gap={1} backgroundColor={gui(C.pane)} paddingX={isGui ? 2 : 0} paddingY={isGui ? 1 : 0}>
         {header}
-        {line}
-        <Box marginTop={1} flexDirection="column">{body}</Box>
+        {strip}
+        {tabs}
+        {body}
       </Box>
     )
   })
+}
+
+function clockTime(at: number) {
+  try {
+    return new Date(at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  } catch {
+    return ''
+  }
 }
