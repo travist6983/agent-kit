@@ -86,7 +86,7 @@ function maskAllowed(line: string, allow: RegExp[]) {
 const normFigure = (s: string) => s.toLowerCase().replace(/[\s,]/g, '')
 
 const RULES: { rule: string; re: RegExp; severity: 'block' | 'warn'; figure?: boolean; keep?: (m: string) => boolean }[] = [
-  { rule: 'dash', re: /[–—]/g, severity: 'block' },
+  { rule: 'dash', re: /[\u2013\u2014]/g, severity: 'block' },
   { rule: 'email', re: /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, severity: 'block' },
   { rule: 'url', re: /\bhttps?:\/\/[^\s)\]>"'`]+/gi, severity: 'block' },
   { rule: 'domain', re: new RegExp(`(?<![\\w@/.-])(?:[a-z0-9-]+\\.)+(?:${TLDS})(?![\\w-])(?:/[^\\s)\\]>"'\`]*)?`, 'gi'), severity: 'block' },
