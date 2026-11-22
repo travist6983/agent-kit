@@ -54,7 +54,7 @@ function fakeKit(on: Engine, others: Record<string, unknown> = {}) {
   const appended: string[] = []
   // pid -> port it listens on, for the lsof check before and after a Stop
   const listening = new Map<number, number>()
-  for (const plugin of ['recipe-run', 'burn-meter', 'traffic-control', 'ship', 'dev-servers', 'pr', 'brain']) {
+  for (const plugin of ['recipe-run', 'burn-meter', 'throttle', 'traffic-control', 'ship', 'dev-servers', 'pr', 'brain']) {
     on('state.get', { plugin } as never, (_: unknown, e: { plugin: string; key: string }) => {
       const value = state[`${e.plugin}/${e.key}`]
       return { value: { value, version: value === undefined ? 0 : 1 } }
@@ -116,7 +116,7 @@ test('the strip, the cards and the run ladder read the other mods, on every surf
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
-    expect(await ui.find({ type: 'Text', text: /^2\/8$/ })).toBeTruthy()
+    expect(await ui.find({ type: 'Text', text: /^2\/9$/ })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /^\$3\.18$/ })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /Blocked on you · 1 question/ })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /\$3\.18 session · 5h 54% · wk 31%/ })).toBeTruthy()
@@ -170,7 +170,7 @@ test('/mods band off persists and hands the row back to recipe-run', async ($, o
   expect(off.text).toBe('Mods band off. recipe-run draws its own row again.')
   expect(kit.store.get('isBandOn')).toBe(false)
   const open = await $.command.run({ command: 'mods', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } })
-  expect(open.text).toBe('Mods panel open: 2 of 8 mods on, 1 blocking questions, $3.18 this session.')
+  expect(open.text).toBe('Mods panel open: 2 of 9 mods on, 1 blocking questions, $3.18 this session.')
 })
 
 test('glass is on by default, stays off once turned off, and comes back on with /mods glass on', async ($, on) => {
@@ -235,5 +235,24 @@ test('the dev-servers card names the app and folder, and Stop asks once before i
   expect(kit.runs).toContainEqual(['kill', '82373'])
   expect(kit.runs).not.toContainEqual(['kill', '-9', '82373'])
   expect(await ui.find({ type: 'Text', text: /No dev servers are listening/ })).toBeTruthy()
+  await ui.unmount()
+})
+
+test('the throttle card shows the setting and a press asks throttle for the change', async ($, on) => {
+  const setting = { preset: null, model: null, effort: null, subagentModel: null, at: 0 }
+  const seen = { model: 'claude-opus-5-5', effort: 'high', sessionModel: 'claude-opus-5-5', sessionEffort: 'high', isHeld: false, at: NOW - 60_000 }
+  fakeKit(on, { 'throttle/setting': setting, 'throttle/seen': seen })
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /Session defaults · opus · high/ })).toBeTruthy()
+  await ui.press({ key: 'expand-throttle' })
+  expect(await ui.find({ type: 'Text', text: /opus · high · 1m ago/ })).toBeTruthy()
+  await ui.press({ key: 'th-preset-deep' })
+  expect(await ui.find({ type: 'Text', text: /^Applying deep…$/ })).toBeTruthy()
+  await ui.press({ key: 'th-effort-max' })
+  expect(await ui.find({ type: 'Text', text: /^Applying effort max…$/ })).toBeTruthy()
+  await ui.press({ key: 'th-subagentModel-default' })
+  expect(await ui.find({ type: 'Text', text: /^Applying subagents default…$/ })).toBeTruthy()
   await ui.unmount()
 })

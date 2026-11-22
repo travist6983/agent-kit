@@ -1,0 +1,1 @@
+{ "name": "throttle", "version": "0.1.0", "description": "Change model, effort and subagent model mid-run, from /throttle or the Mods panel; takes effect at the next model request", "types": "./types/index.d.ts" }

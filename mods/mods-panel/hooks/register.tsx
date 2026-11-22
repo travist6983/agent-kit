@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { PanelAnswer, Usage } from '../types'
+import type { PanelAnswer, ThrottleAsk, Usage } from '../types'
 import {
   BURN_SCALE_USD,
   MARKETPLACE,
@@ -44,6 +44,7 @@ const pendingAtom = atom({ plugin: 'mods-panel', key: 'pending' } as const, [])
 const bandAtom = atom({ plugin: 'mods-panel', key: 'isBandOn' } as const, true)
 const stopArmedAtom = atom({ plugin: 'mods-panel', key: 'stopArmed' } as const, null)
 const stoppedAtom = atom({ plugin: 'mods-panel', key: 'stopped' } as const, [])
+const throttleAskAtom = atom({ plugin: 'mods-panel', key: 'throttleAsk' } as const, null)
 
 // ---- the other mods' values, read only ("any plugin reads any value; its owner alone writes it")
 
@@ -61,6 +62,8 @@ const PR = { plugin: 'pr', key: 'snapshot' } as const
 const BRAIN_HEALTH = { plugin: 'brain', key: 'health' } as const
 const BRAIN_RECALL = { plugin: 'brain', key: 'recall' } as const
 const BRAIN_REVIEW = { plugin: 'brain', key: 'review' } as const
+const THROTTLE_SETTING = { plugin: 'throttle', key: 'setting' } as const
+const THROTTLE_SEEN = { plugin: 'throttle', key: 'seen' } as const
 
 // A value another mod never wrote reads undefined at version 0: that mod is off, or not loaded yet.
 async function snapshot($: EngineInterface): Promise<Snapshot> {
@@ -68,7 +71,7 @@ async function snapshot($: EngineInterface): Promise<Snapshot> {
     const r = await p
     return r.version > 0 ? (r.value as T) : undefined
   }
-  const [run, open, burn, me, peers, locks, ship, servers, devRecipe, pr, health, recall, review] = await Promise.all([
+  const [run, open, burn, me, peers, locks, ship, servers, devRecipe, pr, health, recall, review, tSetting, tSeen] = await Promise.all([
     g<Snapshot['recipe']['run']>($.state.get(RR_RUN as never)),
     g<QuestionIn[]>($.state.get(RR_OPEN as never)),
     g<Snapshot['burn']>($.state.get(BURN as never)),
@@ -82,6 +85,8 @@ async function snapshot($: EngineInterface): Promise<Snapshot> {
     g<NonNullable<Snapshot['brain']>['health']>($.state.get(BRAIN_HEALTH as never)),
     g<NonNullable<Snapshot['brain']>['recall']>($.state.get(BRAIN_RECALL as never)),
     g<unknown[]>($.state.get(BRAIN_REVIEW as never)),
+    g<NonNullable<Snapshot['throttle']>['setting']>($.state.get(THROTTLE_SETTING as never)),
+    g<NonNullable<Snapshot['throttle']>['seen']>($.state.get(THROTTLE_SEEN as never)),
   ])
   return {
     now: await $.clock.now(),
@@ -97,6 +102,8 @@ async function snapshot($: EngineInterface): Promise<Snapshot> {
     dev: servers !== undefined || devRecipe !== undefined ? { servers: servers ?? [], recipe: devRecipe ?? [] } : null,
     pr: pr ?? null,
     brain: health !== undefined || recall !== undefined ? { health: health ?? null, recall: recall ?? null, review: review ?? [] } : null,
+    throttle: tSetting !== undefined || tSeen !== undefined ? { setting: tSetting ?? null, seen: tSeen ?? null } : null,
+    throttleAsk: await read($, throttleAskAtom),
   }
 }
 
@@ -727,6 +734,50 @@ export const register: Register = on => {
       )
     }
 
+    // Throttle's controls. A press writes this panel's own ask; throttle applies it at once and
+    // before the next model request, mid-run included.
+    const throttleBody = (c: Card) => {
+      const set = s.throttle?.setting ?? null
+      const ask = (change: Omit<ThrottleAsk, 'at'>) => async () => {
+        const at = await $.clock.now()
+        await update($, throttleAskAtom, () => ({ ...change, at }))
+      }
+      // the chosen value is filled; the rest stay plain
+      const pick = (isOn: boolean) => (isOn ? { variant: 'primary' as const } : { plain: true as const })
+      const row = (label: string, field: 'model' | 'effort' | 'subagentModel', values: string[]) => (
+        <Box key={`th-${field}`} flexDirection="row" gap={1} alignItems="center">
+          <Box width={10}>
+            <Text dimColor>{label}</Text>
+          </Box>
+          <Button key={`th-${field}-default`} label="default" {...pick((set?.[field] ?? null) === null)} onPress={ask({ [field]: null })} />
+          {values.map(v => (
+            <Button key={`th-${field}-${v}`} label={v} {...pick(set?.[field] === v)} onPress={ask({ [field]: v })} />
+          ))}
+        </Box>
+      )
+      return (
+        <Box key="th-body" flexDirection="column" gap={1}>
+          <Box key="th-presets" flexDirection="row" gap={1}>
+            {(['saver', 'normal', 'deep', 'max'] as const).map(p => (
+              <Button
+                key={`th-preset-${p}`}
+                label={`${p[0]?.toUpperCase()}${p.slice(1)}`}
+                variant={(set?.preset ?? 'normal') === p ? 'primary' : undefined}
+                onPress={ask({ preset: p === 'normal' ? null : p })}
+              />
+            ))}
+          </Box>
+          {row('Model', 'model', ['haiku', 'sonnet', 'opus'])}
+          {row('Effort', 'effort', ['low', 'medium', 'high', 'xhigh', 'max'])}
+          {row('Subagents', 'subagentModel', ['haiku', 'sonnet', 'opus'])}
+          {genericBody({ ...c, details: c.details.filter(([k]) => k === 'Last request') })}
+          <Text dimColor size="caption">
+            Applies at the next model request, mid-run included. During a recipe run it only raises.
+          </Text>
+        </Box>
+      )
+    }
+
     const genericBody = (c: Card) =>
       c.details.length === 0 ? (
         <Text key={`${c.name}-body`} dimColor>
@@ -777,7 +828,9 @@ export const register: Register = on => {
                       ? trafficBody()
                       : c.name === 'dev-servers'
                         ? devBody(c)
-                        : genericBody(c)}
+                        : c.name === 'throttle'
+                          ? throttleBody(c)
+                          : genericBody(c)}
             </Box>
           )}
         </Box>

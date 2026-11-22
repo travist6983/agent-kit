@@ -55,6 +55,8 @@ function snap(over: Partial<Snapshot> = {}): Snapshot {
     dev: null,
     pr: null,
     brain: null,
+    throttle: null,
+    throttleAsk: null,
     ...over,
   }
 }
@@ -132,7 +134,7 @@ test('the burn card warns at 80 percent of the 5 hour window', () => {
 
 test('mods that are off or missing say so, with no invented numbers', () => {
   const list = cards(snap())
-  expect(list.map(c => c.name)).toEqual(['recipe-run', 'burn-meter', 'traffic-control', 'ship', 'dev-servers', 'secret-catcher', 'pr', 'brain'])
+  expect(list.map(c => c.name)).toEqual(['recipe-run', 'burn-meter', 'throttle', 'traffic-control', 'ship', 'dev-servers', 'secret-catcher', 'pr', 'brain'])
   expect(list.find(c => c.name === 'pr')?.status).toBe('Off')
   expect(list.find(c => c.name === 'ship')?.status).toBe('Not installed')
   const toggled = cards(snap({ toggled: { pr: true, 'burn-meter': false } }))
