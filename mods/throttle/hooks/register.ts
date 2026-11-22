@@ -123,7 +123,7 @@ export const register: Register = on => {
         const usd = (await $.session.usage()).cost?.usd ?? 0
         if (usd >= burn.budgetUsd * BUDGET_WARN) {
           mem.isBudgetWarned = true
-          $.ui.toast(`Spend is at $${usd.toFixed(2)} of your $${burn.budgetUsd} budget. /throttle saver drops to Sonnet · low.`, { timeoutMs: 12_000 })
+          $.ui.toast(`Spend is at $${usd.toFixed(2)} of your $${burn.budgetUsd} budget. /throttle saver drops to Sonnet · medium.`, { timeoutMs: 12_000 })
         }
       }
     }

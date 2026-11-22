@@ -7,7 +7,7 @@ export const EFFORTS: Effort[] = ['low', 'medium', 'high', 'xhigh', 'max']
 export const MODELS = ['haiku', 'sonnet', 'opus'] as const
 
 export const PRESETS: Record<PresetName, Omit<Setting, 'preset' | 'at'>> = {
-  saver: { model: 'sonnet', effort: 'low', subagentModel: 'haiku' },
+  saver: { model: 'sonnet', effort: 'medium', subagentModel: 'haiku' },
   normal: { model: null, effort: null, subagentModel: null },
   deep: { model: 'opus', effort: 'high', subagentModel: 'sonnet' },
   max: { model: 'opus', effort: 'max', subagentModel: 'opus' },

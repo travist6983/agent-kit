@@ -32,7 +32,7 @@ test('/throttle words parse into an ask, and bad words say why', () => {
 
 test('a live recipe run only lets throttle raise', () => {
   const saver = applyAsk(EMPTY, { preset: 'saver', at: 1 })
-  expect(resolveStep(saver, 'claude-opus-5-5', 'high', false)).toEqual({ model: 'sonnet', effort: 'low', isHeld: false })
+  expect(resolveStep(saver, 'claude-opus-5-5', 'high', false)).toEqual({ model: 'sonnet', effort: 'medium', isHeld: false })
   expect(resolveStep(saver, 'claude-opus-5-5', 'high', true)).toEqual({ model: 'claude-opus-5-5', effort: 'high', isHeld: true })
   const max = applyAsk(EMPTY, { preset: 'max', at: 1 })
   expect(resolveStep(max, 'claude-sonnet-5-5', 'medium', true)).toEqual({ model: 'opus', effort: 'max', isHeld: false })
@@ -84,9 +84,9 @@ test('/throttle swaps the next request and subagents without a model', async ($,
   expect(host.sent.at(-1)).toEqual({ model: 'claude-opus-5-5', effort: 'high' })
 
   const r = await $.command.run({ command: 'throttle', args: 'saver', ...CMD })
-  expect(r.text).toContain('Throttle: saver: sonnet · low · subagents haiku.')
+  expect(r.text).toContain('Throttle: saver: sonnet · medium · subagents haiku.')
   await step($)
-  expect(host.sent.at(-1)).toEqual({ model: 'sonnet', effort: 'low' })
+  expect(host.sent.at(-1)).toEqual({ model: 'sonnet', effort: 'medium' })
 
   await spawn($)
   await spawn($, { model: 'opus' })
