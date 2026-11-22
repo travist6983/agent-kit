@@ -225,7 +225,8 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Button, Text } = $.ui.resolve(e)
-    const h = await read($, health)
+    // not `h`: that name is the JSX factory, and shadowing it blanks the pane
+    const hl = await read($, health)
     const r = await read($, recall)
     const proposed = await read($, review)
     const current = await read($, active)
@@ -239,11 +240,11 @@ export const register: Register = on => {
         <Button key="refresh" hotkey="r" label="Refresh" onPress={() => void refresh($)} />
       </Box>
     )
-    const line = h === null
+    const line = hl === null
       ? <Text dimColor>Checking the brain…</Text>
-      : h.isOnline
-        ? <Text dimColor>{h.target} · {h.scope} · project {h.project}</Text>
-        : <Text color="red">Offline: {h.reason}. Prompts go through without lessons.</Text>
+      : hl.isOnline
+        ? <Text dimColor>{hl.target} · {hl.scope} · project {hl.project}</Text>
+        : <Text color="red">Offline: {hl.reason}. Prompts go through without lessons.</Text>
 
     let body
     if (which === 'recalled') {

@@ -27,7 +27,7 @@ self-hosted-tracker shop run the same skills with a different config file.
 | **Integrations** | 10 vendor-neutral adapter roles (issue tracker, VCS host, CI/CD, sandbox, evidence store and more), picked in one config file |
 | **Memory** | A shared Postgres + pgvector knowledge brain, so selectors, flaky-test history and fix patterns carry over to the next run |
 | **Safety** | Dry-run and staging-only by default, blast-radius limits, budget caps, a global kill switch flipped only by a human |
-| **Developer tooling** | 10 Claude Code mods: one-command ship, dev-server panes, cost meter, secret catcher, cross-session push locks, PR status, brain recall, live recipe runs, a mods panel, build-log post drafts |
+| **Developer tooling** | 11 Claude Code mods: one-command ship, dev-server panes, cost meter, mid-run model throttle, secret catcher, cross-session push locks, PR status, brain recall, live recipe runs, a mods panel, build-log post drafts |
 | **Tests** | 29 shell test suites, including contract validation and a leak test that keeps the kit free of any company's data |
 | **Built with** | Python, Bash, TypeScript (mods), Postgres + pgvector, Playwright, Claude Code |
 

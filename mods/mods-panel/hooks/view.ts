@@ -52,6 +52,9 @@ export type PrIn = {
 }
 export type BrainIn = { isOnline: boolean; reason: string; project: string; lessons: number; proposed: number; checkedAt: number }
 export type RecallIn = { query: string; at: number; lessons: unknown[]; error: string | null }
+export type ThrottleSettingIn = { preset: string | null; model: string | null; effort: string | null; subagentModel: string | null; at: number }
+export type ThrottleSeenIn = { model: string; effort: string | null; sessionModel: string; sessionEffort: string | null; isHeld: boolean; at: number }
+export type ThrottleAskIn = { preset?: string | null; model?: string | null; effort?: string | null; subagentModel?: string | null; at: number }
 export type BurnSettingsIn = { budgetUsd: number | null; isHard: boolean; isWorkflowOff: boolean }
 
 export type Snapshot = {
@@ -68,11 +71,14 @@ export type Snapshot = {
   dev: { servers: ServerIn[]; recipe: RecipeEntryIn[] } | null
   pr: PrIn | null
   brain: { health: BrainIn | null; recall: RecallIn | null; review: unknown[] } | null
+  throttle: { setting: ThrottleSettingIn | null; seen: ThrottleSeenIn | null } | null
+  // the last throttle change pressed in this panel
+  throttleAsk: ThrottleAskIn | null
 }
 
-// ---- the eight mods, in the design's order
+// ---- the mods, in the design's order
 
-export const MODS = ['recipe-run', 'burn-meter', 'traffic-control', 'ship', 'dev-servers', 'secret-catcher', 'pr', 'brain'] as const
+export const MODS = ['recipe-run', 'burn-meter', 'throttle', 'traffic-control', 'ship', 'dev-servers', 'secret-catcher', 'pr', 'brain'] as const
 export type ModName = (typeof MODS)[number]
 export const MARKETPLACE = 'agent-kit'
 
@@ -353,6 +359,35 @@ function devCard(s: Snapshot): Pick<Card, 'status' | 'isWarn' | 'isActive' | 'de
   }
 }
 
+// The model family a full id or alias names, for short labels: claude-opus-5-5 -> opus.
+export const shortModel = (m: string) => m.match(/haiku|sonnet|opus|fable/i)?.[0]?.toLowerCase() ?? m
+
+export function throttleCard(s: Snapshot): Pick<Card, 'status' | 'isWarn' | 'isActive' | 'details'> {
+  const set = s.throttle?.setting ?? null
+  const seen = s.throttle?.seen ?? null
+  const isDefault = !set || (set.model === null && set.effort === null && set.subagentModel === null)
+  const using = seen ? `${shortModel(seen.model)}${seen.effort ? ` · ${seen.effort}` : ''}` : null
+  const status = isDefault
+    ? using ? `Session defaults · ${using}` : 'Session defaults'
+    : `${set.preset ? `${set.preset[0]?.toUpperCase()}${set.preset.slice(1)} · ` : ''}${[set.model ?? 'session model', set.effort ?? 'session effort'].join(' · ')}`
+  const details: [string, string][] = [
+    ['Model', set?.model ?? 'session default'],
+    ['Effort', set?.effort ?? 'session default'],
+    ['Subagents', set?.subagentModel ?? 'session default'],
+    ['Last request', seen ? `${using} · ${ago(s.now, seen.at)}${seen.isHeld ? ' · lower setting held during run' : ''}` : 'none yet'],
+  ]
+  // A press throttle hasn't taken yet: it is off, or picks it up within a couple of seconds.
+  const ask = s.throttleAsk
+  if (ask && ask.at > (set?.at ?? 0)) {
+    const words = Object.entries(ask)
+      .filter(([k]) => k !== 'at')
+      .map(([k, v]) => (k === 'preset' ? String(v ?? 'normal') : `${k === 'subagentModel' ? 'subagents' : k} ${v ?? 'default'}`))
+      .join(' · ')
+    return { status: `Applying ${words}…`, isWarn: s.throttle === null, isActive: true, details }
+  }
+  return { status: seen?.isHeld ? `${status} · held during run` : status, isWarn: false, isActive: !isDefault, details }
+}
+
 function prCard(s: Snapshot): Pick<Card, 'status' | 'isWarn' | 'isActive' | 'details'> {
   const p = s.pr
   if (!p) return { status: 'No PR data yet', isWarn: false, isActive: false, details: [] }
@@ -400,6 +435,7 @@ const STATE_HELD: Record<ModName, (s: Snapshot) => boolean> = {
   'traffic-control': s => s.traffic !== null,
   ship: s => s.ship !== null,
   'dev-servers': s => s.dev !== null,
+  throttle: s => s.throttle !== null,
   'secret-catcher': () => false,
   pr: s => s.pr !== null,
   brain: s => s.brain !== null,
@@ -432,6 +468,8 @@ export function cards(s: Snapshot): Card[] {
           return shipCard(s)
         case 'dev-servers':
           return devCard(s)
+        case 'throttle':
+          return throttleCard(s)
         case 'secret-catcher':
           return {
             status: 'Watching prompts for API keys',
