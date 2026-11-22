@@ -4,6 +4,16 @@ export type Usage = { costUsd: number | null; rateLimits: RateLimit[]; at: numbe
 
 // A question this panel answered in this session, kept so the card can show "Answered" until
 // recipe-run's next refresh drops it from its open list.
+// A throttle change pressed in the panel. throttle reads it and applies anything newer than what
+// it has: a field left out stays, null clears it back to the session's own choice.
+export type ThrottleAsk = {
+  preset?: 'saver' | 'normal' | 'deep' | 'max' | null
+  model?: string | null
+  effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
+  subagentModel?: string | null
+  at: number
+}
+
 export type PanelAnswer = { id: string; key: string; question: string; answer: string; answeredAt: string }
 
 declare module 'claude-code' {
@@ -26,6 +36,8 @@ declare module 'claude-code' {
       stopArmed: number | null
       // pids stopped from the panel, hidden until dev-servers' next scan drops them
       stopped: number[]
+      // the last throttle change pressed here; throttle owns the setting itself
+      throttleAsk: ThrottleAsk | null
     }
   }
 }
