@@ -327,7 +327,7 @@ export const shortPath = (path: string) => path.replace(/^\/(Users|home)\/[^/]+/
 // One row per listening port, with what the card's one-liner leaves out: the project folder,
 // the full command and the pid. `hidden` holds pids the panel just stopped, so they drop out
 // before dev-servers' next scan.
-export type ServerRow = { key: string; pid: number; port: number; process: string; app: string; age: string; folder: string; command: string }
+export type ServerRow = { key: string; pid: number; port: number; process: string; tool: string; where: string; app: string; age: string; folder: string; command: string }
 export function serverRows(d: NonNullable<Snapshot['dev']>, hidden: number[] = []): ServerRow[] {
   return d.servers
     .filter(x => !hidden.includes(x.pid))
@@ -336,6 +336,8 @@ export function serverRows(d: NonNullable<Snapshot['dev']>, hidden: number[] = [
       pid: x.pid,
       port: x.port,
       process: x.process || `pid ${x.pid}`,
+      tool: x.tool || x.process || `pid ${x.pid}`,
+      where: x.project || (x.cwd && x.cwd !== '?' ? shortPath(x.cwd) : ''),
       app: appLabel(x),
       age: x.age,
       folder: x.cwd && x.cwd !== '?' ? shortPath(x.cwd) : 'folder unknown',
@@ -485,6 +487,84 @@ export function cards(s: Snapshot): Card[] {
     })()
     return { ...base, ...body, status: `${body.status}${off}` }
   })
+}
+
+// ---- how each card is drawn: its section, pill, key number and footer
+
+export type Section = 'look' | 'live' | 'idle' | 'off'
+export const SECTIONS: Section[] = ['look', 'live', 'idle', 'off']
+export type Pill = { text: string; tone: 'warn' | 'live' | 'attn' }
+export type Look = { section: Section; pill: Pill | null; key: { text: string; isHot: boolean } | null; status: string; note: string | null }
+
+const LIMIT_SHORT: Record<string, string> = { five_hour: '5h', seven_day: 'wk', spend_limit: 'spend' }
+
+// Needs a look: a warning. Live: something running or a non-default setting. Idle: on, quiet.
+// Off: off or not installed. A card's first line never moves; these only colour and group it.
+export function look(c: Card, s: Snapshot): Look {
+  const base = { pill: null, key: null, status: c.status, note: null }
+  if (c.power !== 'on') return { ...base, section: 'off' }
+  const plain: Section = c.isWarn ? 'look' : c.isActive ? 'live' : 'idle'
+  switch (c.name) {
+    case 'recipe-run': {
+      const blocking = openQuestions(s.recipe.open, s.answered).filter(q => q.kind === 'blocking').length
+      if (blocking > 0) return { ...base, section: 'look', pill: { text: `${blocking} blocking`, tone: 'warn' } }
+      return { ...base, section: plain, pill: plain === 'live' ? { text: 'running', tone: 'live' } : null }
+    }
+    case 'burn-meter': {
+      const rows = limitRows(s.usage?.rateLimits ?? [], s.now)
+      const hot = rows.filter(r => r.isHot).sort((a, b) => b.pct - a.pct)[0]
+      if (!hot) return { ...base, section: plain === 'live' ? 'idle' : plain }
+      return {
+        ...base,
+        section: 'look',
+        pill: { text: 'warn', tone: 'warn' },
+        key: { text: `${LIMIT_SHORT[hot.kind] ?? hot.label} ${hot.pct}%`, isHot: true },
+        status: rows.map(r => `${LIMIT_SHORT[r.kind] ?? r.label} ${r.pct}%`).join(' · '),
+      }
+    }
+    case 'throttle': {
+      const set = s.throttle?.setting ?? null
+      const seen = s.throttle?.seen ?? null
+      const isDefault = !set || (set.model === null && set.effort === null && set.subagentModel === null)
+      const status = isDefault
+        ? 'session defaults'
+        : [set.model ?? 'session model', set.effort ?? 'session effort', set.subagentModel ? `subagents ${set.subagentModel}` : null].filter(Boolean).join(' · ')
+      const using = seen ? `${shortModel(seen.model)}${seen.effort ? ` · ${seen.effort}` : ''}` : null
+      const note = c.status.startsWith('Applying')
+        ? c.status.replace(/…$/, ' …')
+        : seen?.isHeld
+          ? 'held while the recipe run is live (only raising model or effort applies)'
+          : using
+            ? `Last request: ${using}`
+            : 'Last request: none yet'
+      const isApplying = c.status.startsWith('Applying')
+      return {
+        ...base,
+        section: c.isWarn ? 'look' : isDefault && !isApplying ? 'idle' : 'live',
+        pill: set?.preset ? { text: set.preset, tone: 'live' } : null,
+        status,
+        note,
+      }
+    }
+    case 'dev-servers': {
+      const n = new Set((s.dev?.servers ?? []).map(x => x.port)).size
+      return { ...base, section: plain, pill: n > 0 ? { text: `${n} running`, tone: 'live' } : null }
+    }
+    case 'brain': {
+      const h = s.brain?.health ?? null
+      if (!h || !h.isOnline) return { ...base, section: c.isWarn ? 'look' : 'idle' }
+      return {
+        ...base,
+        section: 'idle',
+        pill: h.proposed > 0 ? { text: `${h.proposed} to review`, tone: 'attn' } : null,
+        status: `${h.lessons} ${h.lessons === 1 ? 'lesson' : 'lessons'}`,
+      }
+    }
+    case 'pr':
+      return { ...base, section: plain, pill: c.isWarn ? { text: 'CI failing', tone: 'warn' } : null }
+    default:
+      return { ...base, section: plain }
+  }
 }
 
 // ---- the summary strip and the band
