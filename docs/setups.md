@@ -64,7 +64,7 @@ So `kb.config.json`, `stack.config.json` and `conventions.json` for real project
 | Who else uses the brain | Only you | The client's team, CI and scheduled agents. Everyone sees the same lessons. |
 | Embeddings | Your OpenAI key in the overlay's `kb.secret.env`, with a hard spend limit | The client's key, from their secret store |
 | Projects in one brain | All your own repos, separated by the `project` column, plus a `global` group for cross-project lessons | Usually one product, or a few of theirs |
-| Kit mods | All six, user scope | All six, user scope, installed under the job's account |
+| Kit mods | All of them, user scope | All of them, user scope, installed under the job's account |
 | Overlay mods | Your own marketplace in the overlay, e.g. a mod for one project, installed at local scope in that repo | Whatever that client needs, or none |
 | Adapters (tickets, PRs, notifications) | File-based tickets or GitHub issues; GitHub via `gh` | Whatever they use. A missing provider is written once in `lib/adapters/providers/` and reused. |
 | Backups | Your own job, e.g. a nightly `pg_dump` into the overlay's gitignored `backup/` | The client's database backups |
@@ -82,7 +82,7 @@ For one person on one machine it's just overhead, so the personal overlay sets `
 
 Use this for any repo of yours on the machine.
 
-1. **Open a session in the project** under your personal account. The kit mods are already active: ship, dev-servers, burn-meter, secret-catcher, traffic-control and pr.
+1. **Open a session in the project** under your personal account. The kit mods are already active (all eleven are listed in `mods/README.md`).
 2. **Run `/agent-kit init`** (or `<kit>/scripts/agent-kit init <repo>`). It reads the repo (package.json, pyproject, CI workflows, CLAUDE.md) and drafts `<overlay>/projects/<repo>/`:
    - `stack.json`: build, lint, unit-test and E2E commands; default branch; branch prefixes; environments (`local` URL, staging URL); ticket key pattern.
    - `conventions.json`: house rules, the blast-radius denylist (migrations, secrets, auth, infrastructure, CI), shared-core paths.
