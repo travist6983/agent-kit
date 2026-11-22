@@ -19,6 +19,13 @@ export type RecipeEntry = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'dev-servers': { servers: Server[]; root: string | null; recipe: RecipeEntry[] }
+    'dev-servers': {
+      servers: Server[]
+      root: string | null
+      recipe: RecipeEntry[]
+      // when the last scan finished (the pane's ↻ time), and the port whose Stop waits for a second press
+      scannedAt: number | null
+      stopArmed: number | null
+    }
   }
 }

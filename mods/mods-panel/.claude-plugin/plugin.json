@@ -1,1 +1,1 @@
-{ "name": "mods-panel", "version": "0.3.0", "description": "Mods panel: every agent-kit mod in one pane with live status, on/off switches, the recipe run and its questions, the burn meter and session limits, plus a compact band above the prompt", "types": "./types/index.d.ts" }
+{ "name": "mods-panel", "version": "0.4.0", "description": "Mods panel: every agent-kit mod in one pane with live status, on/off switches, the recipe run and its questions, the burn meter and session limits, plus a compact band above the prompt", "types": "./types/index.d.ts" }

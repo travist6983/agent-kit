@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { Elements, EngineInterface, Register, RenderChildren } from 'claude-code'
 
 import type { PanelAnswer, ThrottleAsk, Usage } from '../types'
 import {
@@ -14,6 +14,7 @@ import {
   ladder,
   limitRows,
   lockView,
+  look,
   mcdoubles,
   money,
   openQuestions,
@@ -21,14 +22,14 @@ import {
   serverRows,
   sessionRows,
   summary,
+  SECTIONS,
 } from './view'
-import { GLASS_LOOK, GLASS_SCENE_ID, SCENE } from './glass'
-import type { Card, QuestionIn, Snapshot } from './view'
+import { C, PILL, SECTION_COLOR, SECTION_TITLE, barSvg, burnSvg } from './chrome'
+import type { Card, Look, Pill, QuestionIn, Snapshot } from './view'
 
 const PANE = 'mods'
 const TITLE = 'Mods'
 const ACCENT = '#FF9F0A' // the design's one warm accent, for spend and warnings
-const ON_ACCENT = '#1a1206'
 const MAX_TURNS = 12
 
 // ---- this panel's own values
@@ -205,10 +206,24 @@ async function openPane($: EngineInterface) {
   return $.ui.open({ id: PANE, title: TITLE })
 }
 
-// Which cards start expanded: the run while one is live or asking, else the burn meter.
+// Which cards start expanded: the live ones with controls (throttle, dev-servers, a live run),
+// and the run whenever it is blocked on a question.
 function defaultOpen(s: Snapshot) {
-  const live = isRecent(s.recipe.run, s.now) || openQuestions(s.recipe.open, s.answered).length > 0
-  return live ? ['recipe-run'] : ['burn-meter']
+  return cards(s)
+    .filter(c => {
+      const sec = look(c, s).section
+      return (sec === 'live' && ['recipe-run', 'throttle', 'dev-servers'].includes(c.name)) || (c.name === 'recipe-run' && sec === 'look')
+    })
+    .map(c => c.name)
+}
+
+// "2:58 PM" for the header's last refresh.
+function clockTime(at: number) {
+  try {
+    return new Date(at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  } catch {
+    return ''
+  }
 }
 
 // ---- drawing helpers
@@ -230,13 +245,10 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const saved = (await $.store.get('isBandOn')) as boolean | undefined
     if (typeof saved === 'boolean') await update($, bandAtom, () => saved)
-    // Glass is on by default: set at every session start (a look doesn't outlive its session)
-    // until the person turns it off with /mods glass off, which is saved.
-    if ((await $.store.get('isGlassOn')) !== false) await $.theme.set(GLASS_LOOK).catch(() => undefined)
     await $.command.register({
       name: 'mods',
-      description: 'Mods panel: every agent-kit mod, its live status and an on/off switch. /mods band on|off for the row above the prompt, /mods glass on|off for the frosted look',
-      argumentHint: '[band on|off] [glass on|off]',
+      description: 'Mods panel: every agent-kit mod, its live status and an on/off switch. /mods band on|off for the row above the prompt',
+      argumentHint: '[band on|off]',
     })
     await refresh($).catch(() => undefined)
     $.clock.every(30_000, () => void refresh($).catch(() => undefined))
@@ -275,22 +287,7 @@ export const register: Register = on => {
       await $.store.set('isBandOn', isOn)
       return { text: isOn ? 'Mods band on above the prompt.' : 'Mods band off. recipe-run draws its own row again.' }
     }
-    if (arg === 'glass on') {
-      const set = await $.theme.set(GLASS_LOOK)
-      await $.store.set('isGlassOn', true)
-      return {
-        text: set.isDrawn
-          ? 'Mods glass on: frosted panels over a dark backdrop in the desktop app. /mods glass off clears it.'
-          : `Mods glass is saved and shows in the desktop and mobile apps; this one draws no look (${set.reason}).`,
-      }
-    }
-    if (arg === 'glass off') {
-      // There is one theme per session, so this clears whatever look stands; it runs only on this ask.
-      await $.theme.clear()
-      await $.store.set('isGlassOn', false)
-      return { text: 'Mods glass off: back to the app\'s own look.' }
-    }
-    if (arg !== '') return { text: 'Usage: /mods, /mods band on|off, /mods glass on|off' }
+    if (arg !== '') return { text: 'Usage: /mods, /mods band on|off' }
     const opened = await openPane($)
     const s = await snapshot($)
     const sum = summary(s, cards(s))
@@ -305,14 +302,6 @@ export const register: Register = on => {
     const text = answersContext(todo)
     await update($, pendingAtom, () => [])
     return text ? next({ ...e, context: [...(e.context ?? []), text] }) : next(e)
-  })
-
-  // ---- the glass backdrop (desktop and mobile only; the terminal draws no look)
-
-  on('ui.render', { component: 'Backdrop' }, async ($, e, next) => {
-    if (e.props.scene !== GLASS_SCENE_ID || (e.surface !== 'desktop' && e.surface !== 'mobile')) return next(e)
-    const { Svg } = $.ui.resolve(e)
-    return <Svg source={SCENE} alt="Slow orange, blue and violet light drifting behind frosted glass" />
   })
 
   // ---- the band above the prompt
@@ -375,8 +364,14 @@ export const register: Register = on => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const els = $.ui.resolve(e)
     const { Box, Button, Input, Text } = els
+    // Desktop, VS Code and mobile draw SVG and the palette; the terminal keeps its own colours.
+    const isGui = e.surface !== 'terminal'
+    const Svg = isGui ? ((els as Partial<Elements['desktop']>).Svg ?? undefined) : undefined
+    const gui = <T,>(v: T) => (isGui ? v : undefined)
     const s = await snapshot($)
     const list = cards(s)
+    const looks = new Map(list.map(c => [c.name, look(c, s)]))
+    const lookOf = (c: Card) => looks.get(c.name) ?? look(c, s)
     const sum = summary(s, list)
     const open = new Set((await read($, openAtom)) ?? defaultOpen(s))
     const tab = await read($, tabAtom)
@@ -386,6 +381,7 @@ export const register: Register = on => {
     const stopped = (await read($, stoppedAtom)).filter(pid => listed.has(pid))
     const cols = Math.max(30, e.props.bodyColumns ?? 44)
     const wide = Math.max(8, Math.min(24, cols - 14))
+    const tight = isGui ? ('xs' as const) : 0
 
     const setOpen = (name: string) => update($, openAtom, cur => {
       const set = new Set(cur ?? defaultOpen(s))
@@ -397,54 +393,108 @@ export const register: Register = on => {
     const header = (
       <Box key="head" flexDirection="row" justifyContent="space-between" alignItems="center">
         <Text>
-          <Text bold size="title">
+          <Text bold size="heading">
             Mods
           </Text>
           <Text dimColor> agent-kit</Text>
         </Text>
-        <Box flexDirection="row" gap={1}>
-          <Button key="refresh" plain dimColor label="Refresh" onPress={() => refresh($)} />
+        <Box flexDirection="row" gap={1} alignItems="center">
+          {s.usage && (
+            <Text dimColor size="footnote">
+              ↻ {clockTime(s.usage.at)}
+            </Text>
+          )}
+          <Button key="refresh" variant="secondary" hotkey="r" label="Refresh" onPress={() => refresh($)} />
           <Button key="close" role="dismiss" plain dimColor label="✕" onPress={() => $.ui.close({ id: PANE })} />
         </Box>
       </Box>
     )
 
-    const tile = (k: string, value: string, caption: string, color?: string, action?: { key: string; label: string; onPress: () => unknown }) => (
-      <Box key={k} flexDirection="column" flexGrow={1} borderStyle="round" borderColor={color === ACCENT && k === 'tile-blocking' ? ACCENT : 'subtle'} paddingX={1}>
-        <Box flexDirection="row" justifyContent="space-between">
-          <Text bold size="title" tabular color={color}>
-            {value}
-          </Text>
-          {action && <Button key={action.key} plain label={action.label} onPress={action.onPress} />}
-        </Box>
+    const tile = (k: string, label: string, value: RenderChildren, action?: RenderChildren) => (
+      <Box key={k} flexDirection="column" width="33%" flexGrow={1} flexShrink={1} borderStyle="round" borderColor={C.line} backgroundColor={gui(C.card)} paddingX={1}>
         <Text dimColor size="caption">
-          {caption}
+          {label}
         </Text>
+        <Box flexDirection="row" justifyContent="space-between" alignItems="center">
+          {value}
+          {action}
+        </Box>
       </Box>
     )
 
     const strip = (
       <Box key="strip" flexDirection="row" gap={1}>
-        {tile('tile-on', `${sum.on}/${sum.total}`, 'mods on')}
+        {tile(
+          'tile-on',
+          'Mods on',
+          <Text bold size="title" tabular>
+            <Text color={C.green}>{sum.on}</Text>
+            <Text dimColor>/{sum.total}</Text>
+          </Text>,
+        )}
         {tile(
           'tile-blocking',
-          String(sum.blocking),
-          'blocking questions',
-          sum.blocking > 0 ? ACCENT : undefined,
-          sum.blocking > 0
-            ? {
-                key: 'answer-now',
-                label: 'Answer',
-                onPress: async () => {
-                  await update($, tabAtom, () => 'questions')
-                  await update($, openAtom, cur => [...new Set([...(cur ?? defaultOpen(s)), 'recipe-run'])])
-                },
-              }
-            : undefined,
+          'Blocking questions',
+          <Text bold size="title" tabular color={sum.blocking > 0 ? C.amber : undefined} dimColor={sum.blocking === 0}>
+            {String(sum.blocking)}
+          </Text>,
+          sum.blocking > 0 ? (
+            <Button
+              key="answer-now"
+              variant="secondary"
+              label="Answer"
+              onPress={async () => {
+                await update($, tabAtom, () => 'questions')
+                await update($, openAtom, cur => [...new Set([...(cur ?? defaultOpen(s)), 'recipe-run'])])
+              }}
+            />
+          ) : undefined,
         )}
-        {tile('tile-spend', sum.spend !== null ? money(sum.spend) : 'n/a', 'session spend', ACCENT)}
+        {tile(
+          'tile-spend',
+          'Session spend',
+          <Text tabular>
+            <Text bold size="title" color={C.orange}>
+              {sum.spend !== null ? money(sum.spend) : 'n/a'}
+            </Text>
+            {sum.spend !== null && (
+              <Text color={C.tan} size="footnote">
+                {' '}
+                = {burritos(sum.spend)} burritos
+              </Text>
+            )}
+          </Text>,
+        )}
       </Box>
     )
+
+    // ---- small parts
+
+    const pill = (p: Pill) => (
+      <Text bold size="caption" color={PILL[p.tone].fg} backgroundColor={PILL[p.tone].bg}>
+        {` ${p.text.toUpperCase()} `}
+      </Text>
+    )
+
+    const nameButton = (c: Card, isOpen: boolean) => (
+      <Button key={`expand-${c.name}`} plain onPress={() => setOpen(c.name)}>
+        <Text bold color={gui(C.name)}>
+          {c.name}
+        </Text>
+        <Text dimColor>{isOpen ? ' ⌄' : ' ›'}</Text>
+      </Button>
+    )
+
+    const onButton = (c: Card) => {
+      const isOn = c.pending ?? true
+      return (
+        <Button key={`switch-${c.name}`} variant="secondary" onPress={() => toggle($, c)}>
+          <Text color={isOn ? C.green : C.amber}>{isOn ? 'On' : 'Off'}</Text>
+        </Button>
+      )
+    }
+
+    const hairline = (k: string) => (Svg ? <Svg key={k} source={barSvg(C.divider, 1)} alt="" height={1} /> : null)
 
     // ---- per-mod bodies
 
@@ -453,11 +503,11 @@ export const register: Register = on => {
       const blocking = qs.filter(q => q.kind === 'blocking').length
       const tabs = (
         <Box key="rr-tabs" flexDirection="row" gap={1}>
-          <Button key="tab-run" label="Run" variant={tab === 'run' ? 'primary' : undefined} onPress={() => update($, tabAtom, () => 'run')} />
+          <Button key="tab-run" label="Run" variant={tab === 'run' ? 'primary' : 'secondary'} onPress={() => update($, tabAtom, () => 'run')} />
           <Button
             key="tab-questions"
             label={blocking > 0 ? `Questions (${blocking})` : qs.length > 0 ? `Questions · ${qs.length}` : 'Questions'}
-            variant={tab === 'questions' ? 'primary' : undefined}
+            variant={tab === 'questions' ? 'primary' : 'secondary'}
             onPress={() => update($, tabAtom, () => 'questions')}
           />
         </Box>
@@ -469,9 +519,9 @@ export const register: Register = on => {
             {tabs}
             {qs.length === 0 && recent.length === 0 && <Text dimColor>No questions. A run asks here when it needs a decision from you.</Text>}
             {qs.map(q => (
-              <Box key={`q-${q.key}-${q.id}`} flexDirection="column" borderStyle="round" borderColor={q.kind === 'blocking' ? ACCENT : 'subtle'} paddingX={1}>
+              <Box key={`q-${q.key}-${q.id}`} flexDirection="column" borderStyle="round" borderColor={q.kind === 'blocking' ? C.amber : C.line} backgroundColor={gui(C.inset)} paddingX={1}>
                 <Text>
-                  <Text bold color={q.kind === 'blocking' ? ACCENT : undefined}>
+                  <Text bold color={q.kind === 'blocking' ? C.amber : undefined}>
                     {q.kind === 'blocking' ? 'BLOCKING' : 'CAN WAIT'}
                   </Text>
                   <Text dimColor>
@@ -485,7 +535,7 @@ export const register: Register = on => {
                 {q.options.length > 0 && (
                   <Box flexDirection="row" flexWrap="wrap" gap={1}>
                     {q.options.map((o, i) => (
-                      <Button key={`a-${q.key}-${q.id}-${i}`} label={o} onPress={() => answer($, q, o)} />
+                      <Button key={`a-${q.key}-${q.id}-${i}`} variant="secondary" label={o} onPress={() => answer($, q, o)} />
                     ))}
                   </Box>
                 )}
@@ -505,7 +555,6 @@ export const register: Register = on => {
         return (
           <Box key="rr-body" flexDirection="column" gap={1}>
             {tabs}
-            <Text bold>No recipe running</Text>
             <Text dimColor>No run under runs/ yet.</Text>
           </Box>
         )
@@ -526,11 +575,11 @@ export const register: Register = on => {
                 <Text
                   bold={st.state === 'run' || st.state === 'blocked'}
                   dimColor={st.state === 'wait'}
-                  color={st.state === 'blocked' ? ACCENT : st.state === 'failed' ? 'error' : undefined}
+                  color={st.state === 'blocked' ? C.amber : st.state === 'failed' ? 'error' : undefined}
                 >
                   {st.glyph} {st.label}
                 </Text>
-                <Text dimColor={st.state !== 'blocked'} color={st.state === 'blocked' ? ACCENT : undefined}>
+                <Text dimColor={st.state !== 'blocked'} color={st.state === 'blocked' ? C.amber : undefined}>
                   {st.meta}
                 </Text>
               </Box>
@@ -545,18 +594,14 @@ export const register: Register = on => {
                   {v.attempt} of {v.max}
                 </Text>
               </Text>
-              <Text>
-                {Array.from({ length: v.max }, (_, i) => (i + 1 < (v.attempt ?? 0) ? '▬' : i + 1 === v.attempt ? '▬' : '▭')).join(' ')}
-              </Text>
+              <Text>{Array.from({ length: v.max }, (_, i) => (i + 1 <= (v.attempt ?? 0) ? '▬' : '▭')).join(' ')}</Text>
             </Box>
           )}
           {v.verdict && (
-            <Box key="rr-verdict" flexDirection="column" borderStyle="round" borderColor="subtle" paddingX={1}>
+            <Box key="rr-verdict" flexDirection="column" backgroundColor={gui(C.inset)} borderStyle={isGui ? undefined : 'round'} borderColor={C.line} paddingX={1}>
               <Box flexDirection="row" justifyContent="space-between">
                 <Text bold>Router's last call</Text>
-                <Text bold color={v.verdict.isAlarm ? ON_ACCENT : undefined} backgroundColor={v.verdict.isAlarm ? ACCENT : undefined}>
-                  {` ${v.verdict.badge} `}
-                </Text>
+                {pill({ text: v.verdict.badge, tone: v.verdict.isAlarm ? 'warn' : 'live' })}
               </Box>
               <Text dimColor>{v.verdict.reason}</Text>
             </Box>
@@ -566,62 +611,71 @@ export const register: Register = on => {
               <Box flexDirection="row" justifyContent="space-between">
                 <Text bold>Spend</Text>
                 <Text>
-                  <Text bold color={ACCENT}>
+                  <Text bold color={C.orange}>
                     {money(v.spend.spent)}
                   </Text>
                   <Text dimColor>{v.spend.cap !== null ? ` of ${money(v.spend.cap)} cap` : ''}</Text>
                 </Text>
               </Box>
-              {v.spend.cap !== null && <Meter els={els} k="rr-cap" n={Math.min(20, wide)} frac={v.spend.spent / v.spend.cap} color={ACCENT} />}
+              {v.spend.cap !== null && <Meter els={els} k="rr-cap" n={Math.min(20, wide)} frac={v.spend.spent / v.spend.cap} color={C.orange} />}
             </Box>
           )}
         </Box>
       )
     }
 
-    const burnBody = (c: Card) => {
-      const spend = s.usage?.costUsd ?? null
+    // SESSION BURN and the limit rows, on the warning card's face.
+    const burnBars = () => {
       const rows = limitRows(s.usage?.rateLimits ?? [], s.now)
-      const h5 = rows.find(r => r.kind === 'five_hour')
+      return (
+        <Box key="burn-bars" flexDirection="column" gap={tight}>
+          <Text bold size="footnote" color={C.orange}>
+            SESSION BURN
+          </Text>
+          {rows.length === 0 && <Text dimColor>No limit readings yet (they come with the first reply, on a subscription plan).</Text>}
+          {rows.map(r => (
+            <Box key={`lim-${r.kind}`} flexDirection="row" gap={1} alignItems="center">
+              <Box width={8}>
+                <Text dimColor>{r.label}</Text>
+              </Box>
+              <Box flexGrow={1} flexShrink={1}>
+                {Svg ? (
+                  <Svg source={burnSvg(r.pct, r.isHot)} alt={`${r.label} ${r.pct}% used`} />
+                ) : (
+                  <Meter els={els} k={`lim-bar-${r.kind}`} n={Math.max(6, wide - 12)} frac={r.pct / 100} color={r.isHot ? C.orange : C.tan} />
+                )}
+              </Box>
+              <Text tabular>
+                <Text bold color={r.isHot ? C.amber : undefined}>
+                  {r.pct}%
+                </Text>
+                <Text dimColor>{r.reset ? ` ${r.reset}` : ''}</Text>
+              </Text>
+            </Box>
+          ))}
+        </Box>
+      )
+    }
+
+    const burnBody = (c: Card, hasBars: boolean) => {
+      const spend = s.usage?.costUsd ?? null
       const turns = s.turns.map((cost, i) => ({ n: i + 1, cost })).slice(-6).reverse()
       const maxTurn = Math.max(0.0001, ...s.turns)
       return (
         <Box key="burn-body" flexDirection="column" gap={1}>
-          <Box key="burn-session" flexDirection="column">
-            <Text bold color={ACCENT} size="caption">
-              SESSION BURN
-            </Text>
-            {spend !== null && (
-              <Text tabular>
-                <Text bold>{money(spend)}</Text>
-                <Text dimColor> = {burritos(spend)} burritos</Text>
+          {!hasBars && burnBars()}
+          {spend !== null && (
+            <Text tabular>
+              <Text bold color={C.orange}>
+                {money(spend)}
               </Text>
-            )}
-            {spend !== null && <Meter els={els} k="burn-meter-bar" n={wide} frac={spend / BURN_SCALE_USD} color={ACCENT} />}
-            {spend === null && <Text dimColor>No cost reading yet.</Text>}
-          </Box>
-          <Box key="burn-limits" flexDirection="column">
-            <Text bold>Limits</Text>
-            {rows.length === 0 && <Text dimColor>No limit readings yet (they come with the first reply, on a subscription plan).</Text>}
-            {rows.map(r => (
-              <Box key={`lim-${r.kind}`} flexDirection="row" gap={1}>
-                <Box width={7}>
-                  <Text dimColor>{r.label}</Text>
-                </Box>
-                <Meter els={els} k={`lim-bar-${r.kind}`} n={Math.max(6, wide - 12)} frac={r.pct / 100} color={r.isHot ? ACCENT : 'text'} />
-                <Text bold={r.isHot} color={r.isHot ? ACCENT : undefined} dimColor={!r.isHot} tabular>
-                  {r.pct}%{r.reset ? ` · ${r.reset.replace(/^in /, '')}` : ''}
-                </Text>
-              </Box>
-            ))}
-            {h5?.isHot && (
-              <Box key="burn-warn" borderStyle="round" borderColor={ACCENT} paddingX={1}>
-                <Text>
-                  The 5 hour limit is at {h5.pct}%.{h5.reset ? ` It resets ${h5.reset}.` : ''}
-                </Text>
-              </Box>
-            )}
-          </Box>
+              <Text color={C.tan}>
+                {' '}
+                = {burritos(spend)} burritos = {mcdoubles(spend)} McDoubles
+              </Text>
+            </Text>
+          )}
+          {spend !== null && <Meter els={els} k="burn-meter-bar" n={wide} frac={spend / BURN_SCALE_USD} color={C.orange} />}
           <Box key="burn-turns" flexDirection="column">
             <Text bold>Per turn</Text>
             {turns.length === 0 && <Text dimColor>No finished turns yet this session.</Text>}
@@ -630,26 +684,14 @@ export const register: Register = on => {
                 <Box width={4}>
                   <Text dimColor>#{t.n}</Text>
                 </Box>
-                <Meter els={els} k={`turn-bar-${t.n}`} n={Math.max(6, wide - 10)} frac={t.cost / maxTurn} color="text" />
+                <Meter els={els} k={`turn-bar-${t.n}`} n={Math.max(6, wide - 10)} frac={t.cost / maxTurn} color={C.tan} />
                 <Text dimColor tabular>
                   {money(t.cost)}
                 </Text>
               </Box>
             ))}
           </Box>
-          {spend !== null && (
-            <Box key="burn-that" flexDirection="column">
-              <Text bold>That is</Text>
-              <Text color={ACCENT}>= {burritos(spend)} burritos</Text>
-              <Text color={ACCENT}>= {mcdoubles(spend)} McDoubles</Text>
-            </Box>
-          )}
-          {c.details.map(([k, val]) => (
-            <Box key={`burn-d-${k}`} flexDirection="row" justifyContent="space-between">
-              <Text dimColor>{k}</Text>
-              <Text>{val}</Text>
-            </Box>
-          ))}
+          {genericRows(c)}
         </Box>
       )
     }
@@ -674,12 +716,12 @@ export const register: Register = on => {
               </Box>
             ))}
           </Box>
-          <Box key="tc-lock" flexDirection="column" borderStyle="round" borderColor="subtle" paddingX={1}>
-            <Box flexDirection="row" justifyContent="space-between">
-              <Text bold>Push lock</Text>
+          <Box key="tc-lock" flexDirection="row" justifyContent="space-between">
+            <Text bold>Push lock</Text>
+            <Text>
               <Text bold>{lock.state}</Text>
-            </Box>
-            <Text dimColor>{lock.detail}</Text>
+              <Text dimColor> · {lock.detail}</Text>
+            </Text>
           </Box>
         </Box>
       )
@@ -691,37 +733,32 @@ export const register: Register = on => {
       const running = new Set(rows.map(r => r.port))
       const down = s.dev.recipe.filter(r => !running.has(r.port))
       return (
-        <Box key="dev-body" flexDirection="column" gap={1}>
+        <Box key="dev-body" flexDirection="column" gap={tight}>
           {rows.length === 0 && <Text dimColor>No dev servers are listening.</Text>}
           {rows.map(r => (
-            <Box key={`dev-${r.key}`} flexDirection="column">
+            <Box key={`dev-${r.key}`} flexDirection="column" backgroundColor={gui(C.inset)} paddingX={1}>
               <Box flexDirection="row" justifyContent="space-between" alignItems="center" gap={1}>
                 <Text wrap="truncate-end" tabular>
-                  <Text bold>:{r.port}</Text>
-                  <Text> {r.app}</Text>
-                  <Text dimColor>
-                    {' '}
-                    · pid {r.pid}
-                    {r.age ? ` · up ${r.age}` : ''}
+                  <Text weight="semibold" bold={!isGui}>
+                    {r.tool}
                   </Text>
+                  {r.where !== '' && <Text dimColor> {r.where}</Text>}
+                  <Text color={C.blue}> :{r.port}</Text>
+                  {r.age !== '' && <Text dimColor> {r.age}</Text>}
                 </Text>
                 <Box flexDirection="row" gap={1}>
-                  <Button key={`dev-open-${r.key}`} plain dimColor label="Open" onPress={() => $.process.run(['open', `http://localhost:${r.port}`])} />
-                  {armed === r.pid ? (
-                    <>
-                      <Button key={`dev-stop-yes-${r.key}`} label="Stop it" variant="primary" onPress={() => stopServer($, r.pid, r.port)} />
-                      <Button key={`dev-stop-no-${r.key}`} plain dimColor label="Keep" onPress={() => update($, stopArmedAtom, () => null)} />
-                    </>
-                  ) : (
-                    <Button key={`dev-stop-${r.key}`} plain label="Stop" onPress={() => update($, stopArmedAtom, () => r.pid)} />
-                  )}
+                  <Button key={`dev-open-${r.key}`} variant="secondary" label="Open" onPress={() => $.process.run(['open', `http://localhost:${r.port}`])} />
+                  <Button
+                    key={`dev-stop-${r.key}`}
+                    variant="secondary"
+                    onPress={() => (armed === r.pid ? stopServer($, r.pid, r.port) : update($, stopArmedAtom, () => r.pid))}
+                  >
+                    <Text color={armed === r.pid ? C.amber : undefined}>{armed === r.pid ? 'Confirm stop' : 'Stop'}</Text>
+                  </Button>
                 </Box>
               </Box>
-              <Text dimColor wrap="truncate-end">
-                {r.folder}
-              </Text>
-              <Text dimColor wrap="truncate-middle">
-                $ {r.command}
+              <Text dimColor size="footnote" wrap="truncate-middle">
+                {r.folder} · $ {r.command}
               </Text>
             </Box>
           ))}
@@ -735,56 +772,66 @@ export const register: Register = on => {
     }
 
     // Throttle's controls. A press writes this panel's own ask; throttle applies it at once and
-    // before the next model request, mid-run included.
+    // before the next model request, mid-run included. Keys 1-4 pick a preset while the pane has focus.
     const throttleBody = (c: Card) => {
       const set = s.throttle?.setting ?? null
+      const lk = lookOf(c)
       const ask = (change: Omit<ThrottleAsk, 'at'>) => async () => {
         const at = await $.clock.now()
         await update($, throttleAskAtom, () => ({ ...change, at }))
       }
-      // the chosen value is filled; the rest stay plain
-      const pick = (isOn: boolean) => (isOn ? { variant: 'primary' as const } : { plain: true as const })
-      const row = (label: string, field: 'model' | 'effort' | 'subagentModel', values: string[]) => (
-        <Box key={`th-${field}`} flexDirection="row" gap={1} alignItems="center">
-          <Box width={10}>
-            <Text dimColor>{label}</Text>
-          </Box>
-          <Button key={`th-${field}-default`} label="default" {...pick((set?.[field] ?? null) === null)} onPress={ask({ [field]: null })} />
+      const label = (t: string) => (
+        <Box width={11}>
+          <Text dimColor size="footnote">
+            {t}
+          </Text>
+        </Box>
+      )
+      // the chosen value is filled; the rest stay plain text
+      const pick = (isOn: boolean) => (isOn ? { variant: 'primary' as const } : { plain: true as const, dimColor: true })
+      const row = (name: string, field: 'model' | 'effort' | 'subagentModel', values: string[]) => (
+        <Box key={`th-${field}`} flexDirection="row" gap={1} alignItems="center" flexWrap="wrap">
+          {label(name)}
           {values.map(v => (
             <Button key={`th-${field}-${v}`} label={v} {...pick(set?.[field] === v)} onPress={ask({ [field]: v })} />
           ))}
+          <Button key={`th-${field}-default`} label="default" {...pick((set?.[field] ?? null) === null)} onPress={ask({ [field]: null })} />
         </Box>
       )
       return (
-        <Box key="th-body" flexDirection="column" gap={1}>
-          <Box key="th-presets" flexDirection="row" gap={1}>
-            {(['saver', 'normal', 'deep', 'max'] as const).map(p => (
-              <Button
-                key={`th-preset-${p}`}
-                label={`${p[0]?.toUpperCase()}${p.slice(1)}`}
-                variant={(set?.preset ?? 'normal') === p ? 'primary' : undefined}
-                onPress={ask({ preset: p === 'normal' ? null : p })}
-              />
-            ))}
+        <Box key="th-body" flexDirection="column" gap={tight}>
+          <Box key="th-presets" flexDirection="row" justifyContent="space-between" alignItems="center">
+            <Box flexDirection="row" gap={1} alignItems="center">
+              {label('Preset')}
+              {(['saver', 'normal', 'deep', 'max'] as const).map((p, i) => (
+                <Button
+                  key={`th-preset-${p}`}
+                  label={p}
+                  hotkey={String(i + 1)}
+                  variant={(set?.preset ?? 'normal') === p ? 'primary' : 'secondary'}
+                  onPress={ask({ preset: p === 'normal' ? null : p })}
+                />
+              ))}
+            </Box>
+            <Text dimColor size="footnote">
+              keys 1-4
+            </Text>
           </Box>
           {row('Model', 'model', ['haiku', 'sonnet', 'opus'])}
           {row('Effort', 'effort', ['low', 'medium', 'high', 'xhigh', 'max'])}
           {row('Subagents', 'subagentModel', ['haiku', 'sonnet', 'opus'])}
-          {genericBody({ ...c, details: c.details.filter(([k]) => k === 'Last request') })}
-          <Text dimColor size="caption">
-            Applies at the next model request, mid-run included. During a recipe run it only raises.
-          </Text>
+          {lk.note && (
+            <Text dimColor size="footnote">
+              ▸ {lk.note}
+            </Text>
+          )}
         </Box>
       )
     }
 
-    const genericBody = (c: Card) =>
-      c.details.length === 0 ? (
-        <Text key={`${c.name}-body`} dimColor>
-          Nothing more to show yet.
-        </Text>
-      ) : (
-        <Box key={`${c.name}-body`} flexDirection="column">
+    const genericRows = (c: Card) =>
+      c.details.length === 0 ? null : (
+        <Box key={`${c.name}-rows`} flexDirection="column">
           {c.details.map(([k, val]) => (
             <Box key={`${c.name}-d-${k}`} flexDirection="row" justifyContent="space-between" gap={2}>
               <Text dimColor>{k}</Text>
@@ -794,56 +841,150 @@ export const register: Register = on => {
         </Box>
       )
 
-    const card = (c: Card) => {
-      const isOn = c.power === 'on'
+    const genericBody = (c: Card) =>
+      genericRows(c) ?? (
+        <Text key={`${c.name}-body`} dimColor>
+          Nothing more to show yet.
+        </Text>
+      )
+
+    const bodyOf = (c: Card, lk: Look) =>
+      c.name === 'recipe-run'
+        ? recipeBody()
+        : c.name === 'burn-meter'
+          ? burnBody(c, lk.section === 'look')
+          : c.name === 'traffic-control'
+            ? trafficBody()
+            : c.name === 'dev-servers'
+              ? devBody(c)
+              : c.name === 'throttle'
+                ? throttleBody(c)
+                : genericBody(c)
+
+    // ---- a card: coloured top bar, row 1 (pill, name, chevron | key number, On), row 2 status,
+    // then the open detail under a hairline. Row 1 is always first.
+
+    const card = (c: Card, width?: string) => {
+      const lk = lookOf(c)
       const isOpen = open.has(c.name)
-      const dot = !isOn ? '○' : '●'
-      const dotColor = !isOn ? undefined : c.isWarn ? ACCENT : c.isActive ? 'text' : undefined
-      const switchLabel = c.power === 'missing' ? null : (c.pending ?? isOn) ? 'On' : 'Off'
+      const color = SECTION_COLOR[lk.section]
+      const hasBars = c.name === 'burn-meter' && lk.section === 'look'
       return (
-        <Box key={`card-${c.name}`} flexDirection="column" borderStyle="round" borderColor={c.isWarn ? ACCENT : 'subtle'} paddingX={1}>
-          <Box flexDirection="row" alignItems="center" gap={1}>
-            <Text color={dotColor} dimColor={!isOn || (!c.isWarn && !c.isActive)}>
-              {dot}
-            </Text>
-            <Box flexDirection="column" flexGrow={1} flexShrink={1}>
-              <Button key={`expand-${c.name}`} plain dimColor={!isOn} label={`${c.name} ${isOpen ? '⌄' : '›'}`} onPress={() => setOpen(c.name)} />
-              <Text color={isOn && c.isWarn ? ACCENT : undefined} dimColor={!(isOn && c.isWarn)} wrap="truncate-end" tabular>
-                {c.status}
-              </Text>
+        <Box
+          key={`card-${c.name}`}
+          flexDirection="column"
+          width={width}
+          flexGrow={width ? 1 : undefined}
+          flexShrink={width ? 1 : undefined}
+          borderStyle="round"
+          borderColor={isGui ? C.line : lk.section === 'idle' ? 'subtle' : color}
+          backgroundColor={gui(C.card)}
+          paddingX={1}
+          gap={tight}
+        >
+          {Svg && (
+            <Box position="absolute" top={0} left={1} right={1}>
+              <Svg source={barSvg(color, 4, 2)} alt="" height={4} />
             </Box>
-            {switchLabel && (
-              <Button key={`switch-${c.name}`} label={switchLabel} variant={switchLabel === 'On' ? 'primary' : undefined} onPress={() => toggle($, c)} />
-            )}
+          )}
+          <Box flexDirection="row" justifyContent="space-between" alignItems="center" gap={1}>
+            <Box flexDirection="row" alignItems="center" gap={1} flexShrink={1}>
+              {lk.pill && pill(lk.pill)}
+              {nameButton(c, isOpen)}
+            </Box>
+            <Box flexDirection="row" alignItems="center" gap={1}>
+              {lk.key && (
+                <Text bold tabular color={lk.key.isHot ? C.amber : undefined}>
+                  {lk.key.text}
+                </Text>
+              )}
+              {onButton(c)}
+            </Box>
           </Box>
+          {hasBars ? (
+            burnBars()
+          ) : (
+            <Text color={gui(C.dim)} dimColor={!isGui} wrap="truncate-end" tabular>
+              {lk.status}
+            </Text>
+          )}
           {isOpen && (
-            <Box flexDirection="column" marginTop={1}>
-              {!isOn
-                ? genericBody(c)
-                : c.name === 'recipe-run'
-                  ? recipeBody()
-                  : c.name === 'burn-meter'
-                    ? burnBody(c)
-                    : c.name === 'traffic-control'
-                      ? trafficBody()
-                      : c.name === 'dev-servers'
-                        ? devBody(c)
-                        : c.name === 'throttle'
-                          ? throttleBody(c)
-                          : genericBody(c)}
+            <Box key={`open-${c.name}`} flexDirection="column" gap={tight} marginTop={isGui ? 0 : 1}>
+              {hairline(`hr-${c.name}`)}
+              {bodyOf(c, lk)}
             </Box>
           )}
         </Box>
       )
     }
 
+    // Off: a Turn on chip and one line. Not installed: the install command under the name.
+    const offRow = (c: Card) =>
+      c.power === 'missing' ? (
+        <Box key={`off-${c.name}`} flexDirection="row" gap={1} alignItems="flex-start">
+          <Box borderStyle="round" borderColor={C.missing} paddingX={1}>
+            <Text dimColor size="caption">
+              Not installed
+            </Text>
+          </Box>
+          <Box flexDirection="column" flexShrink={1}>
+            <Text weight="semibold" bold={!isGui}>
+              {c.name}
+            </Text>
+            <Text mono size="footnote" backgroundColor={gui(C.inset)} wrap="truncate-end">
+              {` /plugin install ${c.name} --marketplace travist6983/agent-kit `}
+            </Text>
+          </Box>
+        </Box>
+      ) : (
+        <Box key={`off-${c.name}`} flexDirection="row" gap={1} alignItems="center">
+          <Button key={`switch-${c.name}`} variant="secondary" label={c.pending === true ? 'Undo' : 'Turn on'} onPress={() => toggle($, c)} />
+          <Text wrap="truncate-end">
+            <Text weight="semibold" bold={!isGui}>
+              {c.name}
+            </Text>
+            <Text dimColor> · {c.status}</Text>
+          </Text>
+        </Box>
+      )
+
+    // Idle cards go two up when there is room; an open one takes the full width below them.
+    const idleGrid = (items: Card[]) => {
+      const shut = items.filter(c => !open.has(c.name))
+      const opened = items.filter(c => open.has(c.name))
+      const isTwoUp = cols >= 64
+      const pairs: Card[][] = []
+      for (let i = 0; i < shut.length; i += isTwoUp ? 2 : 1) pairs.push(shut.slice(i, i + (isTwoUp ? 2 : 1)))
+      return [
+        ...pairs.map(pair => (
+          <Box key={`idle-${pair[0]?.name}`} flexDirection="row" gap={1}>
+            {pair.map(c => card(c, isTwoUp ? '50%' : undefined))}
+            {isTwoUp && pair.length === 1 && <Box key="idle-pad" width="50%" flexGrow={1} />}
+          </Box>
+        )),
+        ...opened.map(c => card(c)),
+      ]
+    }
+
+    const sections = SECTIONS.map(sec => {
+      const items = list.filter(c => lookOf(c).section === sec)
+      if (items.length === 0) return null
+      return (
+        <Box key={`sec-${sec}`} flexDirection="column" gap={isGui ? 'sm' : 0}>
+          <Text bold color={SECTION_COLOR[sec]}>
+            {SECTION_TITLE[sec]} <Text dimColor>{items.length}</Text>
+          </Text>
+          {sec === 'off' ? items.map(offRow) : sec === 'idle' ? idleGrid(items) : items.map(c => card(c))}
+        </Box>
+      )
+    })
+
     return (
-      <Box flexDirection="column" gap={1}>
+      <Box flexDirection="column" gap={1} backgroundColor={gui(C.pane)} paddingX={isGui ? 2 : 0} paddingY={isGui ? 1 : 0}>
         {header}
         {strip}
-        {list.map(card)}
+        {sections}
       </Box>
     )
   })
 }
-

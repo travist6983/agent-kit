@@ -1,12 +1,16 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { Elements, EngineInterface, Register, RenderChildren } from 'claude-code'
 
 import type { RecipeEntry, Server } from '../types'
+import { C, PILL, SECTION_COLOR, barSvg } from './chrome'
+import type { Pill, Section } from './chrome'
 
 const PANE = 'dev-servers'
 const servers = atom({ plugin: 'dev-servers', key: 'servers' } as const, [])
 const rootAtom = atom({ plugin: 'dev-servers', key: 'root' } as const, null)
 const recipeAtom = atom({ plugin: 'dev-servers', key: 'recipe' } as const, [])
+const scannedAtom = atom({ plugin: 'dev-servers', key: 'scannedAt' } as const, null)
+const stopArmedAtom = atom({ plugin: 'dev-servers', key: 'stopArmed' } as const, null)
 
 const DEV_PROCESS = /^(node|python[\d.]*|Python|uvicorn|gunicorn|hypercorn|deno|bun|ruby|rails|workerd|esbuild|php|java|go|vite|next-server|wrangler|flask|fastapi)$/i
 const recipeKey = (root: string) => `recipe:${root}`
@@ -128,9 +132,19 @@ async function refresh($: EngineInterface) {
   await update($, servers, () => list)
   await update($, rootAtom, () => root)
   await update($, recipeAtom, () => recipe)
+  const at = await $.clock.now()
+  await update($, scannedAtom, () => at)
   const mine = list.filter(s => s.cwd.startsWith(root))
   $.ui.status(mine.length > 0 ? `dev: ${mine.map(s => `:${s.port}`).join(' ')}` : undefined)
   return { root, list, recipe }
+}
+
+function clockTime(at: number) {
+  try {
+    return new Date(at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  } catch {
+    return ''
+  }
 }
 
 function shortPath(path: string) {
@@ -258,47 +272,268 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // ---- the pane
+
+  // Header, three stat tiles, then sections: this project (live blue while anything answers,
+  // the off colour when its recipe is down), other projects (live blue, a card each) and the
+  // recipe entries that are not running (off). The terminal keeps the layout in plain text:
+  // no SVG and no background colours.
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Button, Text } = $.ui.resolve(e)
+    const els = $.ui.resolve(e)
+    const { Box, Button, Text } = els
+    const isGui = e.surface !== 'terminal'
+    const Svg = isGui ? ((els as Partial<Elements['desktop']>).Svg ?? undefined) : undefined
+    const gui = <T,>(v: T) => (isGui ? v : undefined)
+    const tight = isGui ? ('xs' as const) : 0
+
     const list = await read($, servers)
     const root = (await read($, rootAtom)) ?? ''
     const recipe = await read($, recipeAtom)
+    const scannedAt = await read($, scannedAtom)
+    const armed = await read($, stopArmedAtom)
     const running = new Set(list.map(s => s.port))
     const mine = list.filter(s => s.cwd.startsWith(root))
     const others = list.filter(s => !s.cwd.startsWith(root))
     const missing = recipe.filter(r => !running.has(r.port))
+    const recipeUp = recipe.length - missing.length
 
-    const row = (s: Server) => (
-      <Box key={`s${s.pid}-${s.port}`}>
-        <Text color="green">● </Text>
-        <Text>http://localhost:{s.port} </Text>
-        <Text dimColor>
-          {s.tool ?? s.process}
-          {s.project ? ` in ${s.project}` : ''} · {shortPath(s.cwd)} · {s.age}{' '}
+    // other projects, a card each, in port order of their first server
+    const groups = new Map<string, Server[]>()
+    for (const s of others) {
+      const name = s.project ?? shortPath(s.cwd)
+      groups.set(name, [...(groups.get(name) ?? []), s])
+    }
+
+    const header = (
+      <Box key="head" flexDirection="row" justifyContent="space-between" alignItems="center">
+        <Text>
+          <Text bold size="heading">
+            Dev servers
+          </Text>
+          <Text dimColor> {shortPath(root) || 'this project'}</Text>
         </Text>
-        <Button key={`open${s.port}`} label="Open" plain onPress={() => void $.process.run(['open', `http://localhost:${s.port}`])} />
-        <Text> </Text>
-        <Button key={`stop${s.port}`} label="Stop" plain onPress={() => void stopPorts($, [s.port]).then(() => refresh($))} />
+        <Box flexDirection="row" gap={1} alignItems="center">
+          {scannedAt !== null && (
+            <Text dimColor size="footnote">
+              ↻ {clockTime(scannedAt)}
+            </Text>
+          )}
+          <Button key="refresh" variant="secondary" hotkey="r" label="Refresh" onPress={() => void refresh($)} />
+          <Button key="close" role="dismiss" plain dimColor label="✕" onPress={() => $.ui.close({ id: PANE })} />
+        </Box>
       </Box>
     )
 
-    return (
-      <Box flexDirection="column">
-        <Box>
-          <Text bold>{shortPath(root) || 'this project'} </Text>
-          <Button key="up" label="Up" variant="primary" onPress={() => void up($).then(text => $.ui.toast(text, { timeoutMs: 8000 }))} />
-          <Button key="bounce" label="Bounce" onPress={() => void bounce($).then(text => $.ui.toast(text, { timeoutMs: 8000 }))} />
-        </Box>
-        {mine.length === 0 && <Text dimColor>Nothing running here.</Text>}
-        {mine.map(row)}
-        {missing.map(r => (
-          <Text key={`miss${r.port}`} color="red">
-            ○ {r.name} :{r.port} is down
+    const tile = (k: string, label: string, value: RenderChildren) => (
+      <Box key={k} flexDirection="column" width="33%" flexGrow={1} flexShrink={1} borderStyle="round" borderColor={C.line} backgroundColor={gui(C.card)} paddingX={1}>
+        <Text dimColor size="caption">
+          {label}
+        </Text>
+        {value}
+      </Box>
+    )
+
+    const strip = (
+      <Box key="strip" flexDirection="row" gap={1}>
+        {tile(
+          'tile-here',
+          'Running here',
+          <Text bold size="title" tabular>
+            <Text color={mine.length > 0 ? C.blue : undefined} dimColor={mine.length === 0}>
+              {String(mine.length)}
+            </Text>
+            {recipe.length > 0 && <Text dimColor>/{recipe.length}</Text>}
+          </Text>,
+        )}
+        {tile(
+          'tile-stopped',
+          'Stopped',
+          <Text bold size="title" tabular color={missing.length > 0 ? SECTION_COLOR.off : undefined} dimColor={missing.length === 0}>
+            {String(missing.length)}
+          </Text>,
+        )}
+        {tile(
+          'tile-others',
+          'Other projects',
+          <Text bold size="title" tabular dimColor={others.length === 0}>
+            {String(others.length)}
+          </Text>,
+        )}
+      </Box>
+    )
+
+    // ---- small parts
+
+    const pill = (p: Pill) => (
+      <Text bold size="caption" color={PILL[p.tone].fg} backgroundColor={gui(PILL[p.tone].bg)}>
+        {` ${p.text.toUpperCase()} `}
+      </Text>
+    )
+
+    const hairline = (k: string) => (Svg ? <Svg key={k} source={barSvg(C.divider, 1)} alt="" height={1} /> : null)
+
+    const sectionHead = (sec: Section, title: string, count: number) => (
+      <Text bold color={SECTION_COLOR[sec]}>
+        {title} <Text dimColor>{count}</Text>
+      </Text>
+    )
+
+    // Stop asks once: the first press arms it ("Confirm stop" in amber), the second stops.
+    const stop = async (port: number) => {
+      if (armed !== port) return update($, stopArmedAtom, () => port)
+      await update($, stopArmedAtom, () => null)
+      await stopPorts($, [port])
+      await refresh($)
+    }
+
+    const row = (s: Server) => (
+      <Box key={`s${s.pid}-${s.port}`} flexDirection="column" backgroundColor={gui(C.inset)} paddingX={1}>
+        <Box flexDirection="row" justifyContent="space-between" alignItems="center" gap={1}>
+          <Text wrap="truncate-end" tabular>
+            <Text weight="semibold" bold={!isGui}>
+              {s.tool ?? s.process}
+            </Text>
+            <Text dimColor>{s.project ? ` in ${s.project}` : ''}</Text>
+            <Text color={C.blue}> :{s.port}</Text>
+            {s.age !== '' && <Text dimColor> {s.age}</Text>}
           </Text>
-        ))}
-        {recipe.length === 0 && <Text dimColor>No recipe saved. /up asks Claude to start everything and save one.</Text>}
-        {others.length > 0 && <Text bold>Other projects</Text>}
-        {others.map(row)}
+          <Box flexDirection="row" gap={1}>
+            <Button key={`open${s.port}`} variant="secondary" label="Open" onPress={() => void $.process.run(['open', `http://localhost:${s.port}`])} />
+            <Button key={`stop${s.port}`} variant="secondary" onPress={() => void stop(s.port)}>
+              <Text color={armed === s.port ? C.amber : undefined}>{armed === s.port ? 'Confirm stop' : 'Stop'}</Text>
+            </Button>
+          </Box>
+        </Box>
+        <Text dimColor size="footnote" wrap="truncate-middle">
+          http://localhost:{s.port} · {shortPath(s.cwd)}
+        </Text>
+      </Box>
+    )
+
+    // A card: coloured top bar, row 1 (pill, name | key number, actions), row 2 dim status,
+    // then the rows under a hairline.
+    const card = (k: string, sec: Section, p: Pill | null, name: string, keyText: string | null, actions: RenderChildren, status: string, body: RenderChildren) => {
+      const color = SECTION_COLOR[sec]
+      return (
+        <Box
+          key={`card-${k}`}
+          flexDirection="column"
+          borderStyle="round"
+          borderColor={isGui ? C.line : sec === 'idle' ? 'subtle' : color}
+          backgroundColor={gui(C.card)}
+          paddingX={1}
+          gap={tight}
+        >
+          {Svg && (
+            <Box position="absolute" top={0} left={1} right={1}>
+              <Svg source={barSvg(color, 4, 2)} alt="" height={4} />
+            </Box>
+          )}
+          <Box flexDirection="row" justifyContent="space-between" alignItems="center" gap={1}>
+            <Box flexDirection="row" alignItems="center" gap={1} flexShrink={1}>
+              {p && pill(p)}
+              <Text bold color={gui(C.name)} wrap="truncate-end">
+                {name}
+              </Text>
+            </Box>
+            <Box flexDirection="row" alignItems="center" gap={1}>
+              {keyText !== null && (
+                <Text bold tabular>
+                  {keyText}
+                </Text>
+              )}
+              {actions}
+            </Box>
+          </Box>
+          <Text color={gui(C.dim)} dimColor={!isGui} wrap="truncate-end" tabular>
+            {status}
+          </Text>
+          {body !== null && (
+            <Box key={`open-${k}`} flexDirection="column" gap={tight} marginTop={isGui ? 0 : 1}>
+              {hairline(`hr-${k}`)}
+              {body}
+            </Box>
+          )}
+        </Box>
+      )
+    }
+
+    // ---- this project
+
+    const hereSection: Section = mine.length > 0 ? 'live' : missing.length > 0 ? 'off' : 'idle'
+    const herePill: Pill | null =
+      missing.length > 0 && mine.length === 0 ? { text: 'down', tone: 'warn' } : missing.length > 0 ? { text: `${missing.length} down`, tone: 'attn' } : mine.length > 0 ? { text: 'live', tone: 'live' } : null
+    const hereStatus =
+      mine.length === 0
+        ? 'Nothing running here.'
+        : `${mine.length} listening${missing.length > 0 ? ` · ${missing.length} stopped` : ''}`
+    const here = card(
+      'here',
+      hereSection,
+      herePill,
+      shortPath(root) || 'this project',
+      recipe.length > 0 ? `${recipeUp}/${recipe.length}` : null,
+      <Box flexDirection="row" gap={1}>
+        <Button key="up" label="Up" variant="primary" onPress={() => void up($).then(text => $.ui.toast(text, { timeoutMs: 8000 }))} />
+        <Button key="bounce" label="Bounce" variant="secondary" onPress={() => void bounce($).then(text => $.ui.toast(text, { timeoutMs: 8000 }))} />
+      </Box>,
+      hereStatus,
+      mine.length > 0 || recipe.length === 0 ? (
+        <Box key="here-rows" flexDirection="column" gap={tight}>
+          {mine.map(row)}
+          {recipe.length === 0 && <Text dimColor>No recipe saved. /up asks Claude to start everything and save one.</Text>}
+        </Box>
+      ) : null,
+    )
+
+    const sections = [
+      <Box key="sec-here" flexDirection="column" gap={isGui ? 'sm' : 0}>
+        {sectionHead(hereSection, 'This project', mine.length)}
+        {here}
+      </Box>,
+      groups.size > 0 && (
+        <Box key="sec-others" flexDirection="column" gap={isGui ? 'sm' : 0}>
+          {sectionHead('live', 'Other projects', others.length)}
+          {[...groups].map(([name, rows]) =>
+            card(
+              `p-${name}`,
+              'live',
+              { text: 'live', tone: 'live' },
+              name,
+              String(rows.length),
+              null,
+              rows.map(s => `:${s.port}`).join(' '),
+              <Box key={`rows-${name}`} flexDirection="column" gap={tight}>
+                {rows.map(row)}
+              </Box>,
+            ),
+          )}
+        </Box>
+      ),
+      missing.length > 0 && (
+        <Box key="sec-stopped" flexDirection="column" gap={isGui ? 'sm' : 0}>
+          {sectionHead('off', 'Stopped', missing.length)}
+          {missing.map(r => (
+            <Box key={`miss${r.port}`} flexDirection="row" justifyContent="space-between" backgroundColor={gui(C.inset)} paddingX={1}>
+              <Text wrap="truncate-end" tabular>
+                <Text color={SECTION_COLOR.off}>○ </Text>
+                <Text weight="semibold" bold={!isGui}>
+                  {r.name}
+                </Text>
+                <Text color={C.blue}> :{r.port}</Text>
+                <Text dimColor> is down</Text>
+              </Text>
+            </Box>
+          ))}
+        </Box>
+      ),
+    ]
+
+    return (
+      <Box flexDirection="column" gap={1} backgroundColor={gui(C.pane)} paddingX={isGui ? 2 : 0} paddingY={isGui ? 1 : 0}>
+        {header}
+        {strip}
+        {sections}
       </Box>
     )
   })

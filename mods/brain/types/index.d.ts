@@ -35,6 +35,7 @@ declare module 'claude-code' {
       review: Lesson[]
       active: Lesson[]
       tab: 'recalled' | 'review' | 'lessons'
+      forgetArmed: number | null
     }
   }
 }

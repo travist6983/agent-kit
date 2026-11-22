@@ -173,46 +173,21 @@ test('/mods band off persists and hands the row back to recipe-run', async ($, o
   expect(open.text).toBe('Mods panel open: 2 of 9 mods on, 1 blocking questions, $3.18 this session.')
 })
 
-test('glass is on by default, stays off once turned off, and comes back on with /mods glass on', async ($, on) => {
-  const kit = fakeKit(on)
-  const looks: unknown[] = []
-  let cleared = 0
-  on('theme.set', (_, e) => {
-    looks.push(e)
-    return { value: { isDrawn: true as const, requestId: 'backdrop-1' } }
-  })
-  on('theme.clear', () => {
-    cleared += 1
-    return { value: { isDrawn: false as const, reason: 'cleared' } }
-  })
-  const cmd = (args: string) => $.command.run({ command: 'mods', args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } })
-
-  // A first session with nothing saved: the look is set as the mod loads.
+test('the desktop app draws the sections, the coloured card bars and the burn meter blocks', async ($, on) => {
+  fakeKit(on)
   await $.session.start({ cwd: '/repo', surface: 'desktop', isInteractive: true })
-  expect(looks).toHaveLength(1)
-  expect(looks[0]).toMatchObject({ backdrop: { scene: 'mods-glass', glass: { blur: 28, opacity: 0.55 } }, overrideColorScheme: 'dark' })
-
-  const offText = await cmd('glass off')
-  expect(offText.text).toContain('Mods glass off')
-  expect(cleared).toBe(1)
-  expect(kit.store.get('isGlassOn')).toBe(false)
-
-  // Off is remembered: the next session sets no look.
-  await $.session.start({ cwd: '/repo', surface: 'desktop', isInteractive: true })
-  expect(looks).toHaveLength(1)
-
-  const onText = await cmd('glass on')
-  expect(onText.text).toContain('Mods glass on')
-  expect(looks).toHaveLength(2)
-  expect(kit.store.get('isGlassOn')).toBe(true)
+  const desk = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await desk.find({ type: 'Svg' })).toBeTruthy()
+  expect(await desk.find({ type: 'Text', text: /^Needs a look/ })).toBeTruthy()
+  expect(await desk.find({ type: 'Text', text: /^Off or not installed/ })).toBeTruthy()
+  await desk.unmount()
 })
 
-test('the glass backdrop draws its scene in the desktop app', async ($, on) => {
+test('/mods glass is gone', async ($, on) => {
   fakeKit(on)
-  const BACKDROP = { plugin: 'mods-panel', component: 'Backdrop', requestId: 'backdrop-1', props: { scene: 'mods-glass', plugin: 'mods-panel', glass: { blur: 28, tint: '#16161c', opacity: 0.55 } } } as const
-  const desk = await $.ui.mount({ ...BACKDROP, surface: 'desktop' })
-  expect(await desk.find({ type: 'Svg' })).toBeTruthy()
-  await desk.unmount()
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  const r = await $.command.run({ command: 'mods', args: 'glass on', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } } as never)
+  expect(r.text).toBe('Usage: /mods, /mods band on|off')
 })
 
 test('the dev-servers card names the app and folder, and Stop asks once before it kills', async ($, on) => {
@@ -221,17 +196,18 @@ test('the dev-servers card names the app and folder, and Stop asks once before i
   kit.listening.set(82373, 5173)
   await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
 
+  // live cards with controls start open
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  await ui.press({ key: 'expand-dev-servers' })
-  expect(await ui.find({ type: 'Text', text: /vite in pm-tool-web/ })).toBeTruthy()
-  expect(await ui.find({ type: 'Text', text: /^~\/repos\/pm-tool\/web$/ })).toBeTruthy()
-  expect(await ui.find({ type: 'Text', text: /\$ ~\/repos\/web\/node_modules\/\.bin\/vite --port 5173/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /1 RUNNING/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /^vite$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /pm-tool-web/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /~\/repos\/pm-tool\/web · \$ ~\/repos\/web\/node_modules\/\.bin\/vite --port 5173/ })).toBeTruthy()
 
+  // the same button asks once, then stops
   await ui.press({ key: 'dev-stop-82373-5173' })
   expect(kit.runs.some(a => a[0] === 'kill')).toBe(false)
-  await ui.press({ key: 'dev-stop-no-82373-5173' })
+  expect(await ui.find({ type: 'Text', text: /^Confirm stop$/ })).toBeTruthy()
   await ui.press({ key: 'dev-stop-82373-5173' })
-  await ui.press({ key: 'dev-stop-yes-82373-5173' })
   expect(kit.runs).toContainEqual(['kill', '82373'])
   expect(kit.runs).not.toContainEqual(['kill', '-9', '82373'])
   expect(await ui.find({ type: 'Text', text: /No dev servers are listening/ })).toBeTruthy()
@@ -245,14 +221,14 @@ test('the throttle card shows the setting and a press asks throttle for the chan
   await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await ui.find({ type: 'Text', text: /Session defaults · opus · high/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /^session defaults$/ })).toBeTruthy()
   await ui.press({ key: 'expand-throttle' })
-  expect(await ui.find({ type: 'Text', text: /opus · high · 1m ago/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /Last request: opus · high/ })).toBeTruthy()
   await ui.press({ key: 'th-preset-deep' })
-  expect(await ui.find({ type: 'Text', text: /^Applying deep…$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /Applying deep …/ })).toBeTruthy()
   await ui.press({ key: 'th-effort-max' })
-  expect(await ui.find({ type: 'Text', text: /^Applying effort max…$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /Applying effort max …/ })).toBeTruthy()
   await ui.press({ key: 'th-subagentModel-default' })
-  expect(await ui.find({ type: 'Text', text: /^Applying subagents default…$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /Applying subagents default …/ })).toBeTruthy()
   await ui.unmount()
 })
