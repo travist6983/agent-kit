@@ -1,0 +1,12 @@
+{
+  "deny": {
+    "names": ["Example Employer Inc", "Example Client Co", "example-person-name"],
+    "products": ["example-product-name"],
+    "domains": ["example-employer.com", "example-client.com"],
+    "repos": ["example-client-repo"],
+    "paths": ["/Users/your-name/work"],
+    "words": ["example-industry-word"]
+  },
+  "allow_urls": ["your-site.example"],
+  "safe_repos": ["your-own-repo"]
+}
