@@ -85,3 +85,6 @@ node_modules/
 
 # Claude Code writes API types beside a mod it loads from a folder
 mods/*/.claude-plugin/types/
+
+# build-log keeps its notes, shots and drafts outside the repo; this catches BUILD_LOG_HOME pointed inside one.
+.build-log/
