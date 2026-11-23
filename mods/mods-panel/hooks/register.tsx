@@ -948,7 +948,7 @@ export const register: Register = on => {
         </Box>
       )
 
-    // Idle cards go two up when there is room; an open one takes the full width below them.
+    // Idle cards go two up when there is room; an open one takes the full width above them.
     const idleGrid = (items: Card[]) => {
       const shut = items.filter(c => !open.has(c.name))
       const opened = items.filter(c => open.has(c.name))
@@ -956,13 +956,13 @@ export const register: Register = on => {
       const pairs: Card[][] = []
       for (let i = 0; i < shut.length; i += isTwoUp ? 2 : 1) pairs.push(shut.slice(i, i + (isTwoUp ? 2 : 1)))
       return [
+        ...opened.map(c => card(c)),
         ...pairs.map(pair => (
           <Box key={`idle-${pair[0]?.name}`} flexDirection="row" gap={1}>
             {pair.map(c => card(c, isTwoUp ? '50%' : undefined))}
             {isTwoUp && pair.length === 1 && <Box key="idle-pad" width="50%" flexGrow={1} />}
           </Box>
         )),
-        ...opened.map(c => card(c)),
       ]
     }
 
