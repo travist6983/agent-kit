@@ -245,7 +245,8 @@ function recipeStatus(s: Snapshot): Pick<Card, 'status' | 'isWarn' | 'isActive'>
   const run = s.recipe.run
   if (blocking > 0) return { status: `Blocked on you · ${plural(blocking, 'question')}`, isWarn: true, isActive: true }
   if (run === null || !isRecent(run, s.now)) {
-    const idle = run ? `Idle · last run ${run.key} ${ago(s.now, run.updatedAt)}` : 'Idle · no runs yet'
+    // a run with no timestamp (0) gets no age rather than "20780d ago"
+    const idle = run ? `Idle · last run ${run.key}${run.updatedAt > 0 ? ` ${ago(s.now, run.updatedAt)}` : ''}` : 'Idle · no runs yet'
     return { status: open.length > 0 ? `${idle} · ${plural(open.length, 'question')}` : idle, isWarn: false, isActive: false }
   }
   const v = recipeView(run, false)
