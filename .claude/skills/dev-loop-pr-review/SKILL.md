@@ -172,8 +172,9 @@ differs from judging our own loop's diff in ways that decide what gets posted. I
 - **Verify every `file:line` anchor** against the worktree, and verify any count you state as
   fact. The anchor becomes the comment's position; a wrong one taints the finding attached to it.
 
-The bar is `dev-code-review`'s own: **high-signal only, confidence ≥ 80, validated by re-reading
-the code at `file:line`**. On someone else's PR this matters even more — the comment lands on a
+The bar is `dev-code-review`'s own: **high-signal only, confidence ≥ 80 (`review_validation`), and
+confirmed by independent validators at a quorum**; a validator split on a masking or critical
+finding is kept for a human (`needs-human`), never dropped. On someone else's PR this matters even more — the comment lands on a
 colleague's work under the runner's name. When unsure, don't flag. **An approve with no findings is
 a good outcome** — report what you checked and cleared, which is more useful to the author than a
 padded list.

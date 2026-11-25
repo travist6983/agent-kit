@@ -218,8 +218,9 @@ launchctl print gui/$(id -u)/com.loops.pr-review | sed -n '/arguments/,/}/p'
    `paused:true` exits 0 having reviewed nothing.
 5. Checks a `--live` tick's own preconditions **before** taking a lock or calling the model, and
    refuses with exit 25 rather than guess: a seen-ledger must exist (or `--first-run` must say a
-   blank one is intended), and an `author_scope` other than `own` must be re-affirmed on the
-   command line rather than inherited from `loop-limits.json`.
+   blank one is intended), an `author_scope` other than `own` must be re-affirmed on the
+   command line rather than inherited from `loop-limits.json`, and `pr_review_loop.timing` must
+   record a measurement (see *Going live*).
 6. Refuses to start a model call at all once today's **recorded consumption** has reached the
    per-day cap (exit 26) — or once that counter turns out not to be writable (exit 27), since a
    cap that cannot remember what it counted admits every later tick. That cap is a
@@ -352,6 +353,19 @@ with the script at index 1 (the preflight reads `ProgramArguments:1`).
 To widen the scope, add two more elements (`--scope`, `all`) and change
 `pr_review_loop.author_scope` in the same commit.
 
+**Record the tick timing first.** `prs_per_tick` was measured before independent validators and the
+deep review pass existed, so a `--live` tick is refused (exit 25, `reason=timing_unmeasured`) until
+`pr_review_loop.timing` says `measured: true`, names who measured it (`measured_by`) and has
+`samples` at least `timing_min_samples`. Dry-run ticks are not gated; they are how you measure:
+
+```bash
+python3 .claude/skills/dev-loop-pr-review/scripts/measure_ticks.py --log .claude/loops/pr-review.log
+```
+
+It prints the p90 per-PR duration and a proposed `prs_per_tick`, and writes nothing. Edit
+`prs_per_tick` and the `timing` block in `loop-limits.json` by hand, in the same commit as `--live`.
+Until `enough` is true, keep the job dry-run.
+
 Then:
 
 ```bash
@@ -378,11 +392,12 @@ exactly like the loop working. `install.sh --check` counts the `mode: dry-run` e
 when the job is armed live, and `pr_review.sh` prints the list and the `ledger --forget` command
 in the live banner. Re-queue one PR at a time; never delete the ledger.
 
-**A live tick refuses two things outright** (exit 25, before it consumes anything): no seen-ledger
+**A live tick refuses three things outright** (exit 25, before it consumes anything): no seen-ledger
 file without `--first-run` (an absent ledger reads as "no PR has ever been reviewed", so the first
 live tick would re-comment on PRs that already carry loop threads — seed it with
 `pr_feed.py mark --pr <id> --commit <sha> --mode live`), and an `author_scope` other than `own`
-that came from `loop-limits.json` rather than `--scope`.
+that came from `loop-limits.json` rather than `--scope`, and unmeasured tick timing
+(`pr_review_loop.timing`, above).
 
 `dev-pr-feed` independently checks the R9 pause flag and **fails closed** before any live post.
 

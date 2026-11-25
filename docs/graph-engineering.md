@@ -236,6 +236,14 @@ a gate:
 standard defect recipe (review is mandatory only where the recipe or tier says so); a missing
 `verify.json` is never acceptable at any tier.
 
+**A present `review.json` is gated the same way.** `dev-pre-pr/scripts/review_gate.py` blocks one
+that lacks the `validation` or `depth` block or fails `finding_votes.py`, `review_depth.py` or
+`review_brief.py` `check`; with `--require-review` (the two recipes that have a review stage) a
+missing one blocks too. The PR-review loop's posting guard applies the same checks before a
+comment is posted or previewed, and `recipe_router.py` escalates a code-review `request-changes`
+that arrives without `--review-rounds`. Covered by `test_review_gate.sh`,
+`test_pr_review_guard_checks.sh` and `test_recipe_router.sh`.
+
 **A stale verify is never re-run by pre-pr.** Pre-pr has no edit tool, drives no browser, and
 — decisively — a verify it ran itself would not be blind.
 
@@ -346,7 +354,7 @@ at triage, by rule.
 | triage confidence < 70 / < 50 | start at T1 / T2 |
 | `qa-regression` returns `unrelated-break` | escalate immediately — no retry |
 | `dev-code-review` finds R3 masking | fix → stronger model; hard block on ship |
-| the same review finding survives 2 fix cycles | stagnation → escalate (`recipe_router.py --review-rounds`, `failure_class: review-stagnation`; `review_convergence.stagnation_fix_cycles`) |
+| the same review finding survives `review_convergence.stagnation_fix_cycles` fix cycles (2 today) | stagnation → escalate (`recipe_router.py --review-rounds`, `failure_class: review-stagnation`; `review_convergence.stagnation_fix_cycles`) |
 | retries exhausted at the tier cap | escalate |
 | checker flags any convergence input | route by `next_action`; never merge |
 | `dev-fix` returns `blocked-blast-radius` (R6) | **stop** — forced human gate; never a model escalation |

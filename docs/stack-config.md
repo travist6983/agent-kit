@@ -117,7 +117,8 @@ that needs it emits `blocked` with reason `adapter-unavailable:<role>`. The role
 ## `limits_file`
 
 Default `".claude/loops/loop-limits.json"`: the per-loop budget (USD and token caps, R5) and
-per-tier retry caps the recipe router enforces.
+per-tier retry caps the recipe router enforces. Read through the config loader (env override
+`LOOPS_CFG__LIMITS_FILE`) by `recipe_router.py`, `meta_monitor.py`, `dream.sh` and `pr_review.sh`.
 
 ## `models` — which model does which job
 
