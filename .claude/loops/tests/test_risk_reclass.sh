@@ -191,6 +191,45 @@ OUT=$(LOOPS_CFG__PROJECT__DEFAULT_BRANCH="" python3 "$RR" --evid "$E" --repo "$R
 run --base no-such-branch; want_rc "unknown base" 2
 if printf '%s' "$OUT" | python3 -c "import sys,json; assert 'error' in json.load(sys.stdin)" 2>/dev/null; then ok; else bad "exit 2 prints {error}"; fi
 
+# ---- 12b. a PRESENT but malformed seam file fails closed (absent stays optional: case 9) ----------
+# The bug this pins: '{bad' context.json used to read as {} → triage_tier null, tier T1, exit 0 —
+# a silent de-escalation from T2. A malformed intake/fix used to drop a human-gate trigger.
+for which in context intake fix; do
+  for body in '{bad' '[1,2]' ''; do
+    mkrepo; ctx '{"tier":"T2","layer":"BE","likely_files":["api/m1.py"],"gherkin":[{"scenario":"s1"}]}'
+    intake '{"issue_type":"Bug","risk_class":"standard","sensitive":true}'; fixj '{"is_root_cause": false}'
+    touch_src 1; printf '%s' "$body" > "$E/$which.json"; run
+    want_rc "malformed $which.json ($body)" 2
+    if printf '%s' "$OUT" | python3 -c "import sys,json; assert '$which.json' in json.load(sys.stdin)['error']" 2>/dev/null
+    then ok; else bad "malformed $which.json: error does not name the file: $OUT"; fi
+  done
+done
+
+# ---- 12c. --triage-tier is a floor max'd with the seam files, never an override ------------------
+mkrepo; ctx '{"tier":"T0","tier_history":[{"tier":"T2","reason":"scope"}],"layer":"BE","likely_files":["api/m1.py"],"gherkin":[{"scenario":"s1"}]}'
+intake "$BUG"; touch_src 1; run --triage-tier T0
+want "--triage-tier T0 vs history T2" risk.triage_tier T2
+want "--triage-tier T0 vs history T2" risk.tier T2
+mkrepo; ctx "$T0CTX"; intake "$BUG"; touch_src 1; run --triage-tier T2
+want "--triage-tier raises the floor" risk.tier T2
+
+# ---- 12d. no test_path_regex: classified, but the degraded mode is a warning ----------------------
+mkrepo; ctx "$T0CTX"; intake "$BUG"; touch_src 1
+printf 'def test_a():\n    assert 1\n' > "$R/api/tests/test_m.py"
+printf '{"projects": [], "shared_core_globs": [], "blast_radius_denylist_globs": [], "rules": []}' > "$ROOT/conv-norx.json"
+python3 - "$ROOT/stack.json" "$ROOT/stack-norx.json" "$ROOT/conv-norx.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1])); d["stack"]["conventions_file"] = sys.argv[3]
+json.dump(d, open(sys.argv[2], "w"))
+PY
+OUT=$(LOOPS_STACK_CONFIG="$ROOT/stack-norx.json" python3 "$RR" --evid "$E" --repo "$R" 2>/dev/null); RC=$?
+want_rc "no test_path_regex" 0
+if f warnings | grep -q 'tests-weakened trigger cannot fire'; then ok; else bad "no test_path_regex: no degraded-mode warning: $(f warnings)"; fi
+want "no test_path_regex counts tests as source" risk.facts.files 2
+printf '{"test_path_regex": "([", "projects": [], "rules": []}' > "$ROOT/conv-norx.json"
+OUT=$(LOOPS_STACK_CONFIG="$ROOT/stack-norx.json" python3 "$RR" --evid "$E" --repo "$R" 2>/dev/null); RC=$?
+want_rc "invalid test_path_regex" 2
+
 # ---- 13. the emitted block embeds in a contract-valid pre-pr.json ---------------------------------
 mkrepo; ctx "$T0CTX"; intake "$BUG"; touch_src 8; run
 printf '%s' "$OUT" | python3 -c "

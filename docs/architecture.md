@@ -282,7 +282,9 @@ The diff sets the tier a second time: `dev-pre-pr/scripts/risk_reclass.py` re-ru
 independent check that can demand a human anyway, and states `human_approvals_required` in
 `pre-pr.json`, `ship.json` and the PR body. An agent `approve` never counts as one, the count is
 enforced by the host's branch protection rather than the kit, and a tier-up does not re-run
-verification at the higher tier's breadth.
+verification at the higher tier's breadth. A seam file it reads (`context.json`, `intake.json`, `fix.json`) may be absent;
+one that is present but unreadable stops the classification (exit 2) rather than being read as
+empty, because an empty one would drop the triage tier or a human-gate trigger.
 
 **Budget (R5).** The per-loop cap is a number in `.claude/loops/loop-limits.json`
 (`r5_budget.per_loop_usd_cap`, shipped default 15, in whatever unit the runner reports). The

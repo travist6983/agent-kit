@@ -26,8 +26,12 @@ check exit codes:
   0  bound: the commit is exactly the judged content and the verdict is ready|warnings
      (or --no-loop with no pre-pr.json: bound false, reason not-judged — the ticketless draft ship)
   1  abort "readiness-unbound": pre-pr.json missing (in a loop), unreadable, contract-invalid, not
-     ready|warnings, without `judged.change_fingerprint` or `risk.human_approvals_required`, or for
-     another key; abort "stale-readiness": the commit differs from what was judged
+     ready|warnings, without `judged.change_fingerprint` or `risk.human_approvals_required`, or
+     naming another key; abort "stale-readiness": the commit differs from what was judged.
+     A pre-pr.json with NO `key` passes --key on purpose: `key` is optional in contracts/dev-pre-pr.json
+     and dev-pre-pr's report steps never write it; the ticket binding is the evidence path itself
+     (<EVID_ROOT>/<KEY>/pre-pr.json), and the content binding is `judged.change_fingerprint`, which
+     a verdict for another ticket's diff cannot match.
   2  bad usage or git cannot answer — callers treat 2 as an abort too
 --loop is the default (the stricter rule), exactly as verify_gate.py. Stdout is one JSON object.
 `pr_body_block` is markdown for the PR body, used verbatim.

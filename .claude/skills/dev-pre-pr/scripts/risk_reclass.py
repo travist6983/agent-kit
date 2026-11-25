@@ -32,11 +32,20 @@ Usage:
                           [--triage-tier T0|T1|T2] [--changed-file F ...]
   --base    defaults to project.default_branch (stack.config.json)
   --limits  defaults to stack.config `limits_file`, else .claude/loops/loop-limits.json
+  --triage-tier   one more triage floor, max'd with the seam files' tiers — it can raise the
+                  baseline, never lower it below the tier context.json / intake.json record
   --changed-file  replaces the git-derived file list (tests only; tests-weakened is then not read)
+
+Seam files: context.json, intake.json and fix.json are each optional when ABSENT. One that is
+PRESENT but unparseable or not a JSON object is exit 2: silently reading it as {} would drop the
+triage tier (a de-escalation) or a human-gate trigger (sensitive-area, symptom-only-fix).
 
 Exit 0 = classified (escalated or not — an escalation is not a block; there is no exit 1).
 Exit 2 = could not classify: git or merge-base failure, no base, resolve_projects failure, the
-denylist scan could not run, the limits file unreadable or a number invalid, bad usage. Fail closed.
+denylist scan could not run, the limits file unreadable or a number invalid, a present seam file
+unreadable, an invalid conventions test_path_regex, bad usage. Fail closed.
+Degraded but classified (exit 0 + a warning): no conventions test_path_regex — tests-weakened cannot
+fire and test files count as source files (which can only push the tier up).
 Stdout is one JSON object: {"risk": {...}, "warnings": [...]} or {"error": "..."}.
 """
 import argparse
@@ -124,16 +133,21 @@ def read_limits(path):
 
 
 def load_json(path):
-    """An optional seam file: None when absent; an unreadable one is a fact we cannot use."""
-    if not os.path.isfile(path):
-        return None, None
+    """An optional seam file: {} when ABSENT. Present but unreadable or not an object is exit 2 —
+    reading it as {} would silently lose the triage tier or a human-gate trigger (fail closed)."""
+    if not os.path.lexists(path):
+        return {}
     try:
         with open(path) as fh:
             d = json.load(fh)
-        return (d if isinstance(d, dict) else None), (None if isinstance(d, dict) else
-                                                       f"{os.path.basename(path)} is not an object — ignored")
     except Exception as e:  # noqa: BLE001
-        return None, f"{os.path.basename(path)} unreadable ({e.__class__.__name__}) — ignored"
+        raise Unclassifiable(f"{os.path.basename(path)} is present but unreadable "
+                             f"({e.__class__.__name__}: {e}) — the triage tier and human-gate facts "
+                             "it carries cannot be ignored")
+    if not isinstance(d, dict):
+        raise Unclassifiable(f"{os.path.basename(path)} is present but parsed to "
+                             f"{type(d).__name__}, not an object")
+    return d
 
 
 def load_decide():
@@ -217,9 +231,8 @@ def denylist(files):
 
 
 def triage_tier_of(arg, context, intake):
-    if arg:
-        return arg
-    seen = []
+    """The highest tier on record. --triage-tier is one more floor, never an override."""
+    seen = [arg] if arg in RANK else []
     for doc in (context, intake):
         if doc and doc.get("tier") in RANK:
             seen.append(doc["tier"])
@@ -253,11 +266,9 @@ def main():
         factor, by_tier, gate_min = read_limits(a.limits or limits_path(stack))
         base = a.base or default_branch(stack)
         warnings = []
-        context, w1 = load_json(os.path.join(a.evid, "context.json"))
-        intake, w2 = load_json(os.path.join(a.evid, "intake.json"))
-        fix, w3 = load_json(os.path.join(a.evid, "fix.json"))
-        warnings += [w for w in (w1, w2, w3) if w]
-        context, intake, fix = context or {}, intake or {}, fix or {}
+        context = load_json(os.path.join(a.evid, "context.json"))
+        intake = load_json(os.path.join(a.evid, "intake.json"))
+        fix = load_json(os.path.join(a.evid, "fix.json"))
 
         # ---- the diff --------------------------------------------------------------------
         if a.changed_file is not None:
@@ -273,7 +284,16 @@ def main():
             res = resolve_projects(a.repo, base, None)
         changed = [f for f in res["changed_files"] if not ARTIFACT_RE.search(f)]
         conv = conventions(stack) if stack else {}
-        test_rx = re.compile(conv["test_path_regex"]) if conv.get("test_path_regex") else None
+        test_rx = None
+        if conv.get("test_path_regex"):
+            try:
+                test_rx = re.compile(conv["test_path_regex"])
+            except (re.error, TypeError) as e:
+                raise Unclassifiable(f"conventions test_path_regex is invalid: {e}")
+        else:
+            warnings.append("No conventions test_path_regex (stack.config or the conventions file "
+                            "unavailable, or the key unset): the tests-weakened trigger cannot fire "
+                            "and test files are counted as source files.")
         tests = [f for f in changed if test_rx and test_rx.search(f)]
         source = [f for f in changed if f not in tests]
         projects = sorted({p["name"] for p in res.get("projects") or []
