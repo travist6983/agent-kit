@@ -218,7 +218,10 @@ human confirmed have nothing to flag) measure its harmful false-flag rate. `revi
 set of `review.json` files against them with no model call, deterministic and offline; a case with no
 valid review makes the score incomplete rather than vanishing. The bar is declared in
 `loop-limits.json` `reviewer_eval`. Producing the reviews is a separate, model-spending step that
-nothing schedules yet, and no gate reads the score. See
+nothing schedules yet, and no gate reads the score. A prod-regressed run and a missed eval case are
+also `dev-harden` inputs (`collect_misses.py` queues them). dev-harden must state what the reviewer
+lacked (a check, context, an expectation, an instruction, or nothing) before placing a fix
+(DEV-HARDEN-M1), and a human applies it. See
 [`dev-code-review/references/eval-set.md`](../.claude/skills/dev-code-review/references/eval-set.md).
 
 ---

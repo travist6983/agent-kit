@@ -2,19 +2,26 @@
 """Gather harden candidates into one ranked list. Deterministic, zero-LLM, read-only.
 
 A harden candidate is a correction that might deserve a check that fails instead of one more
-line of prose. They arrive from two places, both written by other skills, never by this one:
+line of prose. They arrive by three paths, all written by other skills or scripts, never by this
+one:
 
   1. dev-code-review findings that carry a `harden` block (the reviewer saw a mistake a check
      could catch and drafted the check). Read from <evid_root>/*/review.json.
   2. The harden queue, .claude/loops/harden-queue.jsonl: one JSON object per line, appended by
      qa-dream when a fix lesson recurs, or by a human. Fields: fingerprint, source, ref,
      statement, and optionally band and candidate_rule.
+  3. Review misses, also through the queue: collect_misses.py (this skill's own collector, run
+     with --append) queues each prod-regressed run and each reviewer-eval case the reviewer missed
+     as a line with source `review-miss` and a `miss` block {origin, ref, review_verdict,
+     locations, had, lacked}. A review-miss line without a miss block (origin and ref strings) is
+     listed under `skipped`; the block is passed through on the candidate as `miss`.
 
 Candidates are grouped by fingerprint (the drafted rule's id, else a slug of the statement), so
 the same mistake seen on three tickets is ONE candidate with occurrences=3. A candidate is
-`ready` when it recurred (occurrences >= --min-occurrences, default 2) or a human queued it: one
-diff cannot show that a mistake keeps coming back, and a rule written for a one-off is noise at
-the gate. Fingerprints that already have a decided <evid_root>/harden/<fingerprint>/harden.json
+`ready` when it recurred (occurrences >= --min-occurrences, default 2), a human queued it, or it
+is a review miss: one diff cannot show that a mistake keeps coming back, and a rule written for a
+one-off is noise at the gate. A miss is ready at one occurrence because its evidence is not a
+hunch that needs recurrence: it is a confirmed prod regression or a human-confirmed answer key. Fingerprints that already have a decided <evid_root>/harden/<fingerprint>/harden.json
 are listed under `decided` and left out of `candidates`.
 
 Usage:
@@ -69,10 +76,10 @@ def main():
     root = os.path.abspath(a.evid_root or evid_root_default())
     groups, skipped = {}, []
 
-    def add(fp, source, ref, statement, band, rule, fixtures):
+    def add(fp, source, ref, statement, band, rule, fixtures, miss=None):
         g = groups.setdefault(fp, {"fingerprint": fp, "occurrences": 0, "sources": [], "refs": [],
                                    "statement": statement, "band": band, "candidate_rule": None,
-                                   "fixtures": None, "human": False})
+                                   "fixtures": None, "human": False, "miss": None})
         g["occurrences"] += 1
         if source not in g["sources"]:
             g["sources"].append(source)
@@ -84,6 +91,8 @@ def main():
             g["candidate_rule"] = rule
         if fixtures and not g["fixtures"]:
             g["fixtures"] = fixtures
+        if miss and not g["miss"]:
+            g["miss"] = miss
 
     # 1. review.json harden blocks, one per finding
     for path in sorted(glob.glob(os.path.join(root, "*", "review.json"))):
@@ -123,9 +132,16 @@ def main():
                 if not isinstance(q, dict) or not (q.get("statement") or q.get("candidate_rule")):
                     skipped.append({"file": a.queue, "line": n, "reason": "no statement or candidate_rule"})
                     continue
+                miss = q.get("miss")
+                if q.get("source") == "review-miss" and not (
+                        isinstance(miss, dict) and isinstance(miss.get("origin"), str)
+                        and isinstance(miss.get("ref"), str)):
+                    skipped.append({"file": a.queue, "line": n, "reason": "review-miss without a miss block"})
+                    continue
                 rule = q.get("candidate_rule")
                 fp = slug(q["fingerprint"]) if q.get("fingerprint") else fingerprint(rule, q.get("statement"))
-                add(fp, q.get("source") or "queue", q.get("ref"), q.get("statement", ""), q.get("band"), rule, None)
+                add(fp, q.get("source") or "queue", q.get("ref"), q.get("statement", ""), q.get("band"), rule, None,
+                    miss if isinstance(miss, dict) else None)
 
     # 3. drop what is already decided
     decided, candidates = [], []
@@ -141,7 +157,7 @@ def main():
         if status in DECIDED:
             decided.append({"fingerprint": fp, "status": status, "artifact": hp})
             continue
-        g["ready"] = g["human"] or g["occurrences"] >= a.min_occurrences
+        g["ready"] = g["human"] or "review-miss" in g["sources"] or g["occurrences"] >= a.min_occurrences
         candidates.append(g)
     candidates.sort(key=lambda g: (not g["ready"], -g["occurrences"], g["fingerprint"]))
     print(json.dumps({"ok": True, "evid_root": root, "queue": a.queue,

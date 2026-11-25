@@ -27,7 +27,7 @@ URLs come from the `evidence_store` adapter, and the evidence root is `evidence.
 | `dev-loop-defect.meta-monitor.json` | 1.0.0 | `meta_monitor.py` (proposed) | a caller-chosen path (`--out`), or stdout | a person or a runner deciding whether loops are healthy; report-only unless `r8_meta_monitor.trip_mode` is armed | `decision` |
 | `dev-code-review.eval-case.json` | 1.0.0 | a human (seed cases: the kit), checked by `reviewer_eval.py check` (proposed) | `.claude/skills/dev-code-review/evals/cases/<id>/case.json` | `reviewer_eval.py` check / score; never the reviewer | `kind` |
 | `dev-code-review.eval-score.json` | 1.0.0 | `reviewer_eval.py score` (proposed) | a caller-chosen path (`--out`), or stdout | a person or a later job comparing reviewer versions | `status` |
-| `dev-harden.json` | 1.0.0 | `dev-harden` | `<evid_root>/harden/<fingerprint>/harden.json` | `collect_candidates.py` (decided skip); a human `--apply` | `status` |
+| `dev-harden.json` | 1.1.0 | `dev-harden` | `<evid_root>/harden/<fingerprint>/harden.json` | `collect_candidates.py` and `collect_misses.py` (decided skip); a human `--apply`; validate.py DEV-HARDEN-L1 (ladder) + DEV-HARDEN-M1 (a review miss says what the reviewer lacked, v1.1.0) | `status` |
 | `dev-pre-pr.json` | 1.3.0 | `dev-pre-pr` | `<evid_root>/<key>/pre-pr.json` | router; infra-ship `commit_binding.py check` | `status` |
 | `qa-run-case.json` | 1.0.0 | `qa-run-case` (`DRIVER=cli` default · `chrome`) | `<evid_root>/<key>/case-run.json` | grade + drift (stored verbatim); `steps` → per-step rows | `status` |
 | `qa-run-chatbot.json` | 1.0.0 | `qa-run-chatbot` | `<evid_root>/<key>/chatbot-run.json` | per-case rows | `status` |
@@ -355,6 +355,10 @@ Every sample validates against its contract (or is a named negative that must fa
 | `EXAMPLE-bad-enum/` | qa-run-case | **fail** — off-enum grade and step status |
 | `diag-app-bug/`, `diag-inconclusive/` | qa-diagnose | pass — a proposed diff, and the empty-diff give-up path |
 | `EXAMPLE-bad-layer/` | qa-diagnose | **fail** — off-enum `failure_layer` |
+| `EXAMPLE-harden-rule/`, `EXAMPLE-harden-prose/` | dev-harden | pass — a probed rule, and a guideline that justifies every higher band (DEV-HARDEN-L1) |
+| `EXAMPLE-bad-harden-band/`, `EXAMPLE-bad-harden-prose-skip/` | dev-harden | **fail** — off-enum band / a guideline that skips bands without a reason (DEV-HARDEN-L1) |
+| `EXAMPLE-harden-miss/`, `EXAMPLE-harden-miss-declined/` | dev-harden | pass — a prod review miss that lacked `context`, ticket drafted; an eval miss that lacked `nothing`, declined with a reason (v1.1.0, DEV-HARDEN-M1) |
+| `EXAMPLE-bad-harden-miss-no-lacked/`, `EXAMPLE-bad-harden-miss-nothing-ruled/` | dev-harden | **fail** — a miss placed with `lacked: null` / a rule proposed for a miss that lacked `nothing` (DEV-HARDEN-M1) |
 | `EXAMPLE-review-harden/` | dev-code-review | pass — a drafted `harden` block and an integer `line` (v1.3.0) |
 | `EXAMPLE-bad-review-line/` | dev-code-review | **fail** — `line` written as a range string |
 | `EXAMPLE-review-bug-class/` | dev-code-review | pass — one finding with a `bug_class` and two `instances` (v1.4.0) |

@@ -1,0 +1,43 @@
+{
+  "status": "ticket-drafted",
+  "fingerprint": "review-miss-prod-proj-123",
+  "band": "structure",
+  "correction": {
+    "statement": "PROJ-123 regressed in prod after the review approved it: the fix scoped one invoice query helper to the workspace, and a second caller that builds the same query by hand kept leaking invoices across workspaces.",
+    "sources": [
+      "review-miss"
+    ],
+    "refs": [
+      "PROJ-123/prod-verify.json"
+    ],
+    "occurrences": 1
+  },
+  "why_not_higher": [],
+  "ticket_draft": "runs/harden/review-miss-prod-proj-123/ticket.md",
+  "expectation": null,
+  "guideline": null,
+  "applied": null,
+  "decline_reason": null,
+  "miss": {
+    "origin": "prod-regressed",
+    "ref": "PROJ-123/prod-verify.json",
+    "review_verdict": "approve",
+    "locations": [],
+    "had": {
+      "reviewed": true,
+      "review_findings": 0,
+      "masking": false,
+      "context_pack": true,
+      "brief_status": null,
+      "evidence": [
+        "context.json",
+        "fix.json",
+        "prod-verify.json",
+        "review.json",
+        "verify.json"
+      ]
+    },
+    "lacked": null
+  },
+  "summary": "A review miss: the reviewer lacked the bypassing caller. Drafted a ticket to route every invoice listing through the one scoped helper, so there is no second path for a review to miss. Waits for a human."
+}

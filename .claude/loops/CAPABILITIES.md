@@ -60,7 +60,7 @@ between steps; workflow variables are not a seam.
 | `qa-explore` | producer | Walk a feature before there is a bug; map it; propose expectations; draft a ticket | — | writes `app_map`, `flakiness`; proposes `expectations` |
 | `human-explore` | producer | A human drives; the only path that blesses an expectation to canonical | — | writes canonical `expectations` |
 | `qa-dream` | producer | Scheduled consolidation: deterministic harvest, outbox replay, compressed lessons | dream brief + report | writes `app_map`, `fix_lessons`, `flakiness`, metrics; proposes `expectations` |
-| `dev-harden` | producer | Between runs: turn a recurring correction into the cheapest check that fails (structure, static rule, verification, prose); probes rules with the real scanner; a human applies | `dev-harden.json` → `harden.json` | proposes `expectations` (verification band) |
+| `dev-harden` | producer | Between runs: turn a recurring correction or a review miss into the cheapest check that fails (structure, static rule, verification, prose); a miss must say what the reviewer lacked (DEV-HARDEN-M1); probes rules with the real scanner; a human applies | `dev-harden.json` → `harden.json` | proposes `expectations` (verification band) |
 | `dev-loop-defect` | recipe | Recipe ①: the standard defect loop end to end | — (routes on the atoms' artifacts) | via atoms; recipe writes `fix_lessons` after verify passes |
 | `dev-loop-hard-defect` | recipe | Recipe ②: ① plus a mandatory review gate; masking is a hard block | — | via atoms |
 | `dev-loop-feature-prerelease` | recipe | Recipe ③: sensitive / pre-release defects; stages for human QA; never ships | — | via atoms |
@@ -230,11 +230,11 @@ never a silent skip and never an unclassified retry.
 - Stops: never blesses, never edits a skill (defects go to a tracked queue), never touches the target app's working tree; a dead embedder or DB costs a delay, never a lesson.
 
 **`dev-harden`**
-- Purpose: corrections become checks, not prose. Collects the `harden` blocks dev-code-review drafted on findings and the lines qa-dream and humans append to `.claude/loops/harden-queue.jsonl`, keeps the ones that recurred (or a human asked for), walks the fix ladder top down and records why every higher band was rejected (validate.py DEV-HARDEN-L1). A conventions rule is proved by `rule_probe.py` with must-trip and must-pass fixtures through dev-pre-pr's own scanner, and the copies already in the target repo are counted so a cleanup ticket lands with the rule.
-- Inputs: `<evid_root>/*/review.json`, the harden queue, the target repo (read only), the conventions file.
-- Outputs: `<evid_root>/harden/<fingerprint>/harden.json` plus any drafted `ticket.md`.
+- Purpose: corrections become checks, not prose. Collects the `harden` blocks dev-code-review drafted on findings and the lines qa-dream and humans append to `.claude/loops/harden-queue.jsonl`, keeps the ones that recurred (or a human asked for), walks the fix ladder top down and records why every higher band was rejected (validate.py DEV-HARDEN-L1). A conventions rule is proved by `rule_probe.py` with must-trip and must-pass fixtures through dev-pre-pr's own scanner, and the copies already in the target repo are counted so a cleanup ticket lands with the rule. Review misses are a third input: `collect_misses.py` queues every prod-regressed run and every reviewer-eval case missed or partly caught as a `review-miss` line with a `miss` block (what the reviewer had, an empty `lacked`); a miss is ready at one occurrence, and validate.py DEV-HARDEN-M1 refuses its harden.json until `miss.lacked {kind, statement}` says what the reviewer did not have in front of it (`nothing` ends declined).
+- Inputs: `<evid_root>/*/review.json`, `<evid_root>/*/prod-verify.json` (verdict `prod-regressed`), a reviewer-eval `score.json` (`--eval-score`), the harden queue, the target repo (read only), the conventions file.
+- Outputs: `<evid_root>/harden/<fingerprint>/harden.json` plus any drafted `ticket.md`; with `collect_misses.py --append`, new miss lines appended to the harden queue (idempotent by fingerprint).
 - Brain: proposes `expectations` for the verification band; writes nothing canonical.
-- Stops: never edits the target repo, `conventions.json`, guidelines or skills; a rule reaches the gate only through a human's `rule_probe.py --apply --by`.
+- Stops: never edits the target repo, `conventions.json`, guidelines or skills; a rule reaches the gate only through a human's `rule_probe.py --apply --by`; a miss with no stated lack cannot be emitted, and nothing a miss leads to is applied except by a human. Feeding misses is a step a person or the scheduled harden job runs, not a ship gate.
 
 ### The onboarding lane
 

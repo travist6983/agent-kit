@@ -140,6 +140,7 @@ def validate(schema, doc):
         _check_regression_c1(doc, errors)
     if str(schema.get("$id", "")).endswith("/dev-harden.json"):
         _check_harden_ladder(doc, errors)
+        _check_harden_miss(doc, errors)
     if str(schema.get("$id", "")).endswith("/dev-fix.json"):
         _check_fix_root_cause(doc, errors)
     if str(schema.get("$id", "")).endswith("/qa-verify.collateral.json"):
@@ -376,6 +377,46 @@ def _check_harden_ladder(doc, errors):
         errors.append("DEV-HARDEN-L1: status=expectation-proposed needs the `expectation` text")
     if status == "ticket-drafted" and not doc.get("ticket_draft"):
         errors.append("DEV-HARDEN-L1: status=ticket-drafted needs `ticket_draft`")
+
+
+_MISS_KINDS = ("check", "context", "expectation", "instruction", "nothing")
+
+
+def _check_harden_miss(doc, errors):
+    """DEV-HARDEN-M1 (v1.1.0), the review-miss guard: before a miss is placed, the artifact must say
+    what the reviewer did not have in front of it. Fires only when a `miss` block or the
+    `review-miss` source is present, so every older harden.json validates unchanged.
+    (i)/(ii) the `review-miss` source and a `miss` object go together; (iii) unless blocked,
+    miss.lacked needs a kind in the enum and a non-blank statement; (iv) kind `nothing` ends
+    declined (nothing was lacking, so no check or prose is justified); (v) declining a miss that
+    did lack something needs a decline_reason."""
+    sources = (doc.get("correction") or {}).get("sources") if isinstance(doc.get("correction"), dict) else None
+    from_miss = isinstance(sources, list) and "review-miss" in sources
+    miss = doc.get("miss")
+    if not from_miss and miss is None:
+        return
+    if from_miss and not isinstance(miss, dict):
+        errors.append("DEV-HARDEN-M1: correction.sources has review-miss but there is no `miss` block")
+        return
+    if isinstance(miss, dict) and not from_miss:
+        errors.append("DEV-HARDEN-M1: a `miss` block needs review-miss in correction.sources")
+    if not isinstance(miss, dict):
+        return
+    status = doc.get("status")
+    if status == "blocked":
+        return
+    lacked = miss.get("lacked")
+    kind = lacked.get("kind") if isinstance(lacked, dict) else None
+    statement = lacked.get("statement") if isinstance(lacked, dict) else None
+    if kind not in _MISS_KINDS or not isinstance(statement, str) or not statement.strip():
+        errors.append("DEV-HARDEN-M1: a review miss cannot be placed until it says what the reviewer "
+                      "lacked (miss.lacked {kind, statement})")
+        return
+    if kind == "nothing" and status != "declined":
+        errors.append(f"DEV-HARDEN-M1: miss.lacked.kind=nothing but status={status}: nothing was lacking, "
+                      "so no check or prose is justified; decline and leave it to the eval set")
+    if status == "declined" and kind != "nothing" and not str(doc.get("decline_reason") or "").strip():
+        errors.append(f"DEV-HARDEN-M1: declining a miss that lacked {kind} needs a decline_reason")
 
 
 def _check_regression_c1(doc, errors):

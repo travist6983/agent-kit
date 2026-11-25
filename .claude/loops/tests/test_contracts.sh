@@ -77,13 +77,18 @@ must_fail "$C/dev-code-review.eval-case.json" "$C/samples/EXAMPLE-bad-reviewer-e
 # dev-code-review eval score (v1.0.0, proposed): real reviewer_eval.py output over the seed set
 must_pass "$C/dev-code-review.eval-score.json" "$C/samples/EXAMPLE-reviewer-eval/score.json"
 
-# dev-harden (v1.0.0, proposed): a proposed rule and a proposed guideline pass; an off-enum band
+# dev-harden (v1.1.0, proposed): a proposed rule and a proposed guideline pass; an off-enum band
 # fails, and a guideline that skips the static/verification bands without a reason must FAIL
 # (validate.py's DEV-HARDEN-L1 anti-prose guard)
 must_pass "$C/dev-harden.json" "$C/samples/EXAMPLE-harden-rule/harden.json"
 must_pass "$C/dev-harden.json" "$C/samples/EXAMPLE-harden-prose/harden.json"
 must_fail "$C/dev-harden.json" "$C/samples/EXAMPLE-bad-harden-band/harden.json"
 must_fail "$C/dev-harden.json" "$C/samples/EXAMPLE-bad-harden-prose-skip/harden.json"
+# dev-harden v1.1.0: a review miss carries a miss block and must say what the reviewer lacked (DEV-HARDEN-M1)
+must_pass "$C/dev-harden.json" "$C/samples/EXAMPLE-harden-miss/harden.json"
+must_pass "$C/dev-harden.json" "$C/samples/EXAMPLE-harden-miss-declined/harden.json"
+must_fail "$C/dev-harden.json" "$C/samples/EXAMPLE-bad-harden-miss-no-lacked/harden.json"
+must_fail "$C/dev-harden.json" "$C/samples/EXAMPLE-bad-harden-miss-nothing-ruled/harden.json"
 
 # dev-pre-pr — the readiness gate. A blocked verdict (stale evidence + violations) and a
 # warnings verdict (heuristics cleared, no blockers).

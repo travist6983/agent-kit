@@ -43,6 +43,11 @@
 #   test_harden           dev-harden never lets a rule reach the gate unproven: weak messages,
 #                         id collisions and disproving fixtures are refused, --apply needs a
 #                         human --by and keeps conventions.json byte-identical. Scratch dirs.
+#   test_harden_misses    a review miss always reaches the harden queue with its miss block: a
+#                         prod-regressed run or a missed / partly caught eval case is queued, an
+#                         unscored case is never called a miss, an untrusted --eval-score exits 2,
+#                         appending is idempotent, and no harden.json for a miss validates without
+#                         saying what the reviewer lacked (DEV-HARDEN-M1). Scratch dirs, offline.
 #   test_reviewer_eval    dev-code-review is scored, not trusted: the eval cases stay answer keys
 #                         the reviewer never sees, a catch means file + line (+ masking for a
 #                         masking bug), a clean diff blocked is a false flag, and a case with no

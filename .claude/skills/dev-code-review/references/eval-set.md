@@ -118,6 +118,12 @@ adopter's real code lives in the adopter's own repo or overlay and is passed wit
 neutral-domain cases (Invoices, Projects, Members, Workspaces; `PROJ-123`-style keys; `example.com`)
 are committed to the kit. Run `check` after every addition.
 
+A failed case also feeds dev-harden: write the score with `score --out FILE`, then run
+`dev-harden/scripts/collect_misses.py --eval-score FILE` (print-only; `--append` queues). Each bad
+case `missed` or `partial` becomes a harden-queue entry that must say what the reviewer lacked
+before anything is proposed; unscored cases are reported, never called misses. The scorer itself
+still writes nothing and queues nothing.
+
 ## What this is not
 
 It does not run the reviewer, schedule anything, write to the brain, record a metric, or gate a ship.
