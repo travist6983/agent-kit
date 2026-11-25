@@ -46,6 +46,36 @@ the provably-nothing-sent rollback restores the prior entry unchanged; `ledger -
 drops the map with the entry. No brain store holds it, and under the `kb` backend it travels
 inside the same opaque `kb_state` value.
 
+Every `mark` and every live post's write-ahead also carry a `rounds` object, the review-convergence
+state (the cap is `pr_review_loop.max_review_rounds_per_pr` in `loop-limits.json`):
+
+```json
+"rounds": {
+  "head": "<last reviewed head>", "prev_head": "<the head reviewed before it>",
+  "open": 2, "total": 5,
+  "last_pass": {"round": 3, "head": "<sha>", "at": "<utc>", "counted": true},
+  "step_back": {"mode": "dry-run|live", "at": "<utc>", "head_commit": "<sha>", "thread_id": "t7"},
+  "cap_counted": "<utc>"
+}
+```
+
+- `open` / `total` grow by ONE per new reviewed head commit (`same_commit` on `head`), however many
+  times that head is marked or posted: idempotent per head. `open` counts consecutive heads that did
+  not pass; `total` never resets.
+- A pass (`mark --verdict approve`, or `--findings-count 0` on any verdict except `posted` /
+  `posting`) records `last_pass` once per head and sets `open` to 0. The write-ahead entry of a live
+  post is never a pass.
+- `prev_head` is what `checkout`/`post`/`scope` diff against for the interdiff when the entry is
+  already at the PR's head (a re-post at the same head).
+- `step_back` is written once: `dry-run` after a preview (a second dry-run call skips
+  `already-previewed`), `live` WRITE-AHEAD before the comment is sent (a provably-not-sent failure
+  rolls it back; anything else keeps it: missed, never duplicated). A live step-back is refused while
+  the entry has no `threads` (no live post ever reached the author).
+- `last_pass.counted` and `cap_counted` are set only after `rounds --emit` saw `ok: true` from
+  `kb metric`, so a failed write is retried next call and never counted twice.
+- `ledger --reset-rounds <pr>` sets `open` to 0 and drops `step_back` and `cap_counted`; it keeps
+  `total`, `head`, `last_pass` and the `threads` map. `ledger --forget <pr>` drops everything.
+
 `mode` matters more than it looks: it distinguishes "we reviewed this and showed you a preview"
 from "we reviewed this and the author has seen our comments." When you flip the loop to live
 posting, entries written in `dry-run` mode are the ones whose findings never actually reached

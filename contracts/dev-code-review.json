@@ -2,9 +2,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "loops/contracts/dev-code-review.json",
   "title": "dev-code-review review.json — machine review verdict (incl. R3 masking judge)",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "status": "ratified",
-  "description": "The ratified output of the dev-code-review skill, written to <evid_root>/<key>/review.json. The recipe branches on `verdict` (approve advances, request-changes routes back to dev-fix); `masking` carries the R3 symptom-masking judge's call. Ratified against samples/EXAMPLE-defect-loop/review.json. v1.3.0 (additive, backward compatible): findings may carry an integer `line`, the new-file line of the added or changed line; the reviewer eval scorer (dev-code-review/scripts/reviewer_eval.py) locates a catch by file + line.",
+  "description": "The ratified output of the dev-code-review skill, written to <evid_root>/<key>/review.json. The recipe branches on `verdict` (approve advances, request-changes routes back to dev-fix); `masking` carries the R3 symptom-masking judge's call. Ratified against samples/EXAMPLE-defect-loop/review.json. v1.3.0 (additive, backward compatible): findings may carry an integer `line`, the new-file line of the added or changed line; the reviewer eval scorer (dev-code-review/scripts/reviewer_eval.py) locates a catch by file + line. v1.4.0 (additive, backward compatible): findings may carry `bug_class`, the CLASS of the bug from a closed vocabulary, and `instances`, the other places in the same diff where that class occurs, so one finding covers the class and every instance gets fixed; file + bug_class is the fingerprint review_rounds.py records and recipe_router.py --review-rounds uses to detect a finding that survives fix cycles (stagnation).",
   "type": "object",
   "additionalProperties": false,
   "required": ["verdict", "masking", "findings", "summary"],
@@ -35,6 +35,24 @@
           "file": { "type": "string", "description": "The file the finding is about: repo-relative path, forward slashes, no leading ./" },
           "line": { "type": "integer", "minimum": 1, "description": "OPTIONAL (v1.3.0). The NEW-file line number of the added or changed line the finding is about (the same line the validator re-reads at file:line). An integer, never a range or a string: reviewer_eval.py matches a finding to a confirmed bug by file + line, and a finding with no integer line is unlocatable and cannot count as a catch." },
           "issue": { "type": "string" },
+          "bug_class": {
+            "type": "string",
+            "enum": ["null-or-undefined", "unhandled-error", "swallowed-error", "race-or-ordering", "boundary-or-off-by-one", "wrong-logic", "missing-validation", "injection", "authz-or-authn-gap", "secret-or-data-exposure", "resource-leak", "performance", "state-duplication", "api-contract-break", "missing-or-weak-test", "convention-violation", "symptom-masking", "accessibility", "other"],
+            "description": "OPTIONAL (v1.4.0). The CLASS of the bug, not its instance. A CLOSED vocabulary on purpose: two blind reviewers in different rounds must pick the same word for the fingerprint to be stable. file + bug_class is the stagnation fingerprint (review_rounds.py); `other` (or no class) falls back to a weaker fingerprint on the normalised issue text, which rewording defeats. One line per class: dev-code-review/references/specialists.md."
+          },
+          "instances": {
+            "type": "array",
+            "description": "OPTIONAL (v1.4.0). The OTHER places in this diff where the same bug_class occurs, so one finding covers the class and the fixer fixes every instance, not only the anchored line. The anchored file/line is not repeated here.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["file", "line"],
+              "properties": {
+                "file": { "type": "string" },
+                "line": { "type": "integer", "minimum": 1 }
+              }
+            }
+          },
           "harden": {
             "type": "object",
             "additionalProperties": false,

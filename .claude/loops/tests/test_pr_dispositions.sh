@@ -256,7 +256,9 @@ print([r['disposition'] for r in t.values() if r['line']==30], len(json.load(ope
 
 # --- 13. re-review at a new head keeps the old threads and adds new ones ------------------------
 SHA_A2="$(git -C "$APP" rev-parse "$A")"
-echo "{\"findings\":[$(finding high backend 5 a/f.js),$(finding low tests 55 a/f.js)]}" > "$TMP/rev-a2.json"
+# Lines 19 and 59 are inside the interdiff since SHA_A (the "address review" commit inserted line
+# 19 and changed line 59): a re-review comments only on what changed, so findings must sit there.
+echo "{\"findings\":[$(finding high backend 19 a/f.js),$(finding low tests 59 a/f.js)]}" > "$TMP/rev-a2.json"
 LOOP_PR_POSTING=live python3 "$F" post --pr "$A" --findings "$TMP/rev-a2.json" --reviewed-commit "$SHA_A2" --live > "$TMP/post-a2.json" 2>&1
 R=$(python3 -c "
 import json; t=json.load(open('$LOOP_PR_LEDGER_FILE'))['$A']['threads']

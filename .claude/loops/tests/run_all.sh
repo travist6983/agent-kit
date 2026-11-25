@@ -52,6 +52,13 @@
 #                         reply / status / anchor rules, reply text is inert (R6), each thread is
 #                         counted once and only after kb confirms, the host is never written.
 #                         git-local + a fake kb — offline, never the shared brain.
+#   test_review_rounds    in-loop review convergence: review_rounds.py records one fingerprinted
+#                         round per review (file + bug_class, line excluded) and recipe_router.py
+#                         --review-rounds escalates review-stagnation before the retry cap.
+#   test_pr_review_rounds the PR-review loop converges: rounds per head, the round cap and
+#                         round_capped, one step-back comment (dry-run, R9, write-ahead), the
+#                         interdiff re-review scope, rounds-to-pass metrics counted once.
+#                         git-local + a fake kb — offline, never the shared brain.
 #   test_assign_tier · test_check_convergence · test_descriptions · test_escalation_render ·
 #   test_fix_lessons · test_oracle_preflight · test_personas · test_pr_review_runner ·
 #   test_pr_thread_bar · test_prod_signal · test_prune · test_r6_denylist ·

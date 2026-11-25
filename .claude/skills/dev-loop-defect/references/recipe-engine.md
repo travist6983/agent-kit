@@ -75,7 +75,16 @@ A retry that repeats the same action is a bug, not a retry. The router routes by
 - **unrelated-area break** → **escalate immediately, no retry** (the fix exceeded its blast radius — a
   scary signal that retrying won't fix).
 - **verify fail / partial** → `dev-fix` with the new observation.
-- **code-review request-changes (incl. masking)** → `dev-fix` with the findings.
+- **code-review request-changes (incl. masking)** → `dev-fix` with the findings — unless the review
+  is not converging. Recipes ② and ④ run `scripts/review_rounds.py record --review
+  <evid>/<KEY>/review.json --out <evid>/<KEY>/review-rounds.json` after every review and pass
+  `--review-rounds <evid>/<KEY>/review-rounds.json` to the router; when one finding fingerprint
+  (file + `bug_class`, line excluded) is open in the last
+  `loop-limits.json review_convergence.stagnation_fix_cycles` + 1 rounds, the router returns
+  `escalate` with `failure_class: review-stagnation` and the `stagnant` findings, checked BEFORE the
+  retry cap. That class means step back and reconsider the approach: never another re-fix. A
+  missing number or an unreadable rounds file escalates too (fail closed); without the flag the
+  stage applies the retry cap only.
 
 ## Blind judging — a producer NEVER grades its own work
 
@@ -196,6 +205,11 @@ evidence rather than guarding stages that have never needed it:
 | T1 | 1 | 2 | 3 | 5 |
 | T2 | 2 | 2 | 3 + stagnation check | 6 |
 
+The stagnation check is the router's `--review-rounds` branch above, not prose: with the dev-fix
+cap at 3 and `stagnation_fix_cycles` at 2 it usually fires on the same attempt the cap would, so
+what it changes is the escalation class (`review-stagnation`, findings named); it fires earlier
+only under a larger `--max`.
+
 `context.json.tier` supplies the tier; pass the stage's cap as `recipe_router.py --max M`.
 With no tier (a pre-tiering run) the old default of 3 still applies.
 
@@ -251,7 +265,8 @@ gated**: a missing write does **not** fail the loop — but it must be **visible
 - **`expectations`** (`qa-repro`/`qa-explore` **propose**, never bless): the correct behavior of the
   surface; `search` first to dedup.
 - **`fix_lessons`** — **the RECIPE writes this, not `dev-fix`.** See *Who writes the fix lesson* below.
-- **`metrics`** (the recipe): loop_outcome, fix_cycles, review findings, etc. (R8 history) — plus
+- **`metrics`** (the recipe): loop_outcome, fix_cycles, review findings, `review_rounds_to_pass`
+  (the recorder's `rounds_to_pass`, written on approve in recipes ② and ④), etc. (R8 history) — plus
   `pr_threads_posted` / `pr_threads_before_merging` / `pr_threads_outside_funnel` from `ship.json`
   after every ship, so review-thread volume is measured rather than noticed by an annoyed reviewer.
 - **`flakiness`** — one data point per test run (`qa-regression`, passes included); **`pause`** only the

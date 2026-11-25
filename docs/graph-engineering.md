@@ -318,7 +318,7 @@ at triage, by rule.
 | triage confidence < 70 / < 50 | start at T1 / T2 |
 | `qa-regression` returns `unrelated-break` | escalate immediately — no retry |
 | `dev-code-review` finds R3 masking | fix → stronger model; hard block on ship |
-| the same review finding survives 2 fix cycles | stagnation → escalate |
+| the same review finding survives 2 fix cycles | stagnation → escalate (`recipe_router.py --review-rounds`, `failure_class: review-stagnation`; `review_convergence.stagnation_fix_cycles`) |
 | retries exhausted at the tier cap | escalate |
 | checker flags any convergence input | route by `next_action`; never merge |
 | `dev-fix` returns `blocked-blast-radius` (R6) | **stop** — forced human gate; never a model escalation |

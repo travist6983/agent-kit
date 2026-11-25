@@ -64,9 +64,24 @@ its verdict is `inconclusive`, which the router escalates with a prod-confirm ha
   they judge different objects (runtime behaviour vs. the diff), and the checker flags them
   contradicting each other, which is only possible while they are two.
   The reviewers run concurrently, so the extra depth costs reviewer count, not wall clock.
-- **Stagnation check** (shared with feature-complete): if the *same* review finding survives **2**
-  fix cycles, stop and escalate — repeated identical findings mean the loop isn't converging, and a
-  third cycle that repeats the action is not a retry, it is a loop.
+- **Stagnation check, mechanical** (shared with feature-complete). After EVERY review, record the
+  round, then pass the history to the router at the code-review stage:
+  ```
+  python3 ../dev-loop-defect/scripts/review_rounds.py record \
+      --review <evid>/<KEY>/review.json --out <evid>/<KEY>/review-rounds.json --key <KEY>
+  python3 ../dev-loop-defect/scripts/recipe_router.py --stage code-review --result <verdict> \
+      --attempt N --max M --review-rounds <evid>/<KEY>/review-rounds.json ...
+  ```
+  The recorder fingerprints every open finding by file + `bug_class` (line excluded, lines move);
+  the router returns `escalate` with `failure_class: review-stagnation` and a `stagnant` list when
+  one fingerprint is open in the last `review_convergence.stagnation_fix_cycles` + 1 rounds
+  (`.claude/loops/loop-limits.json`, 2 today: the same finding surviving 2 fix cycles). On that
+  class, escalate through `dev-escalate` with the stagnant findings named: step back and reconsider
+  the approach, never re-fix — a third cycle that repeats the action is not a retry, it is a loop.
+  Without `--review-rounds` the router only applies the retry cap, so never omit it here. On
+  `approve`, write the recorder's `rounds_to_pass` as the `review_rounds_to_pass` metric through
+  `kb metric` (unit `rounds`), like the loop's other metrics. The text fallback (no class, or
+  `other`) is defeated by rewording; the retry cap still bounds a miss.
 - **The review gate adds no PR comments.** Findings the re-fix resolved are in the diff, not new
   design decisions. Pre-existing issues the review noticed go to the description's *Noticed, not
   changed* and the run report — never a thread. Risk earns a review, not more threads: this recipe
@@ -93,5 +108,6 @@ its verdict is `inconclusive`, which the router escalates with a prod-confirm ha
 ## Key principles
 1. **Risk earns a review.** Hard defects get the diff-level gate a standard defect skips.
 2. **Masking is a hard block.** `request-changes` with masking → re-fix, never ship.
-3. **Converge or escalate.** A finding that survives 2 cycles stops the loop (stagnation).
+3. **Converge or escalate.** A finding that survives 2 cycles stops the loop (stagnation) — the
+   router decides it from `review-rounds.json`, not the agent from memory.
 4. **Thin.** Same engine + atomic skills as Recipe ①; only the review gate is added.

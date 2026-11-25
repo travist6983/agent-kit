@@ -55,7 +55,14 @@ plus the human-readable `review.md` beside it. **Every finding carries `file` (r
 slashes, no leading `./`) and an integer `line`: the new-file line number of the added or changed
 line it is about** (contract v1.3.0). That pair is how a human, the validator pass and the eval
 scorer find what you meant; a range or a string is unlocatable, so a real catch written that way
-scores as a miss. Write it through `contracts/emit.py` so the artifact is
+scores as a miss. **Every finding also carries `bug_class`**, one word from the contract's closed
+vocabulary (v1.4.0; one line per class in `references/specialists.md`), and lists the other places in
+this diff where the same class occurs under `instances` (`[{file, line}]`) instead of raising one
+finding per occurrence: flagging the class is what gets every instance fixed, not just the anchored
+line. On a re-review, a finding that is still open keeps its `file` and `bug_class` even when you
+would word it differently: file + bug_class is the fingerprint `review_rounds.py` uses to notice that
+the same finding survived a fix cycle, so a renamed class hides stagnation. Use `other` only when no
+class fits; it falls back to a weaker, wording-sensitive fingerprint. Write it through `contracts/emit.py` so the artifact is
 validated before it lands. Record `judged_blind`, `attempt`, `retry_reason`, `timing` and `model`
 (the reviewer runs on `models.verifier` from stack.config unless the recipe says otherwise) so
 retries and judge strength are auditable after the fact.

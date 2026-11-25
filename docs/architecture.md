@@ -324,7 +324,12 @@ instructions; enforce the budget cap. Staging-only until the safety gates are ve
 **② `dev-loop-hard-defect` — multi-file, shared-core, migration-adjacent, higher risk**
 
 Identical to ①, with `dev-code-review` **mandatory** in the diamond. Masking is a hard block.
-The same finding surviving two fix cycles is stagnation → escalate.
+The same finding surviving two fix cycles is stagnation → escalate, and the router decides it:
+`review_rounds.py record` keeps one fingerprinted round per review in `review-rounds.json`
+(fingerprint = file + `bug_class`, line excluded), and `recipe_router.py --review-rounds` returns
+`escalate` with `failure_class: review-stagnation` when one fingerprint is open in the last
+`review_convergence.stagnation_fix_cycles` + 1 rounds (`loop-limits.json`). Approve writes the
+`review_rounds_to_pass` metric.
 
 **③ `dev-loop-feature-prerelease` — sensitive or pre-release defects, never auto-ship**
 
@@ -366,8 +371,14 @@ was real.
 ```
 
 Reviews each PR once per head commit and comes back when the author pushes, so it never
-spams and never goes silent. Posting is dry-run until explicitly armed; the number of PRs per
-tick and threads per PR are numbers in `loop-limits.json`, not prose.
+spams and never goes silent — up to `pr_review_loop.max_review_rounds_per_pr` consecutive
+rounds without a pass, after which the PR is named under `round_capped`, not reviewed again
+automatically, and gets one PR-level step-back comment (dry-run until armed) until a maintainer
+runs `ledger --reset-rounds`. A re-review judges the interdiff since the previously reviewed
+commit, and `post` withholds non-critical findings outside it. The runner's convergence sweep
+(`rounds --emit`, `step-back --due`) writes `pr_review_rounds_to_pass` and
+`pr_review_round_cap_hit`. Posting is dry-run until explicitly armed; the number of PRs per
+tick, threads per PR and review rounds per PR are numbers in `loop-limits.json`, not prose.
 
 **What every recipe shares.** The shared engine (`dev-loop-defect/references/recipe-engine.md`,
 `scripts/recipe_router.py`, `scripts/check_convergence.py`): the failure-class router, the
@@ -389,10 +400,10 @@ adapter layer, and is held to the loop-readiness checklist in
 |---|---|---|
 | `dev-intake` | The front door: fetch the ticket through `issue_tracker`, sanitize it (R6), run a sufficiency gate (needs-info rather than guess), judge risk, assign tier + models from evidence, write the context pack, route to exactly one recipe. Sensitive areas never auto-ship. | reads `app_map`, `flakiness`, `expectations`, history |
 | `dev-fix` | Produce **one** candidate change that makes an already-reproduced defect's replay pass, at the root cause — enumerate every call site, patch the deepest shared point. Runs the R6 denylist scan before emitting `fix.json`; migrations / secrets / auth / IaC / CI are never edited (`blocked-blast-radius`). Refuses without a red oracle. Also hosts plan-synthesis for features. | reads `fix_lessons` |
-| `dev-code-review` | The blind review judge: specialist fan-out over the diff against the repo's guidelines and `conventions.json`, plus the R3 symptom-masking judge. Emits a machine verdict (`approve` / `request-changes`) in `review.json`; findings validated at a confidence floor; marks findings `resolved` once a cycle closes them. | — |
+| `dev-code-review` | The blind review judge: specialist fan-out over the diff against the repo's guidelines and `conventions.json`, plus the R3 symptom-masking judge. Emits a machine verdict (`approve` / `request-changes`) in `review.json`; findings validated at a confidence floor, each with a `bug_class` (closed vocabulary) and its `instances`, so one finding covers the class; marks findings `resolved` once a cycle closes them. | — |
 | `dev-pre-pr` | The last gate before a PR: one readiness verdict (`ready` / `warnings` / `blocked`) from the loop's evidence. **Fails closed on `verify.json`** — missing, stale, malformed or not-`pass` all block at every tier. Deterministic standards scan on added lines; reconciles `regression.json` + `review.json` by freshness; re-runs the build when that evidence is stale. Has no edit tool. | — |
 | `dev-escalate` | Hand a stuck loop to a human warm, from a configurable template: attempt log, failure class, repro + expected/actual, verdicts, decisions, every recording. Assigns per area, transitions the ticket. Posting is dry-run until the recipe authorizes. | (the ticket is the signal) |
-| `dev-pr-feed` | The VCS-host PR surface: list PRs unreviewed at their current head, pull one into a read-only worktree, post findings as review comments, remember what was reviewed, and read back what humans did with each posted thread (`dispositions`: fixed / wrong / intentional / no-action / unclassified — the loop's noise measure). Keyed on PR id + head commit. Fails closed on the R9 pause before any live post. | `pr_review_threads_*` metrics (opt-in `--emit`) |
+| `dev-pr-feed` | The VCS-host PR surface: list PRs unreviewed at their current head, pull one into a read-only worktree, post findings as review comments, remember what was reviewed, and read back what humans did with each posted thread (`dispositions`: fixed / wrong / intentional / no-action / unclassified — the loop's noise measure). Keyed on PR id + head commit; counts review rounds per PR, stops at the round cap with one step-back comment, and scopes a re-review to the interdiff. Fails closed on the R9 pause before any live post. | `pr_review_threads_*`, `pr_review_rounds_to_pass`, `pr_review_round_cap_hit` metrics (opt-in `--emit`) |
 | `dev-onboard-survey` | The onboarding loop's first look at a codebase, with no model in it: languages, the commands the repo declares (file and line), entry points, tests, docs and decision records, churn hotspots, and areas sized for one reader each with their import edges. Same commit, same survey. See `docs/onboarding-loop.md`. | none |
 | `dev-onboard-how` | The how lens of the onboarding loop: one read-only agent per area writes a card of atomic claims about what the code does, each citing file, lines and a symbol; `check_card.py` proves every cite. Relearn modes fix only what the quiz showed was missing, wrong or vague. | none |
 | `dev-onboard-why` | The why lens: reasons from the record (commits, the pull requests they name, decision docs), quoted with a ref or marked as inference with an honest confidence; what the record does not answer is a gap, never a story. | none |

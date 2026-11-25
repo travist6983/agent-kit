@@ -1448,6 +1448,73 @@ PY
   return 0
 }
 
+# ── review convergence: rounds metrics + the step-back comment ──────────────
+# Once per real tick, right after the dispositions sweep. `rounds` (with --emit unless --no-brain)
+# writes pr_review_rounds_to_pass once per pass and pr_review_round_cap_hit once per capped PR;
+# `step-back --due` writes the one PR-level step-back for every PR at
+# pr_review_loop.max_review_rounds_per_pr — a preview unless this tick is --live. OBSERVATION
+# ONLY, like dispositions_sweep: always returns 0 and never touches RC, the gate verdict, the
+# stuck counter or the consumption accounting (feed_run restores WD_TIMED_OUT). Logs one
+# event=convergence line; an unparseable answer is status=unmeasured or its failure class.
+CONV_LINE=""
+convergence_sweep() {
+  local out err out2 err2 rc rc2 fields
+  out="$(mktemp -t pr-review-conv)" || out="/tmp/pr-review-conv.$$"
+  err="$(mktemp -t pr-review-conv-err)" || err="/tmp/pr-review-conv-err.$$"
+  out2="$out.sb"; err2="$err.sb"
+  if [ "$NO_BRAIN" -eq 0 ]; then
+    KB_CLI="$KB" feed_run "$out" "$err" rounds --emit; rc=$?
+  else
+    KB_CLI="$KB" feed_run "$out" "$err" rounds; rc=$?
+  fi
+  if [ "$LIVE" -eq 1 ]; then
+    KB_CLI="$KB" feed_run "$out2" "$err2" step-back --due --live; rc2=$?
+  else
+    KB_CLI="$KB" feed_run "$out2" "$err2" step-back --due; rc2=$?
+  fi
+  # A plain heredoc into a file, never inside $( … ) (bash 3.2 re-lexes those).
+  python3 - "$out" "$rc" "$out2" "$rc2" > "$out.fields" 2>/dev/null <<'PY'
+import json, sys
+p1, rc1, p2, rc2 = sys.argv[1:5]
+def load(p):
+    try:
+        raw = open(p).read()
+        o = json.loads(raw[raw.index("{"):])
+        return o if isinstance(o, dict) else None
+    except Exception:
+        return None
+r, sb = load(p1), load(p2)
+if not r or not isinstance(r.get("prs"), list):
+    st = (r or {}).get("failure_class") or ("timeout" if rc1 == "124" else "unmeasured")
+    capped = passed = cap_e = 0
+else:
+    st = "ok" if r.get("enumerable", True) else "not-enumerable"
+    capped = len(r.get("capped") or [])
+    em = r.get("emitted") or []
+    passed = sum(1 for e in em if e.get("name") == "pr_review_rounds_to_pass")
+    cap_e = sum(1 for e in em if e.get("name") == "pr_review_round_cap_hit")
+if sb and isinstance(sb.get("posted"), list):
+    posted, prev = len(sb.get("posted") or []), len(sb.get("previewed") or [])
+    sb_st = sb.get("status") or "ok"
+else:
+    posted = prev = 0
+    sb_st = (sb or {}).get("failure_class") or ("timeout" if rc2 == "124" else "unmeasured")
+print("status=%s capped=%d passed_emitted=%d cap_emitted=%d step_back_posted=%d step_back_previewed=%d step_back_status=%s" % (
+    st, capped, passed, cap_e, posted, prev, sb_st))
+print("Review convergence — %d PR(s) round-capped · rounds-to-pass written %d · cap hits written %d · step-back posted %d, previewed %d%s" % (
+    capped, passed, cap_e, posted, prev,
+    " · metric write failed, retried next tick" if r and r.get("emit_failed") else ""))
+PY
+  fields="$(sed -n '1p' "$out.fields" 2>/dev/null)"
+  CONV_LINE="$(sed -n '2p' "$out.fields" 2>/dev/null)"
+  [ -n "$fields" ] || fields="status=unmeasured capped=0 passed_emitted=0 cap_emitted=0 step_back_posted=0 step_back_previewed=0 step_back_status=unmeasured"
+  [ -n "$CONV_LINE" ] || CONV_LINE="Review convergence — not measured this tick (unmeasured)"
+  log_line "run_id=$RUN_ID event=convergence $fields"
+  echo "pr_review.sh: $CONV_LINE" >&2
+  rm -f "$out" "$err" "$out2" "$err2" "$out.fields"
+  return 0
+}
+
 # ══ DRY RUN ═════════════════════════════════════════════════════════════════
 # Queue read only: no lock (not this script's, not pr_feed's), no claude call, no posting,
 # no brain write, no log line, no assertion. `unreviewed` is read-only, so this is safe to
@@ -2075,6 +2142,28 @@ if "--live" in argv and POSTING != "live":
 
 capped = []
 fpath = argval("--findings")
+# Interdiff scope BEFORE the volume cap, so the cap ranks only findings this re-review may
+# comment on. Fails OPEN: on any failure the findings pass through and the real `post` applies
+# the same scope itself. Not an intervention, so it is not written to the violations file.
+pr_arg = argval("--pr")
+if fpath and pr_arg:
+    try:
+        import re as _re
+        scoped = os.path.join(HERE, "findings-scoped-%s.json" % (_re.sub(r"[^A-Za-z0-9._-]+", "-", pr_arg) or "x"))
+        cmd = [sys.executable, REAL, "scope", "--pr", pr_arg, "--findings", fpath, "--out", scoped]
+        rc_ = argval("--reviewed-commit")
+        if rc_:
+            cmd += ["--reviewed-commit", rc_]
+        sp = subprocess.run(cmd, env=env, text=True, capture_output=True, timeout=120)
+        if sp.returncode == 0 and os.path.exists(scoped):
+            argset("--findings", scoped)
+            fpath = scoped
+        else:
+            sys.stderr.write("pr_feed(runner guard): interdiff scope unavailable (rc %s) — findings "
+                             "passed through; `post` re-applies the scope\n" % sp.returncode)
+    except Exception as exc:
+        sys.stderr.write("pr_feed(runner guard): interdiff scope failed (%s) — findings passed "
+                         "through; `post` re-applies the scope\n" % exc)
 if fpath and CAP > 0:
     try:
         doc = json.load(open(fpath))
@@ -2218,6 +2307,7 @@ PYGUARD
 # Thread dispositions: once per real tick, before the gate, so empty and session ticks both read
 # back what happened to the threads earlier ticks posted. Never changes the tick's outcome.
 dispositions_sweep || true
+convergence_sweep || true
 
 if [ "$NO_GATE" -eq 0 ]; then
   GATE_START="$(now_epoch)"
@@ -2246,8 +2336,9 @@ if not isinstance(obj, dict):
 cur = obj.get("already_reviewed") or []
 loop = obj.get("loop_prs_skipped") or []
 big = obj.get("too_large") or []
+capped = obj.get("round_capped") or []
 meta = {"swept": 0, "reviewed": 0, "candidates": 0, "already_current": len(cur),
-        "loop_prs_skipped": len(loop), "too_large": len(big), "model_call": False,
+        "loop_prs_skipped": len(loop), "too_large": len(big), "round_capped": len(capped), "model_call": False,
         "answered_by": "pr_review.sh queue gate", "posting": posting, "scope": scope,
         "limit": int(limit)}
 if obj.get("status") == "ok" and obj.get("count") == 0 and not obj.get("unreviewed"):
@@ -2260,6 +2351,7 @@ if obj.get("status") == "ok" and obj.get("count") == 0 and not obj.get("unreview
         "  Already current: " + ids(cur, lambda r: "%s (%s)" % (r.get("pr_id"), r.get("verdict") or "reviewed")),
         "  Loop PRs skipped (carry the loop label, reviewed in-loop): " + ids(loop, lambda r: str(r.get("pr_id"))),
         "  Too large: " + ids(big, lambda r: "%s (changes at least %s files)" % (r.get("pr_id"), r.get("changed_files_at_least"))),
+        "  Round-capped (no further automatic review; a maintainer runs ledger --reset-rounds): " + ids(capped, lambda r: "%s (%s rounds)" % (r.get("pr_id"), r.get("rounds"))),
         "  Withheld findings: none (no reviews run)",
         "  Posts: none · Marks: none · Worktrees: none checked out",
         "Queued for next tick: none",
@@ -2318,6 +2410,9 @@ PY
       fi
       if [ "$GATE_VERDICT" = "empty-queue" ] && [ -n "$DISP_LINE" ]; then
         { echo ""; echo "$DISP_LINE"; } >> "$REPORT"
+      fi
+      if [ "$GATE_VERDICT" = "empty-queue" ] && [ -n "$CONV_LINE" ]; then
+        echo "$CONV_LINE" >> "$REPORT"
       fi
       GATE_HEALTH="off"
       if [ "$HEALTH" -eq 1 ] && [ "$GATE_VERDICT" = "empty-queue" ]; then

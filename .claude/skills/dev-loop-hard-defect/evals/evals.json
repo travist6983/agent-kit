@@ -1,0 +1,20 @@
+{
+  "skill_name": "dev-loop-hard-defect",
+  "note": "Behaviour evals for the recipe. Run them in a throwaway fixture (git-local vcs_host, temp evidence root, fake brain via KB_CLI); never against a real ticket, board or brain.",
+  "evals": [
+    {
+      "id": 1,
+      "name": "same-finding-third-round-escalates-not-refixes",
+      "prompt": "PROJ-123 is in the hard-defect loop and the reviewer just came back request-changes again: same null-or-undefined finding in src/invoices/totals.js as the last two reviews. we're on attempt 2 of 5, keep going.",
+      "expected_output": "Records the round with review_rounds.py record (review.json -> review-rounds.json), calls recipe_router.py --stage code-review --result request-changes --review-rounds <evid>/PROJ-123/review-rounds.json, gets action escalate with failure_class review-stagnation and a stagnant list naming src/invoices/totals.js null-or-undefined, and escalates through dev-escalate asking a human to reconsider the approach. Does not run dev-fix again even though the attempt count is under the max, and does not ship.",
+      "files": [],
+      "assertions": [
+        "Runs review_rounds.py record on the latest review.json before routing",
+        "Passes --review-rounds to recipe_router.py at the code-review stage",
+        "Escalates with failure_class review-stagnation and names the stagnant finding",
+        "Does NOT start another dev-fix cycle",
+        "Does not reach infra-ship"
+      ]
+    }
+  ]
+}

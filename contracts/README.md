@@ -22,7 +22,8 @@ URLs come from the `evidence_store` adapter, and the evidence root is `evidence.
 | `qa-verify.json` | 1.0.0 | `qa-verify` mode=`fix-verify` (default) | `<evid_root>/<key>/verify.json` | the checker node; `dev-pre-pr` fails closed on it | `verdict` |
 | `qa-verify.collateral.json` | 1.0.0 | `qa-verify` fix-verify step 2b | `<repro_dir>/collateral.json` | the `no_collateral` must-have | `status` |
 | `qa-regression.json` | 2.1.0 | `qa-regression` | `<evid_root>/<key>/regression.json` | router | `status` + `next_action` |
-| `dev-code-review.json` | 1.3.0 | `dev-code-review` | `<evid_root>/<key>/review.json` | router; `dev-harden` reads findings' `harden` blocks; `reviewer_eval.py score` locates findings by `file` + `line` | `verdict` |
+| `dev-code-review.json` | 1.4.0 | `dev-code-review` | `<evid_root>/<key>/review.json` | router; `dev-harden` reads findings' `harden` blocks; `reviewer_eval.py score` locates findings by `file` + `line`; `review_rounds.py record` fingerprints findings by `file` + `bug_class` | `verdict` |
+| `dev-loop-defect.review-rounds.json` | 1.0.0 | `review_rounds.py record` (proposed) | `<evid_root>/<key>/review-rounds.json` | `recipe_router.py --review-rounds` (stagnation); the recipe reads `rounds_to_pass` for the `review_rounds_to_pass` metric | none |
 | `dev-code-review.eval-case.json` | 1.0.0 | a human (seed cases: the kit), checked by `reviewer_eval.py check` (proposed) | `.claude/skills/dev-code-review/evals/cases/<id>/case.json` | `reviewer_eval.py` check / score; never the reviewer | `kind` |
 | `dev-code-review.eval-score.json` | 1.0.0 | `reviewer_eval.py score` (proposed) | a caller-chosen path (`--out`), or stdout | a person or a later job comparing reviewer versions | `status` |
 | `dev-harden.json` | 1.0.0 | `dev-harden` | `<evid_root>/harden/<fingerprint>/harden.json` | `collect_candidates.py` (decided skip); a human `--apply` | `status` |
@@ -128,6 +129,16 @@ no browser and runs no spec files.
 changed line the finding is about. It stays optional so every older artifact validates, but a finding
 without an integer line (or with a range string, `EXAMPLE-bad-review-line`, which fails) is
 unlocatable and can never count as a catch when the reviewer is scored.
+
+`review.json` v1.4.0 adds OPTIONAL `findings[].bug_class` (a closed vocabulary of 19 words, `other`
+last; one line per class in `dev-code-review/references/specialists.md`) and `findings[].instances`
+(`[{file, line}]`, the other places in the diff where the same class occurs), so one finding covers
+the class and every instance gets fixed. `EXAMPLE-bad-review-bug-class` (a free-text class) fails.
+`review_rounds.py record` turns each distinct review.json into one round of
+`dev-loop-defect.review-rounds.json`, fingerprinting every open finding by normalised `file` +
+`bug_class` (line excluded on purpose; normalised issue text when the class is absent or `other`).
+`recipe_router.py --review-rounds` escalates with `failure_class: review-stagnation` when one
+fingerprint is open in the last `review_convergence.stagnation_fix_cycles` + 1 rounds.
 
 `dev-code-review.eval-case.json` is the answer key of one eval case (diff + base tree + optional
 fix.json beside it). **DEV-REVIEW-EVAL-K1** (`validate.py`): `kind: bad` needs at least one bug with
@@ -317,6 +328,10 @@ Every sample validates against its contract (or is a named negative that must fa
 | `EXAMPLE-bad-layer/` | qa-diagnose | **fail** — off-enum `failure_layer` |
 | `EXAMPLE-review-harden/` | dev-code-review | pass — a drafted `harden` block and an integer `line` (v1.3.0) |
 | `EXAMPLE-bad-review-line/` | dev-code-review | **fail** — `line` written as a range string |
+| `EXAMPLE-review-bug-class/` | dev-code-review | pass — one finding with a `bug_class` and two `instances` (v1.4.0) |
+| `EXAMPLE-bad-review-bug-class/` | dev-code-review | **fail** — `bug_class` off the closed vocabulary |
+| `EXAMPLE-review-rounds/` | dev-loop-defect.review-rounds | pass — three request-changes rounds sharing one fingerprint (stagnation) |
+| `EXAMPLE-bad-review-rounds/` | dev-loop-defect.review-rounds | **fail** — a round verdict off the enum |
 | `EXAMPLE-reviewer-eval-bad/`, `EXAMPLE-reviewer-eval-clean/` | dev-code-review.eval-case | pass — a signed re-fix bad case and a signed clean case |
 | `EXAMPLE-bad-reviewer-eval-case/` | dev-code-review.eval-case | **fail** — a bad case naming no bug (DEV-REVIEW-EVAL-K1) |
 | `EXAMPLE-reviewer-eval/` | dev-code-review.eval-score | pass — real `reviewer_eval.py score` output over the seed set |

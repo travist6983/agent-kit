@@ -8,7 +8,8 @@ description: >-
   the PR review loop", "sweep the PR board", "are there PRs waiting on review", or as the hourly
   job behind /loop. THIN orchestrator — sequencing, gates, and the per-tick bound only; the board
   mechanics live in dev-pr-feed and the judgment in dev-code-review. Reviews each PR once per head
-  commit and comes back when the author pushes, so it never spams and never goes silent.
+  commit and comes back when the author pushes, up to a review-round cap after which it asks the
+  author to step back, so it never spams and never goes silent.
 allowed-tools: Read, Glob, Grep, Bash, Skill, Agent, ToolSearch
 ---
 
@@ -104,13 +105,22 @@ someone shortens the interval, overlap is the default, not the exception.
 ```bash
 F=.claude/skills/dev-pr-feed/scripts/pr_feed.py
 python3 $F dispositions          # hand-run tick only: read back earlier threads first (read-only)
+python3 $F rounds                # hand-run tick only: review-round state (read-only)
+python3 $F step-back --due       # hand-run tick only: step-back PREVIEW for round-capped PRs
 python3 $F unreviewed --limit <prs_per_tick>
 ```
 
 Under the headless runner `pr_review.sh` has already read the dispositions of earlier threads
 before the queue gate (once per real tick, `--emit` unless `--no-brain`), so skip that line there.
 On a hand-run tick call it first, without `--emit` unless you were asked to write metrics, and put
-its one-line summary in the report. It never changes what this tick reviews.
+its one-line summary in the report. It never changes what this tick reviews. The same holds for
+`rounds` and `step-back --due` (the runner's `convergence_sweep` does both after dispositions):
+on a hand-run tick run them dry-run, never `--live` and never `--emit` unasked.
+
+**Round-capped PRs are never reviewed.** `unreviewed` lists a PR under `round_capped` once it has
+`pr_review_loop.max_review_rounds_per_pr` consecutive reviewed heads that did not pass. Do not
+check it out, review it or mark it; name it in the report. The step-back comment asks its author to
+reconsider the approach, and only a maintainer re-admits it (`ledger --reset-rounds <pr>`).
 
 An empty queue is the **normal, healthy outcome** for most ticks and is a success, not a no-op to
 work around. Report it in one line and stop — do not go looking for PRs to review by relaxing the
@@ -129,8 +139,14 @@ real colleagues' pull requests. Doing nothing for an hour costs nothing.
 ### 2. Per PR: check out, review, post, mark
 
 ```bash
-python3 $F checkout --pr <ID>     # → worktree + diff_base + diff_command
+python3 $F checkout --pr <ID>     # → worktree + diff_base + diff_command + review_scope
 ```
+
+**A re-review judges the interdiff.** When `review_scope` is `interdiff`, review the change since
+the last reviewed commit (`interdiff_command`) and use `diff_command` as context only: a finding
+anchored outside the interdiff is withheld at post time anyway (criticals excepted). When it is
+`full` with `interdiff_unavailable` (history rewritten, previous commit unavailable), review the
+full diff and say why in the report.
 
 Then run **`dev-code-review`** over that PR's diff. **Read
 `references/reviewing-incoming-prs.md` before this step** — reviewing a person's pull request
@@ -216,14 +232,17 @@ PR is simply still unreviewed an hour later, which is the correct behavior and n
 
 ## Stop conditions
 
-Per-tick PR cap reached · empty queue · R5 consumption-cap breach · `ledger-unreadable` · `auth-expired` ·
+Per-tick PR cap reached · empty queue · a PR at the review-round cap (named, not reviewed, one
+step-back) · R5 consumption-cap breach · `ledger-unreadable` · `auth-expired` ·
 `post-rejected` · `adapter-unavailable:vcs_host`. This loop **never fixes, never pushes, never
 ships** — it reviews and comments. A PR needing a code change is the author's to make.
 
 ## Success criteria
 
 - Every PR in the queue is reviewed at most once per head commit — no duplicate comments, ever.
-- A PR whose author pushes new commits comes **back** into the queue.
+- A PR whose author pushes new commits comes **back** into the queue — until it reaches the
+  review-round cap, when it is named under round-capped in every report and gets one step-back
+  comment instead of another review.
 - Findings that reach a PR are high-signal enough that a human wouldn't ask for them to stop.
 - The developer's own checkout of the target app (`app.repo_dir`) is untouched and no worktree leaks.
 - A tick with nothing to do is one line and costs almost nothing.
@@ -278,10 +297,11 @@ PR sweep — <n> candidates · <n> reviewed · <n> already current · <n> skippe
   PR <id>  request-changes  2 findings (1 critical)  [dry-run → preview.json]
   PR <id>  approve          0 findings
 Queued for next tick: <id>, <id>
+Round-capped: <id> (<n> rounds, step-back previewed|posted) | none
 Spend: $x.xx / $<per_loop_usd_cap>
 ```
 
-**About that last line** — it is kept in this shape because `pr_review.sh` quotes it verbatim in
+**About the Spend line** — it is kept in this shape because `pr_review.sh` quotes it verbatim in
 order to override it, and a template the runner describes must not drift out from under it. Two
 things are true about it and both belong in any report you write:
 

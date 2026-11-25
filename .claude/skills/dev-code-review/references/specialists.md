@@ -29,8 +29,43 @@ or it does not flag.
   higher-severity one.
 - **Empty is a valid answer.** A specialist whose surface the diff doesn't touch returns `[]`.
 - **Finding shape** (the `findings[]` item of `contracts/dev-code-review.json`):
-  `{ dimension, severity: critical|high|medium|low, confidence, file, line, issue, rule_id?,
-  suggestion?, fingerprint }`. `rule_id` is required when the finding is a convention violation.
+  `{ dimension, severity: critical|high|medium|low, confidence, file, line, bug_class, instances?,
+  issue, rule_id?, suggestion?, fingerprint }`. `rule_id` is required when the finding is a convention
+  violation.
+- **Flag the class, list the instances.** The same mistake in three places is ONE finding whose
+  `bug_class` names the class and whose `instances` lists the other two `{file, line}` pairs, so
+  the fixer fixes every instance instead of the one line a comment anchors to. The dedup
+  fingerprint above is per review; the cross-round fingerprint `review_rounds.py` records is
+  file + `bug_class` (line excluded), so keep a still-open finding's file and class stable across
+  re-reviews.
+
+## The bug_class vocabulary (contract v1.4.0, closed)
+
+Closed on purpose: two blind reviewers in different rounds must pick the same word for the
+stagnation fingerprint to hold. Pick the most specific class that fits; `other` only as a last
+resort (it falls back to a wording-sensitive fingerprint).
+
+| bug_class | One line |
+|---|---|
+| `null-or-undefined` | a value that can be null/undefined/missing is used without a guard |
+| `unhandled-error` | an error path is not handled: a throw, rejection or error return escapes or is ignored |
+| `swallowed-error` | an error is caught and dropped, hiding a failure the caller needed to see |
+| `race-or-ordering` | correctness depends on timing or ordering that is not guaranteed |
+| `boundary-or-off-by-one` | a limit, index, range or empty/one/many edge is wrong |
+| `wrong-logic` | the code computes the wrong result on an ordinary input (inverted condition, wrong operator, wrong field) |
+| `missing-validation` | input the guidelines or the contract require to be checked is not checked |
+| `injection` | untrusted input reaches a query, shell, template or path unescaped |
+| `authz-or-authn-gap` | an authentication or authorization check is missing, weakened or bypassable |
+| `secret-or-data-exposure` | a secret, credential or another tenant's/member's data is written, logged or returned |
+| `resource-leak` | a handle, connection, listener, timer or subscription is never released |
+| `performance` | work that fails at scale: N+1, unbounded fetch, per-item work that was batched, blocking I/O on a hot path |
+| `state-duplication` | the same state now has two owners or two sources of truth that can drift |
+| `api-contract-break` | a response, signature or schema changes shape without its callers being updated |
+| `missing-or-weak-test` | the fixed path has no test that would catch the defect, or a test was loosened/skipped |
+| `convention-violation` | a cited `conventions.rules[]` or guidelines-file rule is broken (`rule_id` required) |
+| `symptom-masking` | the diff greens the replay by hiding the symptom (R3; the masking specialist) |
+| `accessibility` | an interactive element lacks an accessible name, role or keyboard path the guidelines require |
+| `other` | none of the above fits; say why in `issue` |
 
 ## The six
 

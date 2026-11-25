@@ -48,6 +48,14 @@ must_fail "$C/dev-code-review.json" "$C/samples/EXAMPLE-bad-review-harden-band/r
 # dev-code-review v1.3.0: a finding may carry an integer `line` (EXAMPLE-review-harden has one, above);
 # a line written as a range string must FAIL (the eval scorer locates a catch by file + integer line)
 must_fail "$C/dev-code-review.json" "$C/samples/EXAMPLE-bad-review-line/review.json"
+# dev-code-review v1.4.0 (review convergence): bug_class from the closed vocabulary + instances
+# validate; a free-text bug_class must FAIL (the fingerprint needs one word per class)
+must_pass "$C/dev-code-review.json" "$C/samples/EXAMPLE-review-bug-class/review.json"
+must_fail "$C/dev-code-review.json" "$C/samples/EXAMPLE-bad-review-bug-class/review.json"
+# dev-loop-defect.review-rounds v1.0.0 (proposed): review_rounds.py's per-round history;
+# a verdict off the enum must FAIL
+must_pass "$C/dev-loop-defect.review-rounds.json" "$C/samples/EXAMPLE-review-rounds/review-rounds.json"
+must_fail "$C/dev-loop-defect.review-rounds.json" "$C/samples/EXAMPLE-bad-review-rounds/review-rounds.json"
 
 # dev-code-review eval case (v1.0.0, proposed): a signed re-fix bad case and a signed clean case pass;
 # a bad case naming no bug must FAIL (validate.py DEV-REVIEW-EVAL-K1)

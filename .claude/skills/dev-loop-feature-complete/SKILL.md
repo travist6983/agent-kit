@@ -76,7 +76,14 @@ the target surface and `infra-ship` embeds it in the pull-request body. See belo
   what the surface looked like before in one line.
 - **Stagnation check**: a review finding surviving **2** re-fix cycles → stop + escalate. This is the
   cap that actually binds on features: the review→fix cycle is the stage that iterates, and a
-  finding that two fixes could not clear is a plan problem, not a patch problem.
+  finding that two fixes could not clear is a plan problem, not a patch problem. Mechanical, not
+  remembered: after every review run `../dev-loop-defect/scripts/review_rounds.py record --review
+  <evid>/<KEY>/review.json --out <evid>/<KEY>/review-rounds.json --key <KEY>`, and pass
+  `--review-rounds <evid>/<KEY>/review-rounds.json` to `recipe_router.py` at the code-review gate.
+  `failure_class: review-stagnation` (same file + `bug_class` open across
+  `review_convergence.stagnation_fix_cycles` fix cycles, `loop-limits.json`) → escalate through
+  `dev-escalate` with the `stagnant` list and revisit the plan; never re-fix. On `approve`, write the
+  recorder's `rounds_to_pass` as the `review_rounds_to_pass` metric through `kb metric`.
 - **Repro/verify retries are not a feature concern.** `qa-repro` never runs; `qa-verify`'s retry
   cap on a feature is **1** (pass `recipe_router.py --max 1` at that gate) — a second failure is a
   plan problem, not a flake, and belongs with a human. A human may still *order* a re-verify; a

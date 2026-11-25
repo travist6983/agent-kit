@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "loops/contracts/dev-loop-defect.review-rounds.json",
+  "title": "dev-loop-defect review-rounds.json: the in-loop review history, one fingerprinted round per review",
+  "version": "1.0.0",
+  "status": "proposed",
+  "description": "Written ONLY by .claude/skills/dev-loop-defect/scripts/review_rounds.py record (no model), through contracts/emit.py, to <evid_root>/<key>/review-rounds.json after every dev-code-review run in recipes 2 and 4. review.json is overwritten in place each fix cycle and holds no history; this file keeps one entry per distinct review.json (idempotent on its sha256) with the fingerprint of every finding still open. recipe_router.py --review-rounds reads it at the code-review stage and escalates with failure_class review-stagnation when one fingerprint is open in the last loop-limits.json review_convergence.stagnation_fix_cycles + 1 consecutive rounds. rounds_to_pass is the 1-based round of the first approve, null while none.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["rounds", "rounds_to_pass"],
+  "properties": {
+    "key": { "type": "string" },
+    "rounds": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["round", "verdict", "review_sha256", "open"],
+        "properties": {
+          "round": { "type": "integer", "minimum": 1 },
+          "verdict": { "type": "string", "enum": ["approve", "request-changes"] },
+          "review_sha256": { "type": "string", "description": "sha256 of the review.json bytes this round was recorded from; recording the same file twice adds no round." },
+          "attempt": { "type": "integer", "minimum": 1, "description": "The review.json's own `attempt`, when it carried one." },
+          "open": {
+            "type": "array",
+            "description": "Every finding of that review that was not resolved:true and not withheld:true.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["fingerprint", "basis"],
+              "properties": {
+                "fingerprint": { "type": "string", "description": "First 16 hex chars of sha256 over file + bug_class (basis class) or file + dimension + normalised issue text (basis text). The line is never part of it." },
+                "basis": { "type": "string", "enum": ["class", "text"] },
+                "file": { "type": "string" },
+                "bug_class": { "type": "string" },
+                "dimension": { "type": "string" },
+                "severity": { "type": "string" },
+                "issue": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "rounds_to_pass": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "The round number of the first approve round; null while no round has approved. The recipe writes it as the review_rounds_to_pass metric."
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "OPTIONAL. Which attempt of this stage produced the artifact, 1-based."
+    },
+    "retry_reason": {
+      "type": "string",
+      "description": "OPTIONAL. Why this attempt happened, when attempt > 1."
+    },
+    "timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "OPTIONAL. When this file was written. review_rounds.py writes with --no-timing so the file is a pure function of the reviews recorded.",
+      "required": ["started_at", "ended_at"],
+      "properties": {
+        "started_at": { "type": "string" },
+        "ended_at": { "type": "string" },
+        "duration_s": { "type": "number", "minimum": 0 }
+      }
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "skill_name": "dev-loop-feature-complete",
+  "note": "Behaviour evals for the recipe. Run them in a throwaway fixture (git-local vcs_host, temp evidence root, fake brain via KB_CLI); never against a real ticket, board or brain.",
+  "evals": [
+    {
+      "id": 1,
+      "name": "feature-review-converges-and-records-rounds-to-pass",
+      "prompt": "implement PROJ-205 end to end. the first review asked for changes, the second one approved. what do you do at the review gate each time?",
+      "expected_output": "After each review runs review_rounds.py record into <evid>/PROJ-205/review-rounds.json and routes with recipe_router.py --review-rounds; the first request-changes routes to re-fix (no stagnation after one round), the approve advances to dev-pre-pr, and the recorder's rounds_to_pass (2) is written as the review_rounds_to_pass metric through kb metric. The feature is staged for human QA, never auto-shipped.",
+      "files": [],
+      "assertions": [
+        "Records a round after each review with review_rounds.py record",
+        "Routes the code-review gate with --review-rounds",
+        "Writes review_rounds_to_pass = 2 through kb metric after the approve",
+        "Stages for human QA and never auto-ships"
+      ]
+    }
+  ]
+}

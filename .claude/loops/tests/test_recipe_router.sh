@@ -39,6 +39,12 @@ t "config default cap catches spend"   stop-budget --stage fix --result fixed --
 t "explicit --budget-cap 0 disables"   advance     --stage fix --result fixed --budget-spent 100 --budget-cap 0
 t "regression flaky→advance"           advance     --stage regression --result flaky --attempt 1 --max 3
 t "ship preflight global-pause→halt"   halt-paused --stage ship --result global-pause
+# Review convergence (item 3): the same file+bug_class open in 3 consecutive recorded rounds is
+# stagnation and escalates BEFORE the retry cap; without --review-rounds the stage is unchanged.
+# Full coverage lives in test_review_rounds.sh.
+RR="$SK/../../contracts/samples/EXAMPLE-review-rounds/review-rounds.json"
+t "review stagnation→escalate (attempt<max)" escalate --stage code-review --result request-changes --attempt 2 --max 5 --review-rounds "$RR"
+t "review no --review-rounds→re-fix"   re-fix      --stage code-review --result request-changes --attempt 2 --max 5
 
 echo "  recipe_router: $pass passed, $fail failed"
 [ "$fail" = 0 ]

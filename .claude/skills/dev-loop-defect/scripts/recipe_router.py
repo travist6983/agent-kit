@@ -3,14 +3,21 @@
 
 The recipes own the counters/budget; this encodes the routing rules so every retry CHANGES strategy by
 failure class — never a blind repeat. Given a stage's result + counters + budget + flags, it returns the
-next action. It reads nothing but its arguments and the tracked limits file: no adapters, no brain, no
-network — the recipe supplies every fact.
+next action. It reads nothing but its arguments, the tracked limits file and the review-rounds file
+named by --review-rounds: no adapters, no brain, no network — the recipe supplies every fact.
+
+Review convergence (--review-rounds, code-review stage only): the file is the per-round history
+review_rounds.py records after every review. When one finding fingerprint (file + bug_class) is open in
+the last review_convergence.stagnation_fix_cycles + 1 consecutive rounds, the router escalates with
+failure_class review-stagnation BEFORE the retry cap: step back and reconsider, do not re-fix. Without
+the flag the code-review stage behaves exactly as before.
 
 Usage:
   recipe_router.py --stage repro|fix|verify|regression|code-review|pre-pr|prod-verify|ship --result R
                    --attempt N --max 3 [--confidence C] [--min-confidence 80]
                    [--budget-spent X] [--budget-cap Y] [--paused true|false] [--sensitive true|false]
-Prints {"action": ..., "reason": ...}.
+                   [--review-rounds <evid>/<KEY>/review-rounds.json]
+Prints {"action": ..., "reason": ...} (plus failure_class + stagnant on a review-stagnation escalate).
 action ∈ {halt-paused, stop-budget, escalate, re-fix, re-repro, reject, rollback, advance}
 """
 import argparse
@@ -49,6 +56,47 @@ def _limits():
     except Exception:
         return {}
 
+def _review_stagnation(path):
+    """None when the review is still converging, else (reason, extra) for an escalate.
+    Fails CLOSED: no decided number or an unreadable rounds file escalates."""
+    n = (_limits().get("review_convergence") or {}).get("stagnation_fix_cycles")
+    if isinstance(n, bool) or not isinstance(n, int) or n < 1:
+        return ("review_convergence.stagnation_fix_cycles missing or invalid in loop-limits.json — "
+                "--review-rounds was passed but there is no decided number; failing CLOSED", {})
+    try:
+        with open(path) as fh:
+            doc = json.load(fh)
+        rounds = doc["rounds"]
+        if not isinstance(rounds, list) or not all(
+                isinstance(x, dict) and isinstance(x.get("open"), list) for x in rounds):
+            raise ValueError("bad shape")
+        window = rounds[-(n + 1):]
+        sets = []
+        for x in window:
+            sets.append({o["fingerprint"]: o for o in x["open"]
+                         if isinstance(o, dict) and isinstance(o.get("fingerprint"), str)})
+    except (OSError, ValueError, KeyError, TypeError):
+        return ("review-rounds unreadable - cannot prove the review is converging", {})
+    if len(window) < n + 1:
+        return None
+    common = set(sets[0])
+    for s in sets[1:]:
+        common &= set(s)
+    if not common:
+        return None
+    last = sets[-1]
+    stagnant = []
+    for fp in sorted(common):
+        o = last[fp]
+        stagnant.append({"fingerprint": fp, "file": o.get("file"), "bug_class": o.get("bug_class"),
+                         "basis": o.get("basis")})
+    named = ", ".join("%s %s" % (x["file"], x["bug_class"] if x["basis"] == "class" and x["bug_class"] else "text")
+                      for x in stagnant)
+    reason = ("review-stagnation: %d finding(s) open across %d fix cycles (%s) - the loop is not converging; "
+              "step back and reconsider the approach, do not re-fix" % (len(stagnant), n, named))
+    return (reason, {"failure_class": "review-stagnation", "stagnant": stagnant})
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--stage", required=True)
@@ -61,10 +109,13 @@ def main():
     ap.add_argument("--budget-cap", type=float, default=None)  # unset → loop-limits.json per_loop_usd_cap
     ap.add_argument("--paused", default="false")
     ap.add_argument("--sensitive", default="false")
+    ap.add_argument("--review-rounds", default=None)
     a = ap.parse_args()
 
-    def out(action, reason):
-        print(json.dumps({"action": action, "reason": reason})); return
+    def out(action, reason, **extra):
+        doc = {"action": action, "reason": reason}
+        doc.update(extra)
+        print(json.dumps(doc)); return
 
     # Safety flags FAIL CLOSED on malformed input: '--paused True' (Python-repr capitals),
     # 'TRUE', a stray value — anything not recognizably false is treated as the safe
@@ -129,6 +180,10 @@ def main():
 
     if s == "code-review":
         if r == "approve": return out("advance", "review clean")
+        if a.review_rounds is not None:
+            stuck = _review_stagnation(a.review_rounds)
+            if stuck is not None:
+                return out("escalate", stuck[0], **stuck[1])
         return retry_or_escalate("re-fix", "review request-changes (incl. masking) — refine the fix")
 
     if s == "pre-pr":

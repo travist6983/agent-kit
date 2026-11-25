@@ -1,0 +1,7 @@
+{
+  "key": "PROJ-123",
+  "rounds": [
+    { "round": 1, "verdict": "changes-requested", "review_sha256": "1111", "open": [] }
+  ],
+  "rounds_to_pass": null
+}

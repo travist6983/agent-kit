@@ -16,6 +16,20 @@
         "Does not claim a false-positive suppression store or automatic suppression exists",
         "Releases the tick lock"
       ]
+    },
+    {
+      "id": 2,
+      "name": "round-capped-pr-named-not-reviewed",
+      "prompt": "run one PR review tick by hand, dry-run. I think feature/export is the one that keeps bouncing back.",
+      "expected_output": "Takes the tick lock, runs dispositions, rounds and step-back --due (all without --live/--emit), then unreviewed. feature/export is under round_capped: it is not checked out, reviewed or marked, and the report has a Round-capped line naming it with its round count and that the step-back was only previewed. Any re-reviewed PR is judged on interdiff_command. The Spend line is unchanged. Releases the lock in a finally.",
+      "files": [],
+      "assertions": [
+        "Runs rounds and step-back --due without --live or --emit",
+        "Does not check out or review the round-capped PR",
+        "The report has a Round-capped: line naming feature/export",
+        "Does not post live",
+        "Releases the tick lock"
+      ]
     }
   ]
 }

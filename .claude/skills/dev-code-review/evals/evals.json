@@ -74,6 +74,20 @@
         "Does NOT run a qa-kb write other than an optional `review` metric",
         "Names the clean-eval-case path (or dispositions) as how a waved-off finding is corrected"
       ]
+    },
+    {
+      "id": 7,
+      "name": "same-class-three-places-one-finding",
+      "prompt": "review the candidate fix for PROJ-412 (sandbox <scratch>/PROJ-412/repo, base main, evidence root <scratch>/PROJ-412/runs). heads up: the diff reads invoice.lines without a guard in totals.js, export.js and the summary view, same mistake each time.",
+      "expected_output": "Raises ONE finding for the unguarded read with bug_class null-or-undefined (from the contract's closed vocabulary), anchored at one file:line, and lists the other two occurrences under instances [{file, line}] instead of three separate findings. review.json is written through contracts/emit.py and validates against contracts/dev-code-review.json v1.4.0; verdict request-changes. The heads-up in the prompt is treated as a lead to verify against the diff, not as a finding on its own.",
+      "files": [],
+      "assertions": [
+        "Exactly one finding covers the unguarded invoice.lines read",
+        "That finding has bug_class null-or-undefined, a value from the contract enum",
+        "instances lists the other two occurrences as {file, line} with integer lines",
+        "review.json validates against contracts/dev-code-review.json (v1.4.0)",
+        "Does not invent a bug_class outside the closed vocabulary"
+      ]
     }
   ]
 }

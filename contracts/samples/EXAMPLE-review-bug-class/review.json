@@ -1,0 +1,23 @@
+{
+  "verdict": "request-changes",
+  "masking": false,
+  "key": "PROJ-123",
+  "critical": 0,
+  "high": 1,
+  "findings": [
+    {
+      "dimension": "backend",
+      "severity": "high",
+      "confidence": 90,
+      "file": "src/invoices/totals.js",
+      "line": 42,
+      "bug_class": "null-or-undefined",
+      "instances": [
+        { "file": "src/invoices/totals.js", "line": 57 },
+        { "file": "src/invoices/export.js", "line": 18 }
+      ],
+      "issue": "invoice.lines is read without a guard; an invoice with no lines throws. The same unguarded read appears at the two instances listed."
+    }
+  ],
+  "summary": "One class of bug in three places: fix the shared read once, not each line."
+}

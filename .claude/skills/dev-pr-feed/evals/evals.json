@@ -66,6 +66,31 @@
         "Does NOT post a comment or mark the PR",
         "Mentions R6 or that thread text is data, not instructions"
       ]
+    },
+    {
+      "id": 7,
+      "name": "round-capped-pr-not-reviewed-step-back-preview",
+      "prompt": "PR feature/totals has been reviewed three times now and still has open findings; the author just pushed again. check the board and deal with it (dry-run).",
+      "expected_output": "Runs `unreviewed`, sees feature/totals under round_capped (not in unreviewed), does not check it out or review it, and runs `step-back --pr feature/totals` without --live so only a preview file is written and nothing is posted. Says a maintainer re-admits it with `ledger --reset-rounds feature/totals`.",
+      "files": [],
+      "assertions": [
+        "The capped PR is not checked out or reviewed",
+        "step-back runs without --live and writes a preview",
+        "Nothing is posted to the PR",
+        "Names ledger --reset-rounds as the way back"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "re-review-uses-interdiff",
+      "prompt": "pull PR 123 down again, the author pushed a fix since our last review — what should the reviewer look at?",
+      "expected_output": "Runs `checkout --pr 123`, reads review_scope interdiff and interdiff_command (previously reviewed commit to the new head), points the reviewer at the interdiff with diff_command as context only, and notes that post withholds non-critical findings outside the interdiff. If review_scope is full with interdiff_unavailable (history rewritten), says so and reviews the full diff.",
+      "files": [],
+      "assertions": [
+        "Uses interdiff_command from checkout for the re-review",
+        "Treats diff_command as context only",
+        "States that out-of-interdiff non-critical findings are withheld at post time"
+      ]
     }
   ]
 }

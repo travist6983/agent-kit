@@ -76,7 +76,8 @@ if a and a[0] == "unreviewed":
     if q == "empty":
         print(json.dumps({"status": "ok", "backend": "file", "count": 0, "unreviewed": [],
                           "already_reviewed": cur, "loop_prs_skipped": [{"pr_id": 5594, "title": "t"}],
-                          "too_large": []}, indent=2)); raise SystemExit(0)
+                          "too_large": [], "round_capped": [{"pr_id": 5590, "rounds": 3, "cap": 3}],
+                          "max_review_rounds_per_pr": 3}, indent=2)); raise SystemExit(0)
     if q == "prs":
         print(json.dumps({"status": "ok", "backend": "file", "count": 1,
                           "unreviewed": [{"pr_id": 5600, "head_commit": "bb"}],
@@ -94,6 +95,17 @@ if a and a[0] == "dispositions":
                       "newly_settled": {"fixed": 1, "wrong": 1, "intentional": 0, "no-action": 0, "unclassified": 0},
                       "noise_rate": 0.5, "emitted": [{"class": "fixed", "value": 1}, {"class": "wrong", "value": 1}],
                       "emit_failed": []}, indent=2)); raise SystemExit(0)
+if a and a[0] in ("rounds", "step-back"):
+    with open("$W/conv_calls.log", "a") as fh: fh.write(" ".join(a) + "\n")
+    if os.environ.get("FAKE_CONV") == "fail":
+        print(json.dumps({"status": "failed", "failure_class": "api-unavailable", "message": "fake"})); raise SystemExit(2)
+    if a[0] == "rounds":
+        print(json.dumps({"status": "ok", "enumerable": True, "cap": 3, "capped": ["5590"],
+                          "prs": [{"pr_id": "5590", "open": 3, "capped": True}],
+                          "emitted": [{"pr_id": "5590", "name": "pr_review_round_cap_hit", "value": 1}],
+                          "emit_failed": []}, indent=2)); raise SystemExit(0)
+    print(json.dumps({"status": "ok", "mode": "dry-run", "posted": [],
+                      "previewed": [{"pr_id": "5590"}], "skipped": [], "enumerable": True}, indent=2)); raise SystemExit(0)
 if a and a[0] == "health":
     h = os.environ.get("FAKE_HEALTH", "attention")
     if h == "fail":
@@ -365,6 +377,31 @@ ck    "a failing dispositions call never stops a session tick" "$(ran)" "yes"
 : > "$W/disp_calls.log"
 LOOP_CLAUDE_BIN="$W/bin/claude-quick" bash "$PRR" --dry-run --no-brain >/dev/null 2>&1
 ck    "--dry-run never runs dispositions" "$(wc -c < "$W/disp_calls.log" | tr -d ' ')" "0"
+
+# ══ 9. REVIEW CONVERGENCE: ONE LINE PER REAL TICK, NEVER CHANGING THE OUTCOME ═══════════════
+nconv(){ grep -c "event=convergence" "$1" 2>/dev/null || echo 0; }
+: > "$W/conv_calls.log"
+RC="$(gate_tick cq empty)"
+ck    "an empty-queue tick logs exactly one convergence line" "$(nconv "$W/cq.log")" "1"
+ckin  "…with the counts the feed returned" "event=convergence status=ok capped=1 passed_emitted=0 cap_emitted=1 step_back_posted=0 step_back_previewed=1" "$W/cq.log"
+ckin  "…passes --emit to rounds when the brain is on" "rounds --emit" "$W/conv_calls.log"
+ckin  "…and step-back --due" "step-back --due" "$W/conv_calls.log"
+ckout "…never --live on a dry-run tick" "--live" "$W/conv_calls.log"
+ckin  "…the gate report names the round-capped PR" "Round-capped (no further automatic review; a maintainer runs ledger --reset-rounds): 5590 (3 rounds)" "$W/cq.md"
+ckin  "…outcome is still empty-queue" "outcome=empty-queue" "$W/cq.log"
+RC="$(gate_tick cs prs)"
+ck    "a tick that reaches the session also logs exactly one convergence line" "$(nconv "$W/cs.log")" "1"
+RC="$(FAKE_CONV=fail gate_tick cf empty)"
+ck    "a failing convergence call leaves the exit code alone" "$RC" "0"
+ckin  "…and the outcome" "outcome=empty-queue" "$W/cf.log"
+ckin  "…and logs its failure class" "event=convergence status=api-unavailable" "$W/cf.log"
+ck    "…still exactly one convergence line" "$(nconv "$W/cf.log")" "1"
+: > "$W/conv_calls.log"
+RC="$(run_tick cn claude-quick)"
+ckout "a --no-brain tick never passes --emit to rounds" "rounds --emit" "$W/conv_calls.log"
+: > "$W/conv_calls.log"
+LOOP_CLAUDE_BIN="$W/bin/claude-quick" bash "$PRR" --dry-run --no-brain >/dev/null 2>&1
+ck    "--dry-run never runs the convergence sweep" "$(wc -c < "$W/conv_calls.log" | tr -d ' ')" "0"
 
 # ══ NO RESIDUE ═══════════════════════════════════════════════════════════════
 ck "this test left no runner lock in the repo" \
