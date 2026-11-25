@@ -107,7 +107,7 @@ Both shipped runners use the same numbers for the same meanings. A new runner re
 | `22` | watchdog timeout — the model call was TERMed/KILLed |
 | `23` | lock error — could not acquire or reclaim a lock directory, or `lib/agent_lock.sh` is missing |
 | `24` | *pr-review* — STUCK: three consecutive ticks achieved nothing for the same reason |
-| `25` | *pr-review* — a `--live` tick refused before consuming anything (no seen-ledger without `--first-run`; a widened scope inherited from the JSON instead of re-affirmed with `--scope`) |
+| `25` | *pr-review* — a `--live` tick refused before consuming anything (no seen-ledger without `--first-run`; a widened scope inherited from the JSON instead of re-affirmed with `--scope`; `pr_review_loop.timing` not recorded as measured) |
 | `26` | *pr-review* — today's recorded consumption reached `per_day_usd_cap` |
 | `27` | *pr-review* — the consumption counter file is not writable |
 | `28` | *pr-review* — metered API billing refused (`ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` set) |

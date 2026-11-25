@@ -359,6 +359,22 @@ recorded, so the skip cannot repeat forever.
 loudly in both the log and stderr. It still *tries* for the bolt first, so a hand run on a free
 bolt excludes the timer; and it never releases a lock it did not take.
 
+## Measure the tick timing before going live
+
+`pr_review_loop.prs_per_tick` was measured before independent validators and the deep review pass
+were added, so `pr_review.sh --live` also **refuses to run** (exit 25, `reason=timing_unmeasured`)
+until `pr_review_loop.timing` records a measurement. Dry-run ticks are not gated; let the soak
+produce the data, then:
+
+```bash
+python3 .claude/skills/dev-loop-pr-review/scripts/measure_ticks.py --log .claude/loops/pr-review.log
+```
+
+Only ticks that made a model call and reviewed at least one PR count; killed, rate-limited and
+empty ticks are skipped. When `enough` is true, edit `prs_per_tick` and the `timing` block
+(`measured: true`, `measured_by` your name, `samples`, `p90_duration_s`) in `loop-limits.json`.
+The script never writes it: a person records the measurement.
+
 ## If threads were ever posted by hand before the ledger existed
 
 The ledger is per-machine runtime state that is gitignored. If `dev-loop-pr-review` was ever

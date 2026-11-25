@@ -62,7 +62,8 @@ the target surface and `infra-ship` embeds it in the pull-request body. See belo
   `conventions.json`) — and never exceed it. A feature that adds warnings has regressed.
 - **Verify against acceptance criteria**, not a single replay: each AC becomes a checked expectation
   (propose via `qa-kb`; `human-explore` blesses the canonical ones — the loop never does). The
-  confidence-≥80 review rubric and the review lenses carry over via `dev-code-review`. `qa-verify`
+  review rubric (confidence floor, independent validators at a quorum) and the review lenses carry
+  over via `dev-code-review`. `qa-verify`
   records the **after**-video (`<KEY>-fixed.gif` + `.mp4`) on the target surface at `app.url` (or the
   sandbox's url), per `qa-repro/references/recording.md`, signed in through the `auth_provider`
   adapter with a role from its configured `roles`.
