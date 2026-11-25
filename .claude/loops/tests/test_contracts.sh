@@ -59,6 +59,11 @@ must_fail "$C/dev-code-review.json" "$C/samples/EXAMPLE-bad-review-bug-class/rev
 must_pass "$C/dev-code-review.json" "$C/samples/EXAMPLE-review-brief/review.json"
 must_pass "$C/dev-code-review.json" "$C/samples/EXAMPLE-review-clean-headline/review.json"
 must_fail "$C/dev-code-review.json" "$C/samples/EXAMPLE-bad-review-brief/review.json"
+# dev-code-review v1.6.0 (independent finding validation): real finding_votes.py tally output (three
+# validators, quorum 2: one finding 3/3, one 2/3 kept, one 1/3 rejected) passes; an open finding
+# with fewer confirms than validation.quorum must FAIL (validate.py DEV-REVIEW-V1)
+must_pass "$C/dev-code-review.json" "$C/samples/EXAMPLE-review-validated/review.json"
+must_fail "$C/dev-code-review.json" "$C/samples/EXAMPLE-bad-review-validation/review.json"
 # dev-loop-defect.review-rounds v1.0.0 (proposed): review_rounds.py's per-round history;
 # a verdict off the enum must FAIL
 must_pass "$C/dev-loop-defect.review-rounds.json" "$C/samples/EXAMPLE-review-rounds/review-rounds.json"

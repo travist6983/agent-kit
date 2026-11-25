@@ -1,0 +1,32 @@
+{
+  "verdict": "request-changes",
+  "masking": false,
+  "key": "PROJ-123",
+  "critical": 0,
+  "high": 1,
+  "findings": [
+    {
+      "dimension": "data",
+      "severity": "high",
+      "confidence": 90,
+      "file": "api/src/invoices/listInvoices.js",
+      "line": 7,
+      "bug_class": "authz-or-authn-gap",
+      "issue": "The Invoices query no longer filters by workspace_id.",
+      "finding_id": "F-245637a805",
+      "votes": { "confirm": 1, "reject": 2, "pre_existing": 0, "cast": 3 }
+    }
+  ],
+  "validation": {
+    "status": "independent",
+    "validators": 3,
+    "validators_returned": 3,
+    "quorum": 2,
+    "confidence_floor": 80,
+    "candidates": 1,
+    "kept": 1,
+    "rejected": 0,
+    "split": 0
+  },
+  "summary": "request-changes: a finding only one of three validators confirmed is reported anyway (below quorum 2), so it must FAIL DEV-REVIEW-V1."
+}

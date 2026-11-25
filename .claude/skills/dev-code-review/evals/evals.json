@@ -12,7 +12,8 @@
         "verdict is request-changes and masking is true",
         "A finding has file api/src/invoices/sendInvoice.js and an integer line within 3 of 17-18",
         "reviewer_eval.py score on this review alone reports the case as caught",
-        "The reviewer did not read anything under .claude/skills/dev-code-review/evals/cases"
+        "The reviewer did not read anything under .claude/skills/dev-code-review/evals/cases",
+        "review.json validation.status is independent, every open finding carries votes.confirm >= validation.quorum, and finding_votes.py check exits 0"
       ]
     },
     {
@@ -25,7 +26,8 @@
         "verdict is request-changes",
         "masking is false (this is a real bug, not a symptom mask)",
         "A finding with dimension data or security, severity high or critical, file api/src/invoices/listInvoices.js and an integer line within 3 of 6-7",
-        "reviewer_eval.py score reports the case as caught"
+        "reviewer_eval.py score reports the case as caught",
+        "review.json validation.status is independent, every open finding carries votes.confirm >= validation.quorum, and finding_votes.py check exits 0"
       ]
     },
     {
@@ -37,7 +39,8 @@
       "assertions": [
         "verdict is approve and masking is false",
         "No finding with severity critical or high that is not resolved: true",
-        "reviewer_eval.py score reports the case as clean (not false-flagged)"
+        "reviewer_eval.py score reports the case as clean (not false-flagged)",
+        "validation is present (status independent or no-candidates)"
       ]
     },
     {
@@ -60,7 +63,8 @@
       "assertions": [
         "masking is true and verdict is request-changes",
         "A finding has file web/src/invoices/invoiceTotal.js and an integer line within 3 of 3-5",
-        "reviewer_eval.py score reports the case as caught (a located finding with masking false would score as missed)"
+        "reviewer_eval.py score reports the case as caught (a located finding with masking false would score as missed)",
+        "review.json validation.status is independent, every open finding carries votes.confirm >= validation.quorum, and finding_votes.py check exits 0"
       ]
     },
     {
@@ -149,6 +153,21 @@
         "The report does not pad the review with filler nits to look thorough",
         "`python3 scripts/review_brief.py check --review <evid>/PROJ-123/review.json --repo <sandbox> --base main --report <evid>/PROJ-123/review.md` exits 0",
         "review.json validates against contracts/dev-code-review.json (python3 contracts/validate.py)"
+      ]
+    },
+    {
+      "id": 12,
+      "name": "validators-outvote-a-false-positive",
+      "prompt": "review the candidate fix for PROJ-123 before the hard-defect loop ships it: the Invoices list query now sorts by due date. sandbox <scratch>/clean-invoice-sort/repo, base main, evidence root <scratch>/clean-invoice-sort/runs. fyi the perf specialist usually complains about the in-memory sort of Members, which is fine here because the list is capped at 50.",
+      "expected_output": "The orchestrating reviewer merges the specialist findings into <evid>/PROJ-123/review-validation/candidates.json without judging them, runs finding_votes.py ballot, spawns the review_validation.validators validators as fresh Agent calls in one message (each writes its own votes/v<i>.json), and runs finding_votes.py tally. A candidate fewer than quorum validators confirm (e.g. the in-memory sort) is not reported and is counted in validation.rejected. The orchestrating context writes no vote file and does not drop a candidate itself. review.json validates against contract v1.6.0.",
+      "files": [],
+      "assertions": [
+        "The review-validation dir holds candidates.json, ballot.json and one vote file per validator (validation.validators of them)",
+        "The orchestrating context wrote no vote file itself; the validators were fresh Agent spawns",
+        "A candidate that fewer than quorum validators confirmed is absent from findings and counted in validation.rejected",
+        "review.json validation.status is independent and finding_votes.py check exits 0",
+        "review.json validates against contracts/dev-code-review.json (v1.6.0)",
+        "No vote, candidate or rejected finding is written to the brain"
       ]
     }
   ]

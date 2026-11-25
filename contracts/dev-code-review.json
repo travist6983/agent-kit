@@ -2,9 +2,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "loops/contracts/dev-code-review.json",
   "title": "dev-code-review review.json — machine review verdict (incl. R3 masking judge)",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "status": "ratified",
-  "description": "The ratified output of the dev-code-review skill, written to <evid_root>/<key>/review.json. The recipe branches on `verdict` (approve advances, request-changes routes back to dev-fix); `masking` carries the R3 symptom-masking judge's call. Ratified against samples/EXAMPLE-defect-loop/review.json. v1.3.0 (additive, backward compatible): findings may carry an integer `line`, the new-file line of the added or changed line; the reviewer eval scorer (dev-code-review/scripts/reviewer_eval.py) locates a catch by file + line. v1.4.0 (additive, backward compatible): findings may carry `bug_class`, the CLASS of the bug from a closed vocabulary, and `instances`, the other places in the same diff where that class occurs, so one finding covers the class and every instance gets fixed; file + bug_class is the fingerprint review_rounds.py records and recipe_router.py --review-rounds uses to detect a finding that survives fix cycles (stagnation). v1.5.0 (additive, backward compatible): optional `headline`, the count lead `review_brief.py finalize` writes (summary starts with it; a clean review reads exactly `0 findings: nothing needs fixing.`), and optional `brief`, the record of the per-area reviewer brief (conventions `review_brief`): which changed files were skipped, which skips were refused because the file is R6-denylisted or shared core, and how many low findings the nit cap withheld; findings[].withheld / withheld_reason are now documented. validate.py DEV-REVIEW-H1 (the headline count equals the open findings and leads the summary) and DEV-REVIEW-B1 (open lows within brief.max_nits; no file both skipped and refused; an unavailable brief skips and withholds nothing) fire only when those fields are present.",
+  "description": "The ratified output of the dev-code-review skill, written to <evid_root>/<key>/review.json. The recipe branches on `verdict` (approve advances, request-changes routes back to dev-fix); `masking` carries the R3 symptom-masking judge's call. Ratified against samples/EXAMPLE-defect-loop/review.json. v1.3.0 (additive, backward compatible): findings may carry an integer `line`, the new-file line of the added or changed line; the reviewer eval scorer (dev-code-review/scripts/reviewer_eval.py) locates a catch by file + line. v1.4.0 (additive, backward compatible): findings may carry `bug_class`, the CLASS of the bug from a closed vocabulary, and `instances`, the other places in the same diff where that class occurs, so one finding covers the class and every instance gets fixed; file + bug_class is the fingerprint review_rounds.py records and recipe_router.py --review-rounds uses to detect a finding that survives fix cycles (stagnation). v1.5.0 (additive, backward compatible): optional `headline`, the count lead `review_brief.py finalize` writes (summary starts with it; a clean review reads exactly `0 findings: nothing needs fixing.`), and optional `brief`, the record of the per-area reviewer brief (conventions `review_brief`): which changed files were skipped, which skips were refused because the file is R6-denylisted or shared core, and how many low findings the nit cap withheld; findings[].withheld / withheld_reason are now documented. validate.py DEV-REVIEW-H1 (the headline count equals the open findings and leads the summary) and DEV-REVIEW-B1 (open lows within brief.max_nits; no file both skipped and refused; an unavailable brief skips and withholds nothing) fire only when those fields are present. v1.6.0 (additive, backward compatible): optional `validation`, the record of independent finding validation written by dev-code-review/scripts/finding_votes.py tally (never by hand): `validators` fresh Agent validators voted on every candidate finding and a finding is reported only with at least `quorum` confirms at or above `confidence_floor` (loop-limits review_validation); findings[].finding_id and findings[].votes are now documented. validate.py DEV-REVIEW-V1 (every open finding carries votes.confirm >= quorum, the open findings number `kept`, the counts add up) fires only when `validation` is present.",
   "type": "object",
   "additionalProperties": false,
   "required": ["verdict", "masking", "findings", "summary"],
@@ -23,7 +23,7 @@
     "high": { "type": "integer", "minimum": 0, "description": "Count of high findings." },
     "findings": {
       "type": "array",
-      "description": "Validated findings only (confidence >= 80 discipline). May be empty on a clean approve.",
+      "description": "Validated findings only: validated by independent validators at quorum (v1.6.0); the floor and quorum are loop-limits review_validation. Earlier findings carried with resolved: true need no votes. May be empty on a clean approve.",
       "items": {
         "type": "object",
         "additionalProperties": true,
@@ -35,6 +35,19 @@
           "file": { "type": "string", "description": "The file the finding is about: repo-relative path, forward slashes, no leading ./" },
           "line": { "type": "integer", "minimum": 1, "description": "OPTIONAL (v1.3.0). The NEW-file line number of the added or changed line the finding is about (the same line the validator re-reads at file:line). An integer, never a range or a string: reviewer_eval.py matches a finding to a confirmed bug by file + line, and a finding with no integer line is unlocatable and cannot count as a catch." },
           "issue": { "type": "string" },
+          "finding_id": { "type": "string", "description": "OPTIONAL (documented v1.6.0). The candidate id finding_votes.py ballot assigns: `F-` + the first 10 hex of sha1(dimension|file|line|bug_class|normalized issue). The key the validators vote on." },
+          "votes": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["confirm", "cast"],
+            "description": "OPTIONAL (documented v1.6.0). The independent validators' tally for this finding, written by finding_votes.py tally. confirm counts confirms at or above validation.confidence_floor; reject and pre_existing count those verdicts at any confidence; cast is the number of returned ballots. DEV-REVIEW-V1: an open finding needs confirm >= validation.quorum and cast == validation.validators_returned.",
+            "properties": {
+              "confirm": { "type": "integer", "minimum": 0 },
+              "reject": { "type": "integer", "minimum": 0 },
+              "pre_existing": { "type": "integer", "minimum": 0 },
+              "cast": { "type": "integer", "minimum": 0 }
+            }
+          },
           "bug_class": {
             "type": "string",
             "enum": ["null-or-undefined", "unhandled-error", "swallowed-error", "race-or-ordering", "boundary-or-off-by-one", "wrong-logic", "missing-validation", "injection", "authz-or-authn-gap", "secret-or-data-exposure", "resource-leak", "performance", "state-duplication", "api-contract-break", "missing-or-weak-test", "convention-violation", "symptom-masking", "accessibility", "other"],
@@ -106,6 +119,24 @@
           "items": { "type": "object", "additionalProperties": false, "required": ["name", "files"],
                      "properties": { "name": { "type": "string" }, "files": { "type": "array", "items": { "type": "string" } } } }
         }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "validators", "validators_returned", "quorum", "confidence_floor", "candidates", "kept", "rejected"],
+      "description": "OPTIONAL (v1.6.0). How the candidate findings were validated, written by dev-code-review/scripts/finding_votes.py tally, never by hand. `independent` = `validators` fresh Agent validators each voted on every candidate at or above the floor, and only candidates with at least `quorum` confirms at or above `confidence_floor` are in findings. `no-candidates` = no candidate reached the ballot, so no validator was spawned. Counts only: a rejected candidate is recorded nowhere as a finding. That each validator ran in a fresh context is self-reported, like judged_blind. DEV-REVIEW-V1.",
+      "properties": {
+        "status": { "type": "string", "enum": ["independent", "no-candidates"] },
+        "validators": { "type": "integer", "minimum": 0, "description": "Validators the ballot was put to (0 when no candidate reached it)." },
+        "validators_returned": { "type": "integer", "minimum": 0, "description": "Usable ballots returned; a missing or malformed one is never a confirm." },
+        "quorum": { "type": "integer", "minimum": 1 },
+        "confidence_floor": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "candidates": { "type": "integer", "minimum": 0, "description": "Candidate findings after dedup, below-floor ones included." },
+        "kept": { "type": "integer", "minimum": 0 },
+        "rejected": { "type": "integer", "minimum": 0, "description": "candidates - kept, below-floor candidates included." },
+        "split": { "type": "integer", "minimum": 0, "description": "Rejected candidates that at least one validator confirmed." },
+        "source": { "type": "string", "description": "The limits file the numbers came from, `<path>#review_validation`." }
       }
     },
     "next_action": {

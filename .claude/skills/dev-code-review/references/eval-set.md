@@ -8,8 +8,8 @@ an eval: **bad cases** are diffs with a confirmed bug at a confirmed location, s
 flag, so they measure the **harmful false-flag rate** (did the reviewer block a good fix). A false
 flag costs a wasted loop cycle and erodes trust as surely as a miss ships a bug, so both are counted.
 
-Rescore after any change to `SKILL.md`, anything under `references/`, the reviewer's tool list, or
-`models.verifier` in stack.config. Compare a score with the previous one before and after the change.
+Rescore after any change to `SKILL.md`, anything under `references/`, the reviewer's tool list,
+`models.verifier` in stack.config, or `review_validation` in `.claude/loops/loop-limits.json`. Compare a score with the previous one before and after the change.
 
 ## The case format
 
@@ -80,6 +80,37 @@ set, so an adopter passes the kit's directory plus their own.
 - The output (`contracts/dev-code-review.eval-score.json`) carries no timestamp and no model field,
   so two runs over the same inputs are byte-identical. **Compare two scores only when
   `case_set.sha256` matches**: a different set is a different exam.
+
+## Tuning the quorum and the floor (measure, do not argue)
+
+`review_validation.quorum` and `confidence_floor` decide which candidate findings reach
+`review.json`. They are changed by measurement against this set, not by argument. `finding_votes.py
+tally` is a pure function of the saved candidates, the saved votes and a limits file, so a variant
+is scored with **zero model calls**:
+
+1. Run the eval once as in "How a run works", and keep each case's
+   `<scratch>/<id>/runs/<ticket>/review-validation/` directory (candidates.json, ballot.json, votes/).
+2. Baseline: `python3 $EV score --reviews <reviews> --out base.json`.
+3. For each variant, copy `.claude/loops/loop-limits.json` to a scratch file and change ONLY
+   `review_validation.quorum` and/or `confidence_floor`. Per case, copy that case's `review.json`
+   into `<variant reviews>/<id>/review.json` and run
+   `python3 .claude/skills/dev-code-review/scripts/finding_votes.py tally --dir <that case's review-validation dir> --review <the copy> --limits <alt> --derive-verdict`,
+   then `python3 $EV score --reviews <variant reviews> --out variant.json`.
+4. Compare `recall` and `false_flag_rate` only when `case_set.sha256` matches. Pick the variant that
+   holds recall and lowers false flags, and change `loop-limits.json` by PR, quoting both scores and
+   rewording the rule from "argued" to "measured on <N> cases".
+
+Limits of the replay, stated so nobody over-reads it:
+- It can only **raise** the floor: candidates below the run's floor were never put to a vote.
+- It cannot change `validators`: a different number of validators needs a new run with that number
+  (a quorum above the run's validators is exit 2).
+- `--derive-verdict` applies the strict rule (masking or any kept critical / high is
+  `request-changes`); it does not model a recipe-accepted HIGH.
+- The replay drops `harden` blocks and nit-cap stamps (`tally` rewrites the findings and pops
+  `headline` / `brief`); the scorer reads neither.
+
+The R3 masking finding goes through the same quorum, so a 1-of-3 masking split drops the mask. The
+two bad-masking cases in the set are the measurement for whether that is acceptable.
 
 ## The bar
 

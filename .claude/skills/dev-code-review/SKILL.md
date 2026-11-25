@@ -8,15 +8,16 @@ description: >-
   dev-loop-hard-defect runs before ship. Scope: loop-produced fix diffs needing a machine-actionable
   verdict — for a general "review this diff / review my changes", use the built-in code-review skill
   instead. Runs the 6-specialist split (frontend, backend, data, security, tests, perf) plus the
-  masking judge; findings validated at confidence ≥ 80. Does NOT fix or ship.
+  masking judge; findings validated by independent validators at a quorum. Does NOT fix or ship.
 allowed-tools: Read, Glob, Grep, Bash, Agent, ToolSearch
 ---
 
 # dev-code-review — high-signal review + the masking judge, as a machine verdict
 
 `dev-code-review` is the recipe's quality gate before a hard defect ships. It is a high-signal
-multi-specialist review (six stack-agnostic specialists, a validator that drops false positives in-run, per-finding
-validation at confidence ≥ 80, fingerprint dedup) **plus** the one thing an autonomous loop needs
+multi-specialist review (six stack-agnostic specialists that only propose candidates, independent
+validators — fresh `Agent` spawns, never this context — that vote on each candidate, a quorum counted
+by `scripts/finding_votes.py`, mechanical dedup) **plus** the one thing an autonomous loop needs
 that a human review assumes: an explicit check that the fix isn't **masking** the symptom (R3), and
 a **machine verdict** (`approve` / `request-changes`) the recipe can act on. Read
 `references/specialists.md` for the six specialists and `references/masking-specialist.md` for the
@@ -59,9 +60,11 @@ from stack.config, default `runs/`, overridable with `LOOPS_CFG__EVIDENCE__ROOT`
 `{ verdict: approve | request-changes, findings: [...], masking: bool, critical, high, confidence }`,
 plus the human-readable `review.md` beside it (contract v1.5.0 adds `headline`, the count lead,
 and `brief`, the record of the reviewer brief; both are written by `scripts/review_brief.py
-finalize`, never by hand). **Every finding carries `file` (repo-relative, forward
+finalize`, never by hand; contract v1.6.0 adds `validation`, the record of independent finding
+validation, and `findings[].finding_id` / `votes`, all written by `scripts/finding_votes.py tally`,
+never by hand). **Every finding carries `file` (repo-relative, forward
 slashes, no leading `./`) and an integer `line`: the new-file line number of the added or changed
-line it is about** (contract v1.3.0). That pair is how a human, the validator pass and the eval
+line it is about** (contract v1.3.0). That pair is how a human, the validators and the eval
 scorer find what you meant; a range or a string is unlocatable, so a real catch written that way
 scores as a miss. **Every finding also carries `bug_class`**, one word from the contract's closed
 vocabulary (v1.4.0; one line per class in `references/specialists.md`), and lists the other places in
@@ -93,24 +96,51 @@ Every finding still needs `file` + an integer `line` as evidence. The masking ju
 whole diff whatever the brief skips, because a mask can hide in a "generated" file. Report every
 validated low finding; the nit cap is applied mechanically in §5, not by trimming.
 
-### 2. Specialists (parallel, validated)
-Run the six specialists in `references/specialists.md` — **frontend, backend, data, security,
-tests, perf** — over the diff (chunk at 50 files), **plus** the **R3 symptom-masking specialist**
-(`references/masking-specialist.md`). A specialist whose surface the diff doesn't touch (no
-frontend files changed, no data-layer files changed) returns an empty list, not a guess. Each
-returns strict JSON findings at confidence ≥ 80, `dimension` set to its name. Then **validate**
-each finding (re-read the code at file:line, reject pre-existing or < 80) — the second
-false-positive filter. A rejected pre-existing issue that is genuinely serious (a missing
-authorization check, a data-loss path) still deserves a human's eyes — just not on this change:
-write it as one bullet under a `## Noticed, not changed` heading in the markdown report,
-`<EVID_ROOT>/<KEY>/review.md`. The ship skill reads that heading into the PR description
-(`--review-report`) when it opens the PR through the `vcs_host` adapter, and the recipe's run
-report drafts an issue for a serious one through the `issue_tracker` adapter. It never becomes a
-review thread on the PR; nothing the reviewer does to this diff resolves it. (A hazard the diff
-*newly exposes* is not pre-existing — it is a finding about this diff.)
+### 2. Specialists propose, independent validators decide (parallel, counted by a script)
+A producer never grades its own work, and that holds inside this skill: the context that writes the
+verdict does not decide which findings are real. Numbers: `loop-limits.json` `review_validation`
+(`validators`, `quorum`, `confidence_floor`; 3 / 2 / 80 as shipped, argued not measured). The full
+validator brief is `references/specialists.md` "The validators". The sequence is mechanical:
+
+1. **Specialists** (fresh `Agent` spawns, parallel). Run the six in `references/specialists.md` —
+   **frontend, backend, data, security, tests, perf** — over the diff (chunk at 50 files), **plus**
+   the **R3 symptom-masking specialist** (`references/masking-specialist.md`). A specialist whose
+   surface the diff doesn't touch returns an empty list, not a guess. Each returns strict JSON
+   findings at or above the floor, `dimension` set to its name.
+2. **Merge without judging.** Put every specialist finding into
+   `<EVID_ROOT>/<KEY>/review-validation/candidates.json` (`{"findings": [...]}`). Do not drop,
+   merge, re-rate or reword a candidate: that would be this context grading.
+3. `python3 scripts/finding_votes.py ballot --dir <EVID_ROOT>/<KEY>/review-validation` — ids,
+   mechanical dedup, the floor, and `ballot.json` with the specialist's confidence stripped.
+   `no-candidates` = spawn no validator.
+4. **Spawn the `validators` as fresh `Agent` calls in ONE message.** Each gets only `ballot.json`,
+   the sandbox path, the base and the validator brief, re-reads the code at file:line, checks the
+   line is in the diff, and writes its own `votes/v<i>.json` with its own confidence. It never reads
+   another validator's votes, `candidates.json`, the specialist's confidence, or fix.json's
+   `design_decisions` / `notes` / `confidence`. You never write a vote file yourself.
+5. `python3 scripts/finding_votes.py tally --dir <that dir> --review <draft review.json>` — keeps a
+   finding only with at least `quorum` confirms at or above the floor, and writes `findings`,
+   `critical`, `high`, `masking` and `validation` into the draft. **Exit 2 (`validation-unavailable`:
+   fewer than `quorum` usable ballots) = no review.json; report `blocked: validation-unavailable` to
+   the recipe.** Re-spawn a missing validator only for a transient reason.
+6. Only then: §2b harden blocks, the §4 verdict and the `summary`, on the kept findings; §5
+   `review_brief.py finalize`; `contracts/emit.py`. `finding_votes.py check` re-derives the tally
+   (exit 0 / 1 / 2).
+
+A candidate the validators marked pre-existing and serious (`tally`'s `noticed_candidates`) still
+deserves a human's eyes — just not on this change: write it as one bullet under a
+`## Noticed, not changed` heading in the markdown report, `<EVID_ROOT>/<KEY>/review.md`. The ship
+skill reads that heading into the PR description (`--review-report`) when it opens the PR through
+the `vcs_host` adapter, and the recipe's run report drafts an issue for a serious one through the
+`issue_tracker` adapter. It never becomes a review thread on the PR; nothing the reviewer does to
+this diff resolves it. (A hazard the diff *newly exposes* is not pre-existing — it is a finding
+about this diff.)
+
+On a re-review, an earlier finding carried with `resolved: true` needs no votes (`tally` keeps it
+and does not count it); every open finding goes through the ballot again.
 
 ### 2b. Draft a check for findings a check could catch (harden block)
-After validation, ask of each surviving finding: **would a check have caught this before review?**
+After `tally`, ask of each kept finding: **would a check have caught this before review?**
 A banned call, a banned import, a suppression comment, a hard-coded value: one regex over an added
 line decides it. When the answer is yes, attach a `harden` block to the finding (contract
 `dev-code-review.json` v1.2.0) so the correction is not made by hand again:
@@ -134,8 +164,9 @@ cover; that rule is already enforced.
 ### 3. The masking judge (the loop gate)
 The masking specialist judges: does the green depend on a swallowed exception / suppressed log / narrow
 special-case / disabled check / symptom-surface-only edit? The discriminating question is **"is the
-underlying state actually correct now, or just less visible?"** Any confirmed `SYMPTOM_MASKING`
-(≥ 80) sets `masking: true`.
+underlying state actually correct now, or just less visible?"** `masking` is set by `tally`, not by
+you: a symptom-masking finding kept at quorum sets `masking: true`; one the validators did not
+confirm at quorum leaves it false.
 
 ### 4. Verdict (machine-actionable)
 - Any CRITICAL finding, or `masking: true` → **`request-changes`** (the recipe sends it back to `dev-fix`
@@ -181,23 +212,27 @@ and land the result through `contracts/emit.py --from-json`. `finalize` withhold
 over the cap, writes `brief`, and puts the `headline` first in `summary` and on the first line of
 `review.md`; it is idempotent. Never hand-write `headline`, `brief`, or a nit-cap `withheld`. A
 clean review reads `0 findings: nothing needs fixing.` and says so plainly; do not add filler nits
-to look thorough. `scripts/review_brief.py check` re-derives all of it (exit 0 / 1 / 2). A finding you reject in
-validation is simply not reported; it is recorded nowhere. There is **no false-positive suppression
+to look thorough. `scripts/review_brief.py check` re-derives all of it (exit 0 / 1 / 2). A candidate the
+validators reject is simply not reported; `validation` counts it and nothing records it as a finding
+(the review-validation dir is this run's evidence, not a store). There is **no false-positive suppression
 store** — not in the brain and not in a flat file — so never claim to have looked one up or written
 one. False positives are measured after the fact instead: `dev-pr-feed dispositions` reads back which
 posted threads humans called wrong or intentional, and a confirmed one becomes a `clean` case in
 `evals/cases` (`origin: human-review`) that the reviewer is then scored against.
 
 ## Success criteria & failure categories (declared up front)
-**Success:** a defensible verdict — every reported finding is real (validated ≥ 80), masking is caught,
-and the verdict is machine-actionable.
+**Success:** a defensible verdict — every reported finding reached quorum among independent validators
+(`validation.status: independent`, or `no-candidates`), masking is caught, and the verdict is
+machine-actionable.
 **Failure categories (spec):** constraint violation; scope creep; missing test; risky pattern; **+ masking**.
 
 ## The eval set — how this reviewer is scored
 `evals/cases/` holds past-incident diffs with a confirmed bug location (recall) and known-clean
 diffs (harmful false flags); `scripts/reviewer_eval.py` checks, materializes and scores them with
 no model call. Read `references/eval-set.md` for the run procedure and how to grow the set. Rescore
-after any change to this file, `references/`, the tool list or `models.verifier`. The cases are
+after any change to this file, `references/`, the tool list, `models.verifier` or
+`review_validation` in `loop-limits.json`; tune the quorum and the floor by replay, not by argument
+(`references/eval-set.md`, "Tuning the quorum and the floor"). The cases are
 answer keys: when you review, never read `evals/cases` — review only the diff you were given.
 
 ## Knowledge brain (qa-kb)
@@ -206,7 +241,9 @@ the brain — rejected findings included (there is no false-positive store; see 
 canonical. A `harden` block is a draft in review.json, not a rule: `dev-harden` reads it later.
 
 ## Key principles
-1. **High signal only.** A false finding costs a wasted loop cycle — when unsure, don't flag.
+1. **High signal only, decided by a quorum.** A false finding costs a wasted loop cycle — when unsure,
+   don't flag; and what counts as real is decided by independent validators at a quorum, never by a
+   self-check in the context that writes the verdict.
 2. **Catch the mask.** A green replay + a swallowed exception is `request-changes`, not approve (R3).
 3. **Machine verdict.** `approve`/`request-changes` so the recipe can act without a human.
 4. **Defense in depth.** This is the diff-time masking check; `qa-verify` is the runtime one — both run.

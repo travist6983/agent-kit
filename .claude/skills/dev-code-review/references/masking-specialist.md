@@ -39,9 +39,13 @@ The discriminating question: **after this change, is the underlying state/behavi
 just less visible?** If the diff makes the wrong thing quieter instead of right, it's masking.
 
 ## Output
-A finding object like the other specialists (`dimension: "masking"`), plus it drives the overall
-**verdict**: any confirmed `SYMPTOM_MASKING` (confidence ≥ 80) forces overall `request-changes` and
-lowers the fix's confidence — even if every other specialist is clean and the replay is green.
+A finding object like the other specialists (`dimension: "masking"`, `bug_class: "symptom-masking"`),
+plus it drives the overall **verdict**: any confirmed `SYMPTOM_MASKING` forces overall
+`request-changes` and lowers the fix's confidence — even if every other specialist is clean and the
+replay is green. "Confirmed" means confirmed at quorum by the independent validators
+(`references/specialists.md`, loop-limits `review_validation`): `finding_votes.py tally` sets
+`masking: true` from a kept symptom-masking finding, and a masking candidate that misses quorum
+leaves `masking` false. The reviewer never sets `masking` by hand.
 
 ## False positives: measured, not suppressed
 No false-positive suppression store exists — not in `qa-kb`, not in a flat file — so a finding this

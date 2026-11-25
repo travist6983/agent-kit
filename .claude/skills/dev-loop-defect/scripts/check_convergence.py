@@ -15,6 +15,10 @@ The five failure modes it catches (and nothing else — it is not a reviewer):
   4. LOW-CONFIDENCE — below the floor for the run's tier
   5. MALFORMED  — unparseable, or a shape the next node cannot read
 
+Plus one warn-only check (never blocking): UNVALIDATED-FINDINGS — review.json reports open findings
+without independent validation (no `validation` block, or its status is not `independent`), i.e. the
+reviewer validated its own findings. Pre-1.6.0 reviews exist, so this warns rather than blocks.
+
 Usage:
   python3 check_convergence.py --evid <EVID_ROOT>/<KEY> --key <KEY>
         [--producer-model <model id or family>] [--min-confidence 80]
@@ -230,6 +234,19 @@ def check_contradictions(verify, regression, review, flags):
                           "risk — but from this artifact alone it is impossible to tell "
                           "whether a re-fix closed them. Set `resolved` on findings a cycle "
                           "addressed.", "warn")
+    # 2b. Findings the reviewer validated itself. dev-code-review v1.6.0 has fresh Agent validators
+    # vote on every candidate and finding_votes.py tally write `validation`; a review whose open
+    # findings carry no independent validation was graded by its producer. Warn only: older
+    # artifacts exist, and making this blocking is an owner decision.
+    if review:
+        findings = review.get("findings") if isinstance(review.get("findings"), list) else []
+        opened = [f for f in findings if isinstance(f, dict) and f.get("resolved") is not True]
+        val = review.get("validation")
+        if opened and not (isinstance(val, dict) and val.get("status") == "independent"):
+            flags.add("unvalidated-findings", "review",
+                      f"{len(opened)} finding(s) reported without independent validation (no "
+                      "validation block or status != independent): the reviewer validated its "
+                      "own findings", "warn")
     # 3. Masking suspected but the review approved — the R3 defence-in-depth disagreeing.
     if verify and review:
         if verify.get("masking_suspected") is True and review.get("verdict") == "approve":

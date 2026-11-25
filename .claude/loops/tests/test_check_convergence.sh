@@ -90,6 +90,32 @@ D=$(mkev contra3)
 echo '{"verdict":"pass","confidence":90,"masking_suspected":true}' > "$D/verify.json"
 t "masking suspected + approve → flagged" flagged escalate 1 -- --evid "$D" --key PROJ-1
 
+# ---------- 2b. UNVALIDATED FINDINGS (warn only) -------------------------------------------------
+# dev-code-review v1.6.0: open findings need independent validation (finding_votes.py tally writes
+# `validation`). A review without it was graded by its producer: warn, never block.
+lacks_kind(){ local desc="$1" kind="$2"; shift 3
+  local o; o=$(python3 "$C" "$@" 2>&1)
+  if printf '%s' "$o" | python3 -c "
+import sys,json;d=json.load(sys.stdin)
+sys.exit(1 if any(f['kind']=='$kind' for f in d['flags']) else 0)" 2>/dev/null; then pass=$((pass+1))
+  else echo "  [FAIL] $desc (unexpected '$kind' flag)"; fail=$((fail+1)); fi; }
+D=$(mkev unval)
+echo '{"verdict":"request-changes","findings":[{"severity":"medium","issue":"x"}]}' > "$D/review.json"
+t "open finding, no validation → warns only" warnings continue 0 -- --evid "$D" --key PROJ-1
+has_kind "open finding, no validation flags unvalidated-findings" unvalidated-findings -- --evid "$D" --key PROJ-1
+D=$(mkev unvalst)
+echo '{"verdict":"request-changes","findings":[{"severity":"medium","issue":"x"}],"validation":{"status":"no-candidates"}}' > "$D/review.json"
+has_kind "open finding, validation not independent → flagged" unvalidated-findings -- --evid "$D" --key PROJ-1
+D=$(mkev val)
+echo '{"verdict":"request-changes","findings":[{"severity":"medium","issue":"x","votes":{"confirm":2,"cast":3}}],"validation":{"status":"independent"}}' > "$D/review.json"
+t "open finding, independent validation → clean" clean continue 0 -- --evid "$D" --key PROJ-1
+lacks_kind "independent validation: no unvalidated-findings" unvalidated-findings -- --evid "$D" --key PROJ-1
+D=$(mkev nofind)
+lacks_kind "findings [] → no unvalidated-findings" unvalidated-findings -- --evid "$D" --key PROJ-1
+D=$(mkev resolvedonly)
+echo '{"verdict":"approve","findings":[{"severity":"high","issue":"x","resolved":true}]}' > "$D/review.json"
+lacks_kind "resolved-only finding → no unvalidated-findings" unvalidated-findings -- --evid "$D" --key PROJ-1
+
 # ---------- 3. OFF-TOPIC ---------------------------------------------------------------------
 D=$(mkev offtopic); echo '{"verdict":"pass","confidence":90,"key":"PROJ-999"}' > "$D/verify.json"
 t "artifact names another ticket → flagged" flagged escalate 1 -- --evid "$D" --key PROJ-3000

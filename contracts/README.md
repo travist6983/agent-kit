@@ -22,7 +22,7 @@ URLs come from the `evidence_store` adapter, and the evidence root is `evidence.
 | `qa-verify.json` | 1.0.0 | `qa-verify` mode=`fix-verify` (default) | `<evid_root>/<key>/verify.json` | the checker node; `dev-pre-pr` fails closed on it | `verdict` |
 | `qa-verify.collateral.json` | 1.0.0 | `qa-verify` fix-verify step 2b | `<repro_dir>/collateral.json` | the `no_collateral` must-have | `status` |
 | `qa-regression.json` | 2.1.0 | `qa-regression` | `<evid_root>/<key>/regression.json` | router | `status` + `next_action` |
-| `dev-code-review.json` | 1.5.0 | `dev-code-review` | `<evid_root>/<key>/review.json` | router; `dev-harden` reads findings' `harden` blocks; `reviewer_eval.py score` locates findings by `file` + `line`; `review_rounds.py record` fingerprints findings by `file` + `bug_class`; `review_brief.py finalize` / `check` write and re-check `headline` + `brief` | `verdict` |
+| `dev-code-review.json` | 1.6.0 | `dev-code-review` | `<evid_root>/<key>/review.json` | router; `dev-harden` reads findings' `harden` blocks; `reviewer_eval.py score` locates findings by `file` + `line`; `review_rounds.py record` fingerprints findings by `file` + `bug_class`; `review_brief.py finalize` / `check` write and re-check `headline` + `brief`; `finding_votes.py tally` / `check` write and re-check `validation` + `findings[].votes` | `verdict` |
 | `dev-loop-defect.review-rounds.json` | 1.0.0 | `review_rounds.py record` (proposed) | `<evid_root>/<key>/review-rounds.json` | `recipe_router.py --review-rounds` (stagnation); the recipe reads `rounds_to_pass` for the `review_rounds_to_pass` metric | none |
 | `dev-loop-defect.meta-monitor.json` | 1.0.0 | `meta_monitor.py` (proposed) | a caller-chosen path (`--out`), or stdout | a person or a runner deciding whether loops are healthy; report-only unless `r8_meta_monitor.trip_mode` is armed | `decision` |
 | `dev-code-review.eval-case.json` | 1.0.0 | a human (seed cases: the kit), checked by `reviewer_eval.py check` (proposed) | `.claude/skills/dev-code-review/evals/cases/<id>/case.json` | `reviewer_eval.py` check / score; never the reviewer | `kind` |
@@ -153,6 +153,19 @@ not resolved and not withheld, and `summary` starts with the headline) and **DEV
 `brief.status` applied, open lows never exceed `brief.max_nits` and no file is both skipped and
 refused; with `unavailable`, nothing is skipped or withheld). Both fire only when the fields are
 present, so every older review validates. `EXAMPLE-bad-review-brief` fails on both.
+
+`review.json` v1.6.0 adds OPTIONAL `validation` and documents `findings[].finding_id` and
+`findings[].votes`, all written by `dev-code-review/scripts/finding_votes.py tally`, never by hand.
+The specialists only propose candidates; `loop-limits.json review_validation.validators` fresh Agent
+validators vote on each one, and a finding is reported only when the specialist's confidence and at
+least `quorum` confirms are at or above `confidence_floor`. `validation` records the counts
+(`status` independent | no-candidates, `validators`, `validators_returned`, `quorum`,
+`confidence_floor`, `candidates`, `kept`, `rejected`, `split`, `source`); a rejected candidate is
+still recorded nowhere as a finding. `validate.py` adds **DEV-REVIEW-V1**: with `independent`,
+`quorum <= validators_returned <= validators`, `kept + rejected == candidates`, every open finding
+carries `votes.confirm >= quorum` with `cast == validators_returned`, and the open findings number
+`kept`; with `no-candidates`, nothing is kept or open. It fires only when `validation` is present,
+so every older review validates. `EXAMPLE-bad-review-validation` fails it.
 
 `dev-code-review.eval-case.json` is the answer key of one eval case (diff + base tree + optional
 fix.json beside it). **DEV-REVIEW-EVAL-K1** (`validate.py`): `kind: bad` needs at least one bug with
@@ -366,6 +379,8 @@ Every sample validates against its contract (or is a named negative that must fa
 | `EXAMPLE-review-brief/` | dev-code-review | pass — real `review_brief.py finalize` output (v1.5.0): one file skipped, a migration refused as `blast-radius`, one nit withheld, the count lead |
 | `EXAMPLE-review-clean-headline/` | dev-code-review | pass — a clean approve whose summary leads with `0 findings: nothing needs fixing.` (v1.5.0) |
 | `EXAMPLE-bad-review-brief/` | dev-code-review | **fail** — headline says 0 with two open findings (DEV-REVIEW-H1) and two open lows over `brief.max_nits` 1 (DEV-REVIEW-B1) |
+| `EXAMPLE-review-validated/` | dev-code-review | pass — real `finding_votes.py tally` + `review_brief.py finalize` output (v1.6.0): three validators, quorum 2, two findings kept (3/3 and 2/3), one rejected (1/3) |
+| `EXAMPLE-bad-review-validation/` | dev-code-review | **fail** — an open finding with 1 confirm under quorum 2 (DEV-REVIEW-V1) |
 | `EXAMPLE-review-rounds/` | dev-loop-defect.review-rounds | pass — three request-changes rounds sharing one fingerprint (stagnation) |
 | `EXAMPLE-bad-review-rounds/` | dev-loop-defect.review-rounds | **fail** — a round verdict off the enum |
 | `EXAMPLE-reviewer-eval-bad/`, `EXAMPLE-reviewer-eval-clean/` | dev-code-review.eval-case | pass — a signed re-fix bad case and a signed clean case |

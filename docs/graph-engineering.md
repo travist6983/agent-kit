@@ -138,7 +138,15 @@ diff and `files_changed` are fair game: facts about the code, not claims about i
 blindness and judge strength are falsifiable rather than assumed. One invariant remains under
 pressure: nothing yet mechanically prevents a recipe from invoking the judge as a skill and
 self-reporting `judged_blind: true`; the checker catches a *weak* judge, not a *dishonest*
-one.
+one. The same holds for `dev-code-review`'s validators.
+
+**The rule applies inside the reviewer too.** The specialists produce candidate findings; fresh
+validator `Agent` spawns (`loop-limits.json review_validation.validators`) vote on each one; the
+orchestrating reviewer only counts, through `dev-code-review/scripts/finding_votes.py`, and keeps a
+finding only at `quorum` confirms at or above the floor. The count of distinct returned ballots and
+the arithmetic are mechanical (`tally`, `check`, validate.py DEV-REVIEW-V1); that each validator ran
+in a fresh context is self-reported, like `judged_blind`. `check_convergence.py` warns
+`unvalidated-findings` on a review whose open findings carry no independent validation.
 
 **The long pole.** Review already fans out into parallel specialists, so the diamond's saving
 is bounded by review's width. Do not expect the diamond to save more on features than on

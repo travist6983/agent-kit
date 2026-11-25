@@ -79,6 +79,11 @@
 #                         file, degrades every failure to `unavailable` (review everything, no cap),
 #                         withholds only over-cap lows, writes the count-first headline, finalize is
 #                         idempotent and check names each tampering. Throwaway git repos — offline.
+#   test_finding_votes    dev-code-review never grades its own findings: finding_votes.py reports a
+#                         finding only at quorum (fresh validators confirming at the floor), has no
+#                         default numbers, writes no review when fewer than quorum ballots return,
+#                         never counts a missing or malformed ballot as a confirm, replays a quorum
+#                         or floor with no model call, and check names each tampering. Offline.
 #   test_commit_binding   a readiness verdict covers one commit: commit_binding.py stamp/check
 #                         bind pre-pr.json to the exact content that ships; any later edit, a
 #                         missing or extra file is stale-readiness, no usable verdict is

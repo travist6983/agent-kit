@@ -153,6 +153,7 @@ def validate(schema, doc):
         _check_meta_monitor(doc, errors)
     if str(schema.get("$id", "")).endswith("/dev-code-review.json"):
         _check_review_brief(doc, errors)
+        _check_review_validation(doc, errors)
     return errors
 
 
@@ -200,6 +201,61 @@ def _check_review_brief(doc, errors):
             errors.append("DEV-REVIEW-B1: brief unavailable but files were skipped (unavailable reviews everything)")
         if brief.get("nits_withheld") not in (None, 0):
             errors.append("DEV-REVIEW-B1: brief unavailable but nits_withheld is not 0 (no cap applies)")
+
+
+def _vint(v):
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+def _check_review_validation(doc, errors):
+    """DEV-REVIEW-V1, the v1.6.0 rule the schema keywords can't express. Fires only when
+    `validation` is an object, so every older review.json still validates.
+    independent: quorum <= validators_returned <= validators; candidates >= 1;
+       kept + rejected == candidates; every finding not resolved:true carries votes with
+       confirm >= quorum and confirm <= cast == validators_returned; the open findings number kept.
+    no-candidates: kept == 0, kept + rejected == candidates and no finding is open (no candidate
+       reached the ballot, so nothing can have been confirmed)."""
+    val = doc.get("validation")
+    if not isinstance(val, dict):
+        return
+    nums = {k: val.get(k) for k in ("validators", "validators_returned", "quorum", "candidates",
+                                    "kept", "rejected")}
+    if not all(_vint(v) for v in nums.values()):
+        return  # the schema already reported the type error
+    findings = doc.get("findings") if isinstance(doc.get("findings"), list) else []
+    opened = [f for f in findings if isinstance(f, dict) and f.get("resolved") is not True]
+    if nums["kept"] + nums["rejected"] != nums["candidates"]:
+        errors.append(f"DEV-REVIEW-V1: kept {nums['kept']} + rejected {nums['rejected']} != "
+                      f"candidates {nums['candidates']}")
+    status = val.get("status")
+    if status == "independent":
+        q, n, r = nums["quorum"], nums["validators"], nums["validators_returned"]
+        if not q <= r <= n:
+            errors.append(f"DEV-REVIEW-V1: need quorum {q} <= validators_returned {r} <= validators {n}")
+        if nums["candidates"] < 1:
+            errors.append("DEV-REVIEW-V1: status independent with 0 candidates (that is no-candidates)")
+        for f in opened:
+            votes = f.get("votes")
+            where = f"finding {f.get('finding_id') or f.get('issue')!r}"
+            if not isinstance(votes, dict) or not _vint(votes.get("confirm")) \
+                    or not _vint(votes.get("cast")):
+                errors.append(f"DEV-REVIEW-V1: {where} is open but carries no votes "
+                              "(an open finding needs independent validation)")
+                continue
+            if votes["confirm"] < q:
+                errors.append(f"DEV-REVIEW-V1: {where} has {votes['confirm']} confirm(s), below "
+                              f"quorum {q}")
+            if votes["confirm"] > votes["cast"] or votes["cast"] != r:
+                errors.append(f"DEV-REVIEW-V1: {where} votes confirm {votes['confirm']} / cast "
+                              f"{votes['cast']} do not fit validators_returned {r}")
+        if len(opened) != nums["kept"]:
+            errors.append(f"DEV-REVIEW-V1: {len(opened)} open finding(s) but validation.kept is "
+                          f"{nums['kept']}")
+    elif status == "no-candidates":
+        if nums["kept"] != 0:
+            errors.append("DEV-REVIEW-V1: status no-candidates but kept is not 0")
+        if opened:
+            errors.append(f"DEV-REVIEW-V1: status no-candidates but {len(opened)} finding(s) are open")
 
 
 def _check_meta_monitor(doc, errors):

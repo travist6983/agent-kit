@@ -39,12 +39,15 @@ When the conventions file has a `review_brief`, `scripts/review_brief.py plan --
   violation of a cited rule, exploitable security, scale-failing performance. Not style, not taste,
   not "I would have done it differently". When unsure, return nothing.
 - **Only the diff.** A problem the diff did not introduce is *pre-existing*; it is not a finding
-  (the validator sends serious ones to `## Noticed, not changed`). A hazard the diff newly exposes
+  (the validators send serious ones to `## Noticed, not changed`, via `tally`'s `noticed_candidates`). A hazard the diff newly exposes
   — a new caller of an unsafe function, a new path around an existing guard — **is** a finding.
-- **Confidence ≥ 80**, integer, honest. 80 means "I re-read the surrounding code and I would bet on
-  it"; a hunch is 40 and is not emitted.
-- **Fingerprint** = `sha1(dimension + file + normalized issue text)`. The validator dedups across
-  specialists and across chunks on it; two specialists reporting the same line keep the
+- **Confidence at or above the floor**, integer, honest. The floor is `loop-limits.json`
+  `review_validation.confidence_floor` (80 as shipped), delivered to you from the `ballot` output, not
+  carried in your head. 80 means "I re-read the surrounding code and I would bet on it"; a hunch is 40
+  and is not emitted. Your number only gets a candidate onto the ballot: the validators form their own.
+- **Fingerprint** = `sha1(dimension + file + normalized issue text)`. `finding_votes.py ballot` dedups
+  across specialists and across chunks mechanically (the same `finding_id`, or the same file +
+  integer line + `bug_class` other than `other`): two specialists reporting the same line keep the
   higher-severity one.
 - **Empty is a valid answer.** A specialist whose surface the diff doesn't touch returns `[]`.
 - **Finding shape** (the `findings[]` item of `contracts/dev-code-review.json`):
@@ -100,21 +103,62 @@ resort (it falls back to a wording-sensitive fingerprint).
 The **tests** specialist has one loop-specific extra: when `fix.json` names a failure class, it
 checks that a test now exists for *that* class, not just "some test changed".
 
-## The validator (second pass, same context as the verdict)
+## The validators (independent, fresh Agent spawns, a quorum)
 
-For every specialist finding:
-1. Re-read the code at `file:line` in the sandbox. Confirm the line is in the diff's added or
-   changed hunks (`git diff <base> -U0`). Not in the diff → pre-existing → reject (serious ones go to
-   `## Noticed, not changed`).
-2. Confirm the claim is true as written. A convention finding must cite a `rule_id` that exists in
-   `conventions.rules[]` or a quotable line of the guidelines file.
-3. Drop anything under 80 after re-reading. A rejected finding is dropped and recorded nowhere:
-   there is no false-positive store to consult or write. False positives that slip through are
-   measured later from what humans did with the posted threads (`dev-pr-feed dispositions`).
-4. Dedup by fingerprint.
-5. Do not trim low findings to fit a brief's nit cap. Report every validated low finding;
-   `review_brief.py finalize` withholds the ones over `max_nits` (lowest confidence first) and
-   records them as `withheld`, so the choice is mechanical and auditable, not a specialist's.
+A producer never grades its own work, and that holds inside the reviewer too: the specialists
+produce candidates, fresh validators vote on them, and the orchestrating reviewer only counts,
+through `scripts/finding_votes.py`. The numbers are `loop-limits.json` `review_validation`
+(`validators` 3, `quorum` 2, `confidence_floor` 80 as shipped; argued, not measured; tuned by an
+eval replay, `eval-set.md`).
 
-What survives is `findings[]`; the counts fill `critical` / `high`; the verdict rule in `SKILL.md`
-§4 derives from them plus the masking judge.
+**The orchestrator** merges every specialist's output into
+`<EVID_ROOT>/<KEY>/review-validation/candidates.json` (`{"findings": [...]}`) **without judging a
+candidate itself**: it does not drop, merge, re-rate or reword one. Then:
+
+1. `python3 scripts/finding_votes.py ballot --dir <that dir>`: ids, mechanical dedup, the floor,
+   and `ballot.json` with the specialist's confidence, suggestion, fingerprint and harden stripped.
+   Status `no-candidates` = no candidate reached the floor: spawn no validator, go to step 3.
+2. Spawn `validators` fresh `Agent` validators **in ONE message** (parallel). Each receives only
+   `ballot.json`, the sandbox path, the base and this section, and writes `votes/v<i>.json`
+   (`{"validator": "v<i>", "votes": [{finding_id, verdict, confidence, reason, serious?}]}`).
+3. `python3 scripts/finding_votes.py tally --dir <that dir> --review <draft review.json>`. It writes
+   the kept findings, `critical`, `high`, `masking` and `validation` into the draft. A finding is
+   kept only when the specialist's confidence and at least `quorum` confirms are at or above the
+   floor. Never edit those fields by hand afterwards.
+
+**Each validator**, for every finding on the ballot:
+1. Re-reads the code at `file:line` in the sandbox and confirms the line is in the diff's added or
+   changed hunks (`git diff <base> -U0`). Not in the diff → verdict `pre-existing`, with
+   `serious: true` when it deserves a human's eyes (a missing authorization check, a data-loss path).
+2. Confirms the claim is true as written. A convention finding needs a `rule_id` that exists in
+   `conventions.rules[]` or a quotable line of the guidelines file; otherwise `reject`.
+3. Gives its OWN integer confidence (0-100). `confirm` below the floor does not count.
+
+**A validator may not read:** other validators' vote files, `candidates.json`, the specialist's
+confidence or suggestion, the `fix.json` fields `design_decisions` / `notes` / `confidence`, or
+`evals/cases`. The diff and the code are fair game.
+
+**A validator that fails or returns nothing** is a missing ballot: `tally` reports it under
+`missing_validators` and never counts it as a confirm; a malformed file or a duplicate validator id
+is not a returned ballot either, and a malformed vote inside one is an abstain. Re-spawn a
+validator only for a transient reason (an infra error, a timeout). `tally` exit 2
+(`validation-unavailable`: fewer than `quorum` usable ballots) means **no review.json is written**,
+and the skill reports `blocked: validation-unavailable` to the recipe. Unvalidated findings are
+never passed through.
+
+**What happens to a rejected finding.** It is recorded nowhere as a finding: `validation` carries
+counts only (`candidates`, `kept`, `rejected`, `split`). The working dir is evidence of this run,
+not a suppression store; nothing reads it to drop a later finding. A serious pre-existing candidate
+that at least `quorum` validators marked `pre-existing` with `serious: true` comes back in
+`tally`'s `noticed_candidates`: write it as one bullet under `## Noticed, not changed` in
+`review.md`. False positives that slip through are measured later from what humans did with the
+posted threads (`dev-pr-feed dispositions`).
+
+Do not trim low findings to fit a brief's nit cap. Report every kept low finding;
+`review_brief.py finalize` withholds the ones over `max_nits` (lowest confidence first) and records
+them as `withheld`, so the choice is mechanical and auditable, not a specialist's.
+
+What survives is `findings[]`; `tally` fills `critical` / `high` / `masking`; the verdict rule in
+`SKILL.md` §4 derives from them. `finding_votes.py check` re-derives all of it (exit 0 / 1 / 2).
+On a re-review, an earlier finding carried with `resolved: true` needs no votes (`tally` keeps it);
+every open finding does.
