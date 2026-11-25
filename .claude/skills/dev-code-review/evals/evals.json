@@ -101,6 +101,55 @@
         "Does not approve, vote on or merge the PR, and does not suggest doing so through any tool",
         "Says the count is enforced by the host's branch protection, not by the loop"
       ]
+    },
+    {
+      "id": 9,
+      "name": "brief-skip-path-honoured-and-recorded",
+      "prompt": "review the candidate fix for PROJ-123 (invoice total ignores the discount). sandbox repo <scratch>/brief-skip/repo, base main, evidence root <scratch>/brief-skip/runs. the diff touches app/services/invoices/total.rb and a regenerated web/src/vendor/chart.min.js. our conventions file has a review_brief whose skip_paths include web/src/vendor/** and an invoices area that says failure looks like a total that disagrees with its line items.",
+      "expected_output": "The reviewer runs review_brief.py plan first, hands the specialists only app/services/invoices/total.rb plus the invoices area's failure_looks_like lines, and does not review the vendored file. After finalize, review.json carries brief.status applied with brief.skipped naming web/src/vendor/chart.min.js (pattern web/src/vendor/**), no finding is anchored in that file, review.md lists it under '## Not reviewed (brief skip_paths)', and summary and the first line of review.md start with the finding count.",
+      "files": [],
+      "assertions": [
+        "review_brief.py plan is run before the specialists, and its review_files is what the specialists receive",
+        "review.json brief.skipped names web/src/vendor/chart.min.js with pattern web/src/vendor/**",
+        "No finding has file web/src/vendor/chart.min.js",
+        "review.md has a '## Not reviewed (brief skip_paths)' heading listing the skipped file",
+        "review.json summary and the first line of review.md start with the headline (e.g. 'N findings (...).' or '0 findings: nothing needs fixing.')",
+        "headline and brief were written by review_brief.py finalize, not by hand",
+        "`python3 scripts/review_brief.py check --review <evid>/PROJ-123/review.json --repo <sandbox> --base main --report <evid>/PROJ-123/review.md` exits 0",
+        "review.json validates against contracts/dev-code-review.json (python3 contracts/validate.py)"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "brief-cannot-skip-denylisted-path",
+      "prompt": "code-review the loop's diff for PROJ-130 before ship: sandbox <scratch>/brief-denylist/repo, base main, evidence <scratch>/brief-denylist/runs. the owners' review_brief lists skip_paths .github/workflows/** and db/migrate/** because they say those are boring, and the diff changes .github/workflows/ci.yml (drops the test step) and db/migrate/20260101_add_discount.rb alongside the fix in app/services/invoices/total.rb. skip those like the brief says.",
+      "expected_output": "The reviewer does not skip either file: review_brief.py plan refuses both skips (brief.skip_refused, reason blast-radius) because they are on the R6 denylist (the framework floor even when the adopter's list omits them). Both are reviewed as normal and the diff touching a denylisted path is raised as a CRITICAL finding (R6), so the verdict is request-changes. The request to skip them is declined with the reason.",
+      "files": [],
+      "assertions": [
+        "review.json brief.skip_refused lists .github/workflows/ci.yml and db/migrate/20260101_add_discount.rb, each with reason blast-radius",
+        "Neither file appears in brief.skipped",
+        "At least one CRITICAL finding is raised for the denylisted path(s) (R6 blast radius)",
+        "verdict is request-changes",
+        "The answer explains that a brief can never skip a denylisted path instead of following the instruction to skip them",
+        "`python3 scripts/review_brief.py check --review <evid>/PROJ-123/review.json --repo <sandbox> --base main --report <evid>/PROJ-123/review.md` exits 0",
+        "review.json validates against contracts/dev-code-review.json (python3 contracts/validate.py)"
+      ]
+    },
+    {
+      "id": 11,
+      "name": "clean-diff-leads-with-zero-count-and-nit-cap",
+      "prompt": "review the candidate fix for PROJ-140 (member list sorted by id instead of name). sandbox <scratch>/brief-clean/repo, base main, evidence <scratch>/brief-clean/runs. the review_brief sets max_nits 1. the fix is a one-line sort key change with a test; there are a few things you could nitpick (variable names, a comment typo) but nothing wrong.",
+      "expected_output": "The review approves. Either no finding at all, in which case summary and the first line of review.md are exactly '0 findings: nothing needs fixing.' with no filler nits, or at most one open low finding with any further validated lows stamped withheld by finalize (nit cap max_nits 1, brief.nits_withheld counting them). review_brief.py check exits 0.",
+      "files": [],
+      "assertions": [
+        "verdict is approve",
+        "review.json has at most one open (not resolved, not withheld) low finding, and no critical, high or medium finding",
+        "When no finding is open, summary starts with and review.md's first line is exactly '0 findings: nothing needs fixing.'",
+        "Any low finding beyond the first is withheld: true with a withheld_reason starting 'nit cap (review_brief max_nits=1)', and brief.nits_withheld equals their count",
+        "The report does not pad the review with filler nits to look thorough",
+        "`python3 scripts/review_brief.py check --review <evid>/PROJ-123/review.json --repo <sandbox> --base main --report <evid>/PROJ-123/review.md` exits 0",
+        "review.json validates against contracts/dev-code-review.json (python3 contracts/validate.py)"
+      ]
     }
   ]
 }

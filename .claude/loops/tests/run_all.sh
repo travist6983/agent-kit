@@ -69,6 +69,11 @@
 #                         surprise and the independent human gate, reads every number from
 #                         loop-limits.json risk_reclass (exit 2 on a bad one), and never counts an
 #                         agent approval as a human one. Throwaway git repos — offline.
+#   test_review_brief     dev-code-review's optional per-area reviewer brief: review_brief.py never
+#                         skips an R6-denylisted (adopter list or framework floor) or shared-core
+#                         file, degrades every failure to `unavailable` (review everything, no cap),
+#                         withholds only over-cap lows, writes the count-first headline, finalize is
+#                         idempotent and check names each tampering. Throwaway git repos — offline.
 #   test_commit_binding   a readiness verdict covers one commit: commit_binding.py stamp/check
 #                         bind pre-pr.json to the exact content that ships; any later edit, a
 #                         missing or extra file is stale-readiness, no usable verdict is

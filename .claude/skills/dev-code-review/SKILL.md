@@ -40,6 +40,12 @@ diff and returns a verdict + findings.
      higher-risk by definition), `blast_radius_denylist_globs` (files a loop fix may never touch —
      a diff that touches one is a CRITICAL finding regardless of content), and `domain_glossary`
      (the app's nouns, so a finding can speak the adopter's language).
+  3. optionally, in the same conventions file, the code owners' **reviewer brief** `review_brief`
+     (what failure looks like per area, a nit cap, paths to skip). Read it ONLY through
+     `python3 scripts/review_brief.py plan --repo <sandbox> --base <base>` at the start of every
+     review, never by reading the key yourself: the script is what refuses a skip that would cover a
+     denylisted or shared-core file. No key (status `absent`) = review as you always have. Exit 2 /
+     status `unavailable` = review everything, no cap, and write `brief: unavailable` in `summary`.
 
   A missing guidelines file is not an error — note `guidelines: none` in `summary` and judge on
   the conventions rules + the universal rules in `references/specialists.md`. A missing or
@@ -51,7 +57,9 @@ diff and returns a verdict + findings.
 from stack.config, default `runs/`, overridable with `LOOPS_CFG__EVIDENCE__ROOT`; `<KEY>` matches
 `project.ticket_key_pattern`, e.g. `PROJ-123`; contract: `contracts/dev-code-review.json`)
 `{ verdict: approve | request-changes, findings: [...], masking: bool, critical, high, confidence }`,
-plus the human-readable `review.md` beside it. **Every finding carries `file` (repo-relative, forward
+plus the human-readable `review.md` beside it (contract v1.5.0 adds `headline`, the count lead,
+and `brief`, the record of the reviewer brief; both are written by `scripts/review_brief.py
+finalize`, never by hand). **Every finding carries `file` (repo-relative, forward
 slashes, no leading `./`) and an integer `line`: the new-file line number of the added or changed
 line it is about** (contract v1.3.0). That pair is how a human, the validator pass and the eval
 scorer find what you meant; a range or a string is unlocatable, so a real catch written that way
@@ -73,6 +81,17 @@ Only flag issues that are clearly real (won't compile / wrong result / unambiguo
 guidelines-file rule or a `conventions.rules[]` entry, cited by id / exploitable security /
 scale-failing perf / masking). **If not certain, don't flag.** False positives erode trust and waste
 loop cycles.
+
+### 1b. Load the reviewer brief
+Run `scripts/review_brief.py plan` (Inputs, item 3) before the fan-out. Hand each specialist only
+the plan's `review_files`, and give a specialist the `failure_looks_like` and `not_worth_flagging`
+lines of the areas whose files it is reading: that is the owner telling you what failure looks like
+there, so look harder for it. A brief can add scrutiny, cap nits and skip paths. It can never lower
+a severity, waive a critical or high, change the verdict rule in §4, or skip a path in
+`skip_refused`: those files are reviewed as normal, and a denylisted one is still CRITICAL on sight.
+Every finding still needs `file` + an integer `line` as evidence. The masking judge (§3) reads the
+whole diff whatever the brief skips, because a mask can hide in a "generated" file. Report every
+validated low finding; the nit cap is applied mechanically in §5, not by trimming.
 
 ### 2. Specialists (parallel, validated)
 Run the six specialists in `references/specialists.md` — **frontend, backend, data, security,
@@ -154,7 +173,15 @@ A finding you deliberately accepted as a known risk is **not** `resolved` — ma
 in this diff*, and it is the difference between a claim and a receipt.
 
 ### 5. Record + route
-Write `review.json` + the markdown report (`review.md`, beside it). A finding you reject in
+Write the draft `review.json` + the markdown report (`review.md`, beside it). When the plan skipped
+or refused anything, list those paths in `review.md` under a `## Not reviewed (brief skip_paths)`
+heading (refused ones marked as reviewed anyway). Then run
+`python3 scripts/review_brief.py finalize --review <draft> --repo <sandbox> --base <base> --report <EVID_ROOT>/<KEY>/review.md`
+and land the result through `contracts/emit.py --from-json`. `finalize` withholds the low findings
+over the cap, writes `brief`, and puts the `headline` first in `summary` and on the first line of
+`review.md`; it is idempotent. Never hand-write `headline`, `brief`, or a nit-cap `withheld`. A
+clean review reads `0 findings: nothing needs fixing.` and says so plainly; do not add filler nits
+to look thorough. `scripts/review_brief.py check` re-derives all of it (exit 0 / 1 / 2). A finding you reject in
 validation is simply not reported; it is recorded nowhere. There is **no false-positive suppression
 store** — not in the brain and not in a flat file — so never claim to have looked one up or written
 one. False positives are measured after the fact instead: `dev-pr-feed dispositions` reads back which
@@ -186,3 +213,5 @@ canonical. A `harden` block is a draft in review.json, not a rule: `dev-harden` 
 5. **Constraints come from config.** The guidelines file and the conventions ruleset are the only
    sources of "this repo's rules"; the reviewer never carries a framework's rules in its head.
 6. **Atomic.** Review + verdict. No fixing, no shipping.
+7. **The count comes first.** The summary and `review.md` lead with how many findings are open, and
+   when nothing needs fixing the review says so in those words.

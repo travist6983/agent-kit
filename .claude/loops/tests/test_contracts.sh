@@ -52,6 +52,13 @@ must_fail "$C/dev-code-review.json" "$C/samples/EXAMPLE-bad-review-line/review.j
 # validate; a free-text bug_class must FAIL (the fingerprint needs one word per class)
 must_pass "$C/dev-code-review.json" "$C/samples/EXAMPLE-review-bug-class/review.json"
 must_fail "$C/dev-code-review.json" "$C/samples/EXAMPLE-bad-review-bug-class/review.json"
+# dev-code-review v1.5.0 (reviewer brief): real review_brief.py finalize output with a brief applied
+# (one skipped, one refused as blast-radius, one nit withheld) and a clean approve leading with
+# `0 findings: nothing needs fixing.` pass; a headline that miscounts the open findings AND open lows
+# over brief.max_nits must FAIL (validate.py DEV-REVIEW-H1 / DEV-REVIEW-B1)
+must_pass "$C/dev-code-review.json" "$C/samples/EXAMPLE-review-brief/review.json"
+must_pass "$C/dev-code-review.json" "$C/samples/EXAMPLE-review-clean-headline/review.json"
+must_fail "$C/dev-code-review.json" "$C/samples/EXAMPLE-bad-review-brief/review.json"
 # dev-loop-defect.review-rounds v1.0.0 (proposed): review_rounds.py's per-round history;
 # a verdict off the enum must FAIL
 must_pass "$C/dev-loop-defect.review-rounds.json" "$C/samples/EXAMPLE-review-rounds/review-rounds.json"

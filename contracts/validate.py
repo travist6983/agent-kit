@@ -150,7 +150,55 @@ def validate(schema, doc):
         _check_pre_pr_risk(doc, errors)
     if str(schema.get("$id", "")).endswith("/dev-loop-defect.meta-monitor.json"):
         _check_meta_monitor(doc, errors)
+    if str(schema.get("$id", "")).endswith("/dev-code-review.json"):
+        _check_review_brief(doc, errors)
     return errors
+
+
+_HEADLINE_RX = re.compile(r"^(\d+) findings?\b")
+
+
+def _check_review_brief(doc, errors):
+    """DEV-REVIEW-H1/B1, the v1.5.0 rules the schema keywords can't express. Both fire only when the
+    new fields are present, so every older review.json still validates.
+    H1 a `headline` starts with the integer count of OPEN findings (objects not resolved:true and not
+       withheld:true) and `summary` starts with the headline.
+    B1 brief.status applied: open low findings <= brief.max_nits (when an integer) and no file is in
+       both skipped and skip_refused. brief.status unavailable: nothing skipped, nothing withheld."""
+    findings = doc.get("findings") if isinstance(doc.get("findings"), list) else []
+    opened = [f for f in findings if isinstance(f, dict)
+              and f.get("resolved") is not True and f.get("withheld") is not True]
+    headline = doc.get("headline")
+    if isinstance(headline, str):
+        m = _HEADLINE_RX.match(headline)
+        if not m:
+            errors.append(f"DEV-REVIEW-H1: headline {headline!r} does not start with a finding count")
+        elif int(m.group(1)) != len(opened):
+            errors.append(f"DEV-REVIEW-H1: headline says {m.group(1)} finding(s) but {len(opened)} "
+                          "finding(s) are open (not resolved, not withheld)")
+        if not str(doc.get("summary") or "").startswith(headline):
+            errors.append("DEV-REVIEW-H1: summary does not start with the headline (the count comes first)")
+    brief = doc.get("brief")
+    if not isinstance(brief, dict):
+        return
+    skipped = [s for s in brief.get("skipped") or [] if isinstance(s, dict)] \
+        if isinstance(brief.get("skipped"), list) else []
+    if brief.get("status") == "applied":
+        cap = brief.get("max_nits")
+        lows = sum(1 for f in opened if f.get("severity") == "low")
+        if isinstance(cap, int) and not isinstance(cap, bool) and lows > cap:
+            errors.append(f"DEV-REVIEW-B1: {lows} open low finding(s) exceed brief.max_nits {cap} "
+                          "(the over-cap nits must be withheld)")
+        refused = brief.get("skip_refused") if isinstance(brief.get("skip_refused"), list) else []
+        both = sorted({s.get("file") for s in skipped}
+                      & {r.get("file") for r in refused if isinstance(r, dict)})
+        if both:
+            errors.append(f"DEV-REVIEW-B1: {both} both skipped and skip_refused — a refused path is reviewed")
+    elif brief.get("status") == "unavailable":
+        if skipped:
+            errors.append("DEV-REVIEW-B1: brief unavailable but files were skipped (unavailable reviews everything)")
+        if brief.get("nits_withheld") not in (None, 0):
+            errors.append("DEV-REVIEW-B1: brief unavailable but nits_withheld is not 0 (no cap applies)")
 
 
 def _check_meta_monitor(doc, errors):

@@ -2,9 +2,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "loops/contracts/dev-code-review.json",
   "title": "dev-code-review review.json — machine review verdict (incl. R3 masking judge)",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "status": "ratified",
-  "description": "The ratified output of the dev-code-review skill, written to <evid_root>/<key>/review.json. The recipe branches on `verdict` (approve advances, request-changes routes back to dev-fix); `masking` carries the R3 symptom-masking judge's call. Ratified against samples/EXAMPLE-defect-loop/review.json. v1.3.0 (additive, backward compatible): findings may carry an integer `line`, the new-file line of the added or changed line; the reviewer eval scorer (dev-code-review/scripts/reviewer_eval.py) locates a catch by file + line. v1.4.0 (additive, backward compatible): findings may carry `bug_class`, the CLASS of the bug from a closed vocabulary, and `instances`, the other places in the same diff where that class occurs, so one finding covers the class and every instance gets fixed; file + bug_class is the fingerprint review_rounds.py records and recipe_router.py --review-rounds uses to detect a finding that survives fix cycles (stagnation).",
+  "description": "The ratified output of the dev-code-review skill, written to <evid_root>/<key>/review.json. The recipe branches on `verdict` (approve advances, request-changes routes back to dev-fix); `masking` carries the R3 symptom-masking judge's call. Ratified against samples/EXAMPLE-defect-loop/review.json. v1.3.0 (additive, backward compatible): findings may carry an integer `line`, the new-file line of the added or changed line; the reviewer eval scorer (dev-code-review/scripts/reviewer_eval.py) locates a catch by file + line. v1.4.0 (additive, backward compatible): findings may carry `bug_class`, the CLASS of the bug from a closed vocabulary, and `instances`, the other places in the same diff where that class occurs, so one finding covers the class and every instance gets fixed; file + bug_class is the fingerprint review_rounds.py records and recipe_router.py --review-rounds uses to detect a finding that survives fix cycles (stagnation). v1.5.0 (additive, backward compatible): optional `headline`, the count lead `review_brief.py finalize` writes (summary starts with it; a clean review reads exactly `0 findings: nothing needs fixing.`), and optional `brief`, the record of the per-area reviewer brief (conventions `review_brief`): which changed files were skipped, which skips were refused because the file is R6-denylisted or shared core, and how many low findings the nit cap withheld; findings[].withheld / withheld_reason are now documented. validate.py DEV-REVIEW-H1 (the headline count equals the open findings and leads the summary) and DEV-REVIEW-B1 (open lows within brief.max_nits; no file both skipped and refused; an unavailable brief skips and withholds nothing) fire only when those fields are present.",
   "type": "object",
   "additionalProperties": false,
   "required": ["verdict", "masking", "findings", "summary"],
@@ -53,6 +53,8 @@
               }
             }
           },
+          "withheld": { "type": "boolean", "description": "OPTIONAL (documented v1.5.0). true = kept in review.json for the human but not posted and not counted as open: dev-pr-feed's per-PR volume cap, or review_brief.py finalize's nit cap. review_rounds.py and validate.py DEV-REVIEW-H1 exclude it from the open findings." },
+          "withheld_reason": { "type": "string", "description": "OPTIONAL (documented v1.5.0). Why it was withheld, e.g. `volume cap (max_threads_per_pr=N): ...` or `nit cap (review_brief max_nits=N): ...`." },
           "harden": {
             "type": "object",
             "additionalProperties": false,
@@ -70,6 +72,42 @@
       }
     },
     "summary": { "type": "string", "description": "The reviewer's overall rationale — why this verdict." },
+    "headline": {
+      "type": "string",
+      "description": "OPTIONAL (v1.5.0). The count lead, written by dev-code-review/scripts/review_brief.py finalize from the OPEN findings (not resolved, not withheld): `0 findings: nothing needs fixing.` or `N finding(s) (<c> critical, <h> high, <m> medium, <l> low).` with only non-zero severities. `summary` starts with it and so does the first line of review.md. DEV-REVIEW-H1 checks the count."
+    },
+    "brief": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "description": "OPTIONAL (v1.5.0). The per-area reviewer brief (conventions `review_brief`) as review_brief.py finalize applied it. Absent = the conventions file has no brief (today's behaviour). `unavailable` = a brief exists but could not be applied honestly (malformed, the R6 scan could not run, no decided nit cap, or the diff changes the conventions file): everything was reviewed and nothing withheld.",
+      "properties": {
+        "status": { "type": "string", "enum": ["applied", "unavailable"] },
+        "source": { "type": "string", "description": "The configured conventions file, `<path>#review_brief`." },
+        "error": { "type": "string", "description": "status unavailable: why." },
+        "max_nits": { "type": "integer", "minimum": 0, "description": "The nit cap applied: the brief's own max_nits, else loop-limits review_brief.default_max_nits." },
+        "nits_withheld": { "type": "integer", "minimum": 0, "description": "Low findings stamped withheld by the nit cap." },
+        "skipped": {
+          "type": "array",
+          "description": "Changed files matched by a skip_paths glob and not handed to the specialists.",
+          "items": { "type": "object", "additionalProperties": false, "required": ["file", "pattern"],
+                     "properties": { "file": { "type": "string" }, "pattern": { "type": "string" } } }
+        },
+        "skip_refused": {
+          "type": "array",
+          "description": "Changed files a skip_paths glob matched that the brief may never skip: hit by the R6 denylist (the adopter list or the framework floor) or by shared_core_globs. Reviewed as normal.",
+          "items": { "type": "object", "additionalProperties": false, "required": ["file", "pattern", "reason"],
+                     "properties": { "file": { "type": "string" }, "pattern": { "type": "string" },
+                                     "reason": { "type": "string", "enum": ["blast-radius", "shared-core"] } } }
+        },
+        "areas": {
+          "type": "array",
+          "description": "The brief areas whose path_globs matched a changed file.",
+          "items": { "type": "object", "additionalProperties": false, "required": ["name", "files"],
+                     "properties": { "name": { "type": "string" }, "files": { "type": "array", "items": { "type": "string" } } } }
+        }
+      }
+    },
     "next_action": {
       "type": "string",
       "enum": ["ship-ok", "re-fix", "escalate"],

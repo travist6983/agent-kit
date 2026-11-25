@@ -8,11 +8,30 @@ convention finding:**
 - `stack.repo_guidelines_file` (default `CLAUDE.md`, relative to `app.repo_dir`) — the prose
   guidelines the target repo keeps for its own contributors;
 - `stack.conventions_file` (default `.claude/loops/conventions.json`) — `rules[]` (each with an
-  `id`), `shared_core_globs`, `blast_radius_denylist_globs`, `domain_glossary`.
+  `id`), `shared_core_globs`, `blast_radius_denylist_globs`, `domain_glossary`, and the optional
+  `review_brief` (the per-area reviewer brief, below; read only through `scripts/review_brief.py plan`).
 
 A specialist that would need a framework fact not present in those files does not invent it. It
 either finds the fact in the repo (an existing pattern, three sibling files doing it the same way)
 or it does not flag.
+
+## The reviewer brief (optional)
+
+When the conventions file has a `review_brief`, `scripts/review_brief.py plan --repo <sandbox>
+--base <base>` runs before the fan-out and decides, without a model, what each specialist gets:
+
+- **The files.** A specialist reads only `review_files`: the changed files minus the ones a
+  `skip_paths` glob matched. A file in `skip_refused` (hit by the R6 denylist, the adopter list or
+  the framework floor, or by `shared_core_globs`) is in `review_files` and is reviewed as normal; a
+  denylisted one is still CRITICAL on sight. The masking judge reads the whole diff regardless.
+- **The owner's words.** For each area in the plan whose `files` the specialist is reading, it gets
+  the area's `failure_looks_like` lines (what a real bug looks like there, in the owner's words) and
+  `not_worth_flagging` lines. Use them to look harder where the owner says failure lives.
+- **What a brief can never do.** It can add scrutiny, cap nits and skip paths. It cannot lower a
+  severity, waive a critical or high, change the verdict rule, or skip a refused path, and it does
+  not relax the evidence rule: every finding still carries `file` and an integer `line`.
+- **`unavailable`** (plan exit 2): review everything, no cap, and say `brief: unavailable` in
+  `summary`.
 
 ## Shared rules for every specialist
 
@@ -93,6 +112,9 @@ For every specialist finding:
    there is no false-positive store to consult or write. False positives that slip through are
    measured later from what humans did with the posted threads (`dev-pr-feed dispositions`).
 4. Dedup by fingerprint.
+5. Do not trim low findings to fit a brief's nit cap. Report every validated low finding;
+   `review_brief.py finalize` withholds the ones over `max_nits` (lowest confidence first) and
+   records them as `withheld`, so the choice is mechanical and auditable, not a specialist's.
 
 What survives is `findings[]`; the counts fill `critical` / `high`; the verdict rule in `SKILL.md`
 §4 derives from them plus the masking judge.

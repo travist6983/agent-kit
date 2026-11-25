@@ -22,7 +22,7 @@ URLs come from the `evidence_store` adapter, and the evidence root is `evidence.
 | `qa-verify.json` | 1.0.0 | `qa-verify` mode=`fix-verify` (default) | `<evid_root>/<key>/verify.json` | the checker node; `dev-pre-pr` fails closed on it | `verdict` |
 | `qa-verify.collateral.json` | 1.0.0 | `qa-verify` fix-verify step 2b | `<repro_dir>/collateral.json` | the `no_collateral` must-have | `status` |
 | `qa-regression.json` | 2.1.0 | `qa-regression` | `<evid_root>/<key>/regression.json` | router | `status` + `next_action` |
-| `dev-code-review.json` | 1.4.0 | `dev-code-review` | `<evid_root>/<key>/review.json` | router; `dev-harden` reads findings' `harden` blocks; `reviewer_eval.py score` locates findings by `file` + `line`; `review_rounds.py record` fingerprints findings by `file` + `bug_class` | `verdict` |
+| `dev-code-review.json` | 1.5.0 | `dev-code-review` | `<evid_root>/<key>/review.json` | router; `dev-harden` reads findings' `harden` blocks; `reviewer_eval.py score` locates findings by `file` + `line`; `review_rounds.py record` fingerprints findings by `file` + `bug_class`; `review_brief.py finalize` / `check` write and re-check `headline` + `brief` | `verdict` |
 | `dev-loop-defect.review-rounds.json` | 1.0.0 | `review_rounds.py record` (proposed) | `<evid_root>/<key>/review-rounds.json` | `recipe_router.py --review-rounds` (stagnation); the recipe reads `rounds_to_pass` for the `review_rounds_to_pass` metric | none |
 | `dev-loop-defect.meta-monitor.json` | 1.0.0 | `meta_monitor.py` (proposed) | a caller-chosen path (`--out`), or stdout | a person or a runner deciding whether loops are healthy; report-only unless `r8_meta_monitor.trip_mode` is armed | `decision` |
 | `dev-code-review.eval-case.json` | 1.0.0 | a human (seed cases: the kit), checked by `reviewer_eval.py check` (proposed) | `.claude/skills/dev-code-review/evals/cases/<id>/case.json` | `reviewer_eval.py` check / score; never the reviewer | `kind` |
@@ -140,6 +140,19 @@ the class and every instance gets fixed. `EXAMPLE-bad-review-bug-class` (a free-
 `bug_class` (line excluded on purpose; normalised issue text when the class is absent or `other`).
 `recipe_router.py --review-rounds` escalates with `failure_class: review-stagnation` when one
 fingerprint is open in the last `review_convergence.stagnation_fix_cycles` + 1 rounds.
+
+`review.json` v1.5.0 adds OPTIONAL `headline` and `brief`, both written by
+`dev-code-review/scripts/review_brief.py finalize`, never by hand. `headline` is the count lead
+(`0 findings: nothing needs fixing.` or `N finding(s) (<c> critical, ...).`, open findings only) and
+`summary` starts with it. `brief` records the per-area reviewer brief (conventions `review_brief`):
+the changed files a `skip_paths` glob skipped, the skips refused because the file is R6-denylisted
+or shared core (`skip_refused`, reason `blast-radius` | `shared-core`), the areas that matched, and
+how many low findings the nit cap withheld (`findings[].withheld` / `withheld_reason`, now
+documented). `validate.py` adds **DEV-REVIEW-H1** (the headline's integer equals the open findings,
+not resolved and not withheld, and `summary` starts with the headline) and **DEV-REVIEW-B1** (with
+`brief.status` applied, open lows never exceed `brief.max_nits` and no file is both skipped and
+refused; with `unavailable`, nothing is skipped or withheld). Both fire only when the fields are
+present, so every older review validates. `EXAMPLE-bad-review-brief` fails on both.
 
 `dev-code-review.eval-case.json` is the answer key of one eval case (diff + base tree + optional
 fix.json beside it). **DEV-REVIEW-EVAL-K1** (`validate.py`): `kind: bad` needs at least one bug with
@@ -346,6 +359,9 @@ Every sample validates against its contract (or is a named negative that must fa
 | `EXAMPLE-bad-review-line/` | dev-code-review | **fail** — `line` written as a range string |
 | `EXAMPLE-review-bug-class/` | dev-code-review | pass — one finding with a `bug_class` and two `instances` (v1.4.0) |
 | `EXAMPLE-bad-review-bug-class/` | dev-code-review | **fail** — `bug_class` off the closed vocabulary |
+| `EXAMPLE-review-brief/` | dev-code-review | pass — real `review_brief.py finalize` output (v1.5.0): one file skipped, a migration refused as `blast-radius`, one nit withheld, the count lead |
+| `EXAMPLE-review-clean-headline/` | dev-code-review | pass — a clean approve whose summary leads with `0 findings: nothing needs fixing.` (v1.5.0) |
+| `EXAMPLE-bad-review-brief/` | dev-code-review | **fail** — headline says 0 with two open findings (DEV-REVIEW-H1) and two open lows over `brief.max_nits` 1 (DEV-REVIEW-B1) |
 | `EXAMPLE-review-rounds/` | dev-loop-defect.review-rounds | pass — three request-changes rounds sharing one fingerprint (stagnation) |
 | `EXAMPLE-bad-review-rounds/` | dev-loop-defect.review-rounds | **fail** — a round verdict off the enum |
 | `EXAMPLE-reviewer-eval-bad/`, `EXAMPLE-reviewer-eval-clean/` | dev-code-review.eval-case | pass — a signed re-fix bad case and a signed clean case |
