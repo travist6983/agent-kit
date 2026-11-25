@@ -337,6 +337,7 @@ at triage, by rule.
 | cross-layer impact discovered (one layer turns out to need another) | tier up (the diff spanning ≥ 2 conventions projects is read as layer `both`) |
 | the second check demands a human (`is_root_cause` false, an existing test weakened, an R6 denylist hit, a sensitive area) | `risk.human_gate.demanded`; human approvals raised to `risk_reclass.human_gate_min_approvals` whatever the tier |
 | the commit infra-ship is about to push is not the content `dev-pre-pr` judged | `commit_binding.py check` aborts `stale-readiness` before the push → escalate (deterministic, never re-shipped) |
+| the PR body lacks a rendered Testing / Risk / How to revert block (missing, edited, heading doubled, or rendered for another commit) | `pr_sections.py check` before `open_pr` → one rebuild from the rendered blocks, then abort `pr-body-incomplete` → escalate; no PR opens |
 | triage confidence < 70 / < 50 | start at T1 / T2 |
 | `qa-regression` returns `unrelated-break` | escalate immediately — no retry |
 | `dev-code-review` finds R3 masking | fix → stronger model; hard block on ship |

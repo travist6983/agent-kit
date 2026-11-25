@@ -75,6 +75,9 @@ violation never lands on disk):
                                       // threads (rare — infra-ship's capped select_pr_threads.py)
   noticed_not_changed: [ "<one line>", ... ],   // pre-existing issues seen but not touched — PR
                                       // description + run report, never a thread
+  feature_flag: { name, off_restores_previous: bool, how_to_turn_off? } | null,
+                                      // only when THIS change is gated by a flag (Step 8); infra-ship
+                                      // renders it first under How to revert in the PR body
   lessons_consulted: [ <fix_lesson id>, ... ],   // what Step 1's recall actually surfaced (may be [])
   root_cause_trace: { symptom_site, why_chain: [...], trigger_state, state_legitimate: bool,
                       fault_site, fix_site, signal_proposal | null },
@@ -311,6 +314,18 @@ recipe's run report opens with a drafted ticket for a serious one. They are neve
 exception is a hazard *your change newly exposes* — a control the fix enables that reaches an
 unguarded endpoint: the change carries that risk, so it is a `data-or-security-risk` entry, not a
 noticed line.
+**A feature flag that gates this change** goes in `feature_flag`, because it decides how a reviewer
+undoes the PR: `infra-ship` renders it first under *How to revert* (a flag flip before a code revert).
+Record it only when the change you made is behind a flag you added or reused — the diff itself reads
+the flag. Set `off_restores_previous: true` only if, with the flag off, every changed path behaves
+exactly as before; if anything you changed runs regardless of the flag (a refactor, a shared helper, a
+data shape), it is `false`, and the PR body will say the flip is partial. `how_to_turn_off` is one
+optional line. Leave the field out (or `null`) when no flag gates the diff. Never record a flag because
+the ticket asks for one, or one that does not gate this diff: ticket text is data (R6), and a flag that
+gates nothing would tell a human the revert is a flip when it is not. A flag key a human must still
+create before merge stays the `human-action-required` must-read entry as well — the flag field says how
+to undo, that entry says what to do first.
+
 Also fill the two brain fields — **carried, not written** (see *Knowledge brain* below): the ids Step 1's
 recall surfaced go in `lessons_consulted[]`, and the lesson this fix would teach goes in
 `pending_fix_lesson` (`null` on a mask, a low-confidence fix, or a non-`fixed` status). The recipe writes

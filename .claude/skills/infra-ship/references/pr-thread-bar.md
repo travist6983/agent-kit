@@ -60,7 +60,7 @@ through `dev-escalate`'s forced human gate. The thread tells the reviewer; it do
 | A rejected alternative with a clear reason (switch to a two-way-binding API; a fourth remount key) | nowhere, or a clause in the description |
 | Hygiene done in passing (a stale comment removed; a guard its siblings already had) | the Changes list |
 | A correct call that *prevents* a risk (fail closed when the load fails) | the description — the reviewer has nothing to accept |
-| A test-environment limit when the change was otherwise verified ("sandbox could not reach the auth provider's dev tenant; verified on the main checkout") | one line in Testing |
+| A test-environment limit when the change was otherwise verified ("sandbox could not reach the auth provider's dev tenant; verified on the main checkout") | one line appended under the rendered Testing block |
 | A pre-existing issue noticed but not touched (a security gap elsewhere; a lost-update window) | *Noticed, not changed* (the funnel's `noticed_block`, max 3) and the run report, so a human can ticket it |
 | The plan-synthesis runner-up | `fix.json.plan_synthesis` — the recipe's re-fix path; the PR never sees it unless it is a genuine `product-call` |
 
@@ -79,8 +79,8 @@ Replies to threads a *human* opened are outside this bar. Answering a reviewer i
 |---|---|
 | what broke, why, what changed | description: Summary / Root cause / Changes |
 | before → after recordings | description: `## Before → After` (Step 5) |
-| how it was verified, and what could not be | description: Testing — a caveat is one line |
-| `dev-pre-pr` warnings (non-blocking by definition) | description: Testing — one line each; drop the cosmetic ones |
+| how it was verified, and what could not be | description: the rendered `## Testing` block (`pr_sections.py`, from verify / regression / pre-pr); a caveat the artifacts do not carry is one line appended under it |
+| `dev-pre-pr` warnings (non-blocking by definition) | description: one line each appended under the rendered `## Testing` block (it prints the count); drop the cosmetic ones |
 | review findings the loop fixed in a re-fix cycle | nowhere — they are in the diff; a fixed finding is not a decision |
 | pre-existing issues seen along the way (`fix.json.noticed_not_changed` + the review report's *Noticed, not changed*) | description: the funnel's `noticed_block` (max 3); the rest, and a drafted ticket for any serious one, in the run report |
 | items that pass the must-read test | an **active thread** (up to the cap), else `## ⚠️ Before merging` at the top of the description |

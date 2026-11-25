@@ -106,3 +106,33 @@ Blast radius measured: only 3 files render `<Checkbox>`, only 2 pass `initialVal
 
   The count is enforced by the host's branch protection, not by the loop.
   ```
+- Step 3c (dry run): `pr_sections.py render --evid-dir runs/PROJ-301 --repo . --key PROJ-301` on the
+  same commit returned exit 0 with every source present, no `feature_flag`, and the deploy adapter at
+  `none` (the shipped default). The three blocks, to place verbatim after the media block:
+
+  ```markdown
+  ## Testing
+
+  - qa-verify: verdict **pass**, replay `red→green`, confidence 88, must-haves 5/5 passed, judged by a fresh context: yes
+  - qa-regression: status **green**, results 822 passed / 0 failed / 822 total, area `projects`, 2 area-slice file(s), smoke slice: `web unit suite (full)`, 0 flaky test(s) quarantined
+  - dev-pre-pr: status **ready**, build=pass, code_review=approve, fix_verified=pass, lint=pass, standards_scan=pass, unit_tests=pass, warnings: 0
+
+  ## Risk
+
+  - Intake: risk class **hard** (`touches the shared design-system Checkbox`), area `Projects`, sensitive area: no
+  - Tier: **T2** (triage T2, held)
+    - `tier T2 held: the diff does not exceed the triage tier`
+    - `diff: shared-core module packages/ui`
+  - Blast radius: 5 source file(s), 2 test file(s), projects `web`, shared-core hits `packages/ui/src/Checkbox.js`, denylist hits none, tests weakened none
+  - Fix: root cause, confidence 86, masking suspected: no
+  - Human gate: not demanded. Approvals: see Review requirements.
+
+  ## How to revert
+
+  - Feature flag: No feature flag is recorded for this change.
+  - Code: revert this PR's merge commit on `main` (the change is commit `3f9c2a1d4e5b`); no migration, secret, auth, infra or CI file is in the change set (R6 scan clean).
+  - Manual steps: none recorded.
+  - Deployed build: No rollback instructions are configured (the deploy adapter is not available): ask the deploy owner.
+
+  Rolling back a deploy is a human action; the loop never does it.
+  ```

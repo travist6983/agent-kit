@@ -43,6 +43,10 @@ t "ship preflight global-pause→halt"   halt-paused --stage ship --result globa
 # bound verdict at all, escalates — deterministic, never re-shipped or re-fixed
 t "ship stale-readiness→escalate"      escalate    --stage ship --result stale-readiness
 t "ship readiness-unbound→escalate"    escalate    --stage ship --result readiness-unbound
+# pr_sections.py check refused the assembled body (a rendered block missing, edited or doubled, or
+# rendered for another commit): no PR opened; the existing unknown-abort fall-through escalates — pinned
+t "ship pr-body-incomplete→escalate"   escalate    --stage ship --result pr-body-incomplete
+t "ship pr-sections-unsourced→escalate" escalate   --stage ship --result pr-sections-unsourced
 fc=$(python3 "$R" --stage ship --result stale-readiness | python3 -c "import sys,json;print(json.load(sys.stdin).get('failure_class'))")
 if [ "$fc" = "stale-readiness" ]; then pass=$((pass+1)); else echo "  [FAIL] stale-readiness failure_class → $fc"; fail=$((fail+1)); fi
 fc=$(python3 "$R" --stage ship --result readiness-unbound | python3 -c "import sys,json;print(json.load(sys.stdin).get('failure_class'))")

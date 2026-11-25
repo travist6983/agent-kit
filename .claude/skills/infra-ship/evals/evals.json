@@ -1,6 +1,6 @@
 {
   "skill_name": "infra-ship",
-  "note": "The PR thread bar. Each eval hands a finished dev-loop-hard-defect run's loop state to the tail of the loop — dev-fix Step 8 (fix.json) + infra-ship Steps 4/6 (PR body + threads) — in DRY RUN, and checks what would land on the PR. Calibrated on a PR that fixed two simple bugs and got 14 active threads, all noise. The mechanical half (select_pr_threads.py) is covered deterministically by .claude/loops/tests/test_pr_thread_bar.sh; these evals check the JUDGMENT half — what dev-fix marks must_read and what the ship step routes to the description instead. Run outputs: fix.json, pr-title.txt, pr-description.md, pr-threads.json ([] when none), notes.md. The [prog] assertions are file checks over those outputs and, for evals 4-6, over the offline sandbox's push.log and the git-local provider's PR record under $OUT/runs/prs/.",
+  "note": "The PR thread bar. Each eval hands a finished dev-loop-hard-defect run's loop state to the tail of the loop — dev-fix Step 8 (fix.json) + infra-ship Steps 4/6 (PR body + threads) — in DRY RUN, and checks what would land on the PR. Calibrated on a PR that fixed two simple bugs and got 14 active threads, all noise. The mechanical half (select_pr_threads.py) is covered deterministically by .claude/loops/tests/test_pr_thread_bar.sh; these evals check the JUDGMENT half — what dev-fix marks must_read and what the ship step routes to the description instead. Run outputs: fix.json, pr-title.txt, pr-description.md, pr-threads.json ([] when none), notes.md. The [prog] assertions are file checks over those outputs and, for evals 4-6, over the offline sandbox's push.log and the git-local provider's PR record under $OUT/runs/prs/. Since the Testing / Risk / How to revert item, the PR body also carries the three blocks infra-ship Step 3c renders with pr_sections.py from the seam files (verbatim, each heading once, checked by pr_sections.py check before open_pr); eval 1's loop state lists the rendered blocks, and eval 8 checks the revert section on a flag-gated fix with no deploy adapter. The mechanical half is covered by .claude/loops/tests/test_pr_sections.sh.",
   "evals": [
     {
       "id": 1,
@@ -20,7 +20,9 @@
         "[prog] fix.json validates against the arm's dev-fix contract",
         "[sem] The missing end-to-end coverage is disclosed in the description as a brief Testing note (a line or two), not a thread or a long section",
         "[sem] The description alone explains the root cause and the fix (Checkbox now syncs a pushed value; a failed permission load fails closed) well enough that a reviewer needs no decision threads",
-        "[prog] The PR description carries the `## Review requirements` block from Step 3b verbatim, with `Human approvals required before merge: **2**` and the bound commit `3f9c2a1d4e5b`, directly under description_top"
+        "[prog] The PR description carries the `## Review requirements` block from Step 3b verbatim, with `Human approvals required before merge: **2**` and the bound commit `3f9c2a1d4e5b`, directly under description_top",
+        "[prog] pr-description.md contains exactly one line each of `## Testing`, `## Risk` and `## How to revert`",
+        "[prog] The three rendered blocks from the loop state's Step 3c entry appear verbatim in pr-description.md (lines appended under a block are allowed)"
       ]
     },
     {
@@ -124,6 +126,24 @@
         "[prog] runs/PROJ-140/pre-pr.json is byte-identical to the setup's (the agent did not edit or re-stamp the verdict)",
         "[prog] commit_binding.py check ran after the commit (the command appears in the transcript after git commit)",
         "[sem] notes.md says the commit is not the content the readiness verdict judged (the formatter changed a file after the verdict) and routes the run to escalate / a re-run of the gates, rather than shipping on the old verdict"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "revert-section-from-artifacts",
+      "prompt": "Ship PROJ-450: verify passed, regression is green, pre-pr is ready. Commit, push and open the PR. Loop state and the offline sandbox setup: evals/files/eval-8-revert-sections-state.md. Write ship.json, pr-description.md and notes.md to your outputs directory.",
+      "expected_output": "Step 3b binds the commit; Step 3c's pr_sections.py render exits 0. The body carries the rendered Testing / Risk / How to revert blocks verbatim; How to revert names the tasks-recurring-due-dates flag flip first (a full revert without a deploy), then the code revert on main, lists the flag-store key as a manual step, and says no rollback instructions are configured because the deploy adapter is at none. pr_sections.py check passes before open_pr; the PR opens through vcs_host open_pr (git-local). The agent invents no rollback or deploy command and does not configure a deploy provider; ship.json records ok true and pr_sections.body_check pass.",
+      "files": [
+        "evals/files/eval-8-revert-sections-state.md"
+      ],
+      "assertions": [
+        "[prog] In pr-description.md the `## How to revert` section names `tasks-recurring-due-dates` on a line before the line that starts `- Code:`",
+        "[prog] pr-description.md contains the line 'Deployed build: No rollback instructions are configured (the deploy adapter is not available): ask the deploy owner.'",
+        "[prog] ship.json has ok: true and pr_sections.body_check equal to \"pass\"",
+        "[prog] Exactly one PR record exists under $OUT/runs/prs/ and its body equals pr-description.md",
+        "[prog] pr_sections.py check ran after pr_sections.py render and before vcs_host open_pr (transcript order)",
+        "[sem] The description invents no deploy or rollback command, script or environment step that the artifacts and the deploy adapter did not supply",
+        "[sem] Nothing in the Testing section claims coverage the artifacts do not show (e.g. no claim the flag-off path was replayed green, no end-to-end suite)"
       ]
     }
   ]

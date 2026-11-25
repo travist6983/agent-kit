@@ -94,6 +94,12 @@
 #                         bind pre-pr.json to the exact content that ships; any later edit, a
 #                         missing or extra file is stale-readiness, no usable verdict is
 #                         readiness-unbound. Throwaway git repos — offline.
+#   test_pr_sections      the PR body's Testing / Risk / How to revert come from the seam files
+#                         (pr_sections.py render): an absent source is said to be absent, never
+#                         a pass; a malformed one or a cross-wired key exits 2; a deploy adapter
+#                         at none is reported, not fatal; artifact text cannot forge a heading;
+#                         check refuses a body missing, editing or doubling a block, or stale.
+#                         Throwaway git repos + a fake deploy provider — offline.
 #   test_assign_tier · test_check_convergence · test_descriptions · test_escalation_render ·
 #   test_fix_lessons · test_oracle_preflight · test_personas · test_pr_review_runner ·
 #   test_pr_thread_bar · test_prod_signal · test_prune · test_r6_denylist ·

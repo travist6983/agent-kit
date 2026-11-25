@@ -143,6 +143,7 @@ def validate(schema, doc):
         _check_harden_miss(doc, errors)
     if str(schema.get("$id", "")).endswith("/dev-fix.json"):
         _check_fix_root_cause(doc, errors)
+        _check_fix_feature_flag(doc, errors)
     if str(schema.get("$id", "")).endswith("/qa-verify.collateral.json"):
         _check_collateral_proof(doc, errors)
     if str(schema.get("$id", "")).endswith("/dev-code-review.eval-case.json"):
@@ -427,6 +428,22 @@ def _check_fix_root_cause(doc, errors):
         errors.append("DEV-FIX-RC1: state_legitimate=false but fix_site == symptom_site with is_root_cause=true; "
                       "fix where the bad state was produced (fault_site), or set is_root_cause=false")
 
+
+
+def _check_fix_feature_flag(doc, errors):
+    """DEV-FIX-FF1 (v1.5.0): a recorded feature flag must name a real key on one line. The schema
+    has no minLength keyword, and infra-ship renders the name into the PR body's How to revert block,
+    so a blank or multi-line name would tell a human to flip nothing, or forge a line."""
+    ff = doc.get("feature_flag")
+    if not isinstance(ff, dict):
+        return
+    name = ff.get("name")
+    if isinstance(name, str) and (not name.strip() or "\n" in name or "\r" in name):
+        errors.append("DEV-FIX-FF1: feature_flag.name must be a non-blank single line (the flag key the "
+                      "code reads), or drop feature_flag when no flag gates the change")
+    how = ff.get("how_to_turn_off")
+    if isinstance(how, str) and ("\n" in how or "\r" in how):
+        errors.append("DEV-FIX-FF1: feature_flag.how_to_turn_off must be one line")
 
 
 _PROOF_RUNG = {"stated": 1, "cited": 2, "walked": 3, "ran": 4, "reproduced": 5}

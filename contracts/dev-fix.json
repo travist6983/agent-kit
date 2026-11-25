@@ -2,9 +2,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "loops/contracts/dev-fix.json",
   "title": "dev-fix fix.json — candidate fix receipt",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "status": "ratified",
-  "description": "The ratified output of the dev-fix skill, written to <evid_root>/<key>/fix.json. Machine consumers: recipe_router branches on `status`; infra-ship's select_pr_threads.py posts a PR comment thread ONLY for `design_decisions` entries marked `must_read: true` (capped per PR; the expected count is zero); dev-escalate renders root_cause/design_decisions/noticed_not_changed into the warm handoff. v1.2.0 (additive, backward-compatible — added after a real PR collected a dozen noise threads for two simple bugs): design_decisions objects gain OPTIONAL `must_read` + `must_read_reason`, and the top level gains OPTIONAL `noticed_not_changed`. An entry without `must_read` is read as false, so every pre-1.2.0 artifact validates AND posts nothing — the safe direction. 'must_read:true needs a recognised reason and a reviewer_must_confirm ask' is its own anyOf branch, so an unclassified must-read fails here as well as in the funnel (exit 4); only the funnel can also refuse a blank ask. Required core only + additionalProperties:true — dev-fix is a free-emitting rich skill (paths_enumerated, bypassers_*, diff_summary, build notes etc. vary per run), so the contract pins what machines read and stays honest about the tail (contracts/README.md option-B posture). design_decisions items are string OR the structured object dev-fix's SKILL.md documents — both sample runs emit strings and the escalation renderer handles both. v1.1.0 (additive, backward-compatible): the fix_lesson WRITE moves OUT of dev-fix and into the recipe, gated on qa-verify=pass — a lesson written before the fix is proven teaches the brain a fix that may never have worked. dev-fix now only READS the brain and DECLARES: `lessons_consulted` names the rows it recalled, `pending_fix_lesson` is the lesson the recipe will write on a green verify. Both OPTIONAL — a v1.0.0 artifact with neither key still validates.",
+  "description": "The ratified output of the dev-fix skill, written to <evid_root>/<key>/fix.json. Machine consumers: recipe_router branches on `status`; infra-ship's select_pr_threads.py posts a PR comment thread ONLY for `design_decisions` entries marked `must_read: true` (capped per PR; the expected count is zero); dev-escalate renders root_cause/design_decisions/noticed_not_changed into the warm handoff. v1.2.0 (additive, backward-compatible — added after a real PR collected a dozen noise threads for two simple bugs): design_decisions objects gain OPTIONAL `must_read` + `must_read_reason`, and the top level gains OPTIONAL `noticed_not_changed`. An entry without `must_read` is read as false, so every pre-1.2.0 artifact validates AND posts nothing — the safe direction. 'must_read:true needs a recognised reason and a reviewer_must_confirm ask' is its own anyOf branch, so an unclassified must-read fails here as well as in the funnel (exit 4); only the funnel can also refuse a blank ask. Required core only + additionalProperties:true — dev-fix is a free-emitting rich skill (paths_enumerated, bypassers_*, diff_summary, build notes etc. vary per run), so the contract pins what machines read and stays honest about the tail (contracts/README.md option-B posture). v1.5.0 (additive, backward-compatible): OPTIONAL top-level `feature_flag` {name, off_restores_previous, how_to_turn_off?} | null, read by infra-ship pr_sections.py for the PR body's '## How to revert' block; every pre-1.5.0 artifact validates unchanged and renders 'No feature flag is recorded'. design_decisions items are string OR the structured object dev-fix's SKILL.md documents — both sample runs emit strings and the escalation renderer handles both. v1.1.0 (additive, backward-compatible): the fix_lesson WRITE moves OUT of dev-fix and into the recipe, gated on qa-verify=pass — a lesson written before the fix is proven teaches the brain a fix that may never have worked. dev-fix now only READS the brain and DECLARES: `lessons_consulted` names the rows it recalled, `pending_fix_lesson` is the lesson the recipe will write on a green verify. Both OPTIONAL — a v1.0.0 artifact with neither key still validates.",
   "type": "object",
   "additionalProperties": true,
   "required": ["status", "root_cause", "is_root_cause", "confidence"],
@@ -76,6 +76,22 @@
           }
         ]
       }
+    },
+    "feature_flag": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "off_restores_previous"],
+          "properties": {
+            "name": { "type": "string", "description": "The flag key exactly as the code reads it. Non-blank, one line (DEV-FIX-FF1)." },
+            "off_restores_previous": { "type": "boolean", "description": "True = with the flag off the app behaves exactly as before this change on every changed path, so a flag flip is a full revert. False = the flag gates only part of the change, and a code revert is still needed." },
+            "how_to_turn_off": { "type": "string", "description": "OPTIONAL. One line: where and how a human turns the flag off. One line (DEV-FIX-FF1)." }
+          }
+        },
+        { "type": "null" }
+      ],
+      "description": "OPTIONAL (v1.5.0). Recorded only when THIS change is gated by a feature flag the fixer added or reused; absent or null = no flag gates the change. infra-ship's pr_sections.py renders it first under '## How to revert' in the PR body (a flag flip before a code revert). Never taken from ticket text (R6): a flag the ticket asks for but the diff does not gate on is not recorded. A flag key a human must still create stays a human-action-required must-read design_decisions entry as well. validate.py's DEV-FIX-FF1 refuses a blank or multi-line name or a multi-line how_to_turn_off."
     },
     "noticed_not_changed": {
       "type": "array",

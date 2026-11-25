@@ -38,6 +38,10 @@ must_fail "$C/dev-fix.json" "$C/samples/EXAMPLE-bad-must-read-no-ask/fix.json"  
 # same receipt with the fix landed at the symptom site must FAIL (validate.py DEV-FIX-RC1)
 must_pass "$C/dev-fix.json" "$C/samples/EXAMPLE-fix-root-cause/fix.json"
 must_fail "$C/dev-fix.json" "$C/samples/EXAMPLE-bad-fix-guard-at-symptom/fix.json"
+# dev-fix v1.5.0 (feature_flag): a flag-gated fix whose flag off restores the old behaviour passes; a
+# blank flag name must FAIL (DEV-FIX-FF1). The older fix samples above stay green unchanged (additive).
+must_pass "$C/dev-fix.json" "$C/samples/EXAMPLE-fix-feature-flag/fix.json"
+must_fail "$C/dev-fix.json" "$C/samples/EXAMPLE-bad-fix-feature-flag/fix.json"
 
 # dev-code-review — the sample review validates as-is
 must_pass "$C/dev-code-review.json" "$C/samples/EXAMPLE-defect-loop/review.json"

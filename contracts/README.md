@@ -18,7 +18,7 @@ URLs come from the `evidence_store` adapter, and the evidence root is `evidence.
 | `context-pack.json` | 1.0.0 | `dev-intake` (+ `infra-worktree` fills `environment`) | `<evid_root>/<key>/context.json` | read by every downstream skill | — |
 | `qa-repro.json` | 1.5.0 | `qa-repro` | `<evid_root>/<key>/repro.json` | `repro_evidence` (stored verbatim) | `status` |
 | `qa-verify.repro-judge.json` | 1.2.0 | `qa-verify` mode=`repro-judge` | `<repro_dir>/judge.json` | `judge_evidence` | `verdict` |
-| `dev-fix.json` | 1.4.0 | `dev-fix` | `<evid_root>/<key>/fix.json` | router: `status`; ship: `design_decisions` with `must_read: true` | `status` |
+| `dev-fix.json` | 1.5.0 | `dev-fix` | `<evid_root>/<key>/fix.json` | router: `status`; ship: `design_decisions` with `must_read: true`; `pr_sections.py` reads `feature_flag` | `status` |
 | `qa-verify.json` | 1.0.0 | `qa-verify` mode=`fix-verify` (default) | `<evid_root>/<key>/verify.json` | the checker node; `dev-pre-pr` fails closed on it | `verdict` |
 | `qa-verify.collateral.json` | 1.0.0 | `qa-verify` fix-verify step 2b | `<repro_dir>/collateral.json` | the `no_collateral` must-have | `status` |
 | `qa-regression.json` | 2.1.0 | `qa-regression` | `<evid_root>/<key>/regression.json` | router | `status` + `next_action` |
@@ -116,6 +116,13 @@ forced-human-gate outcome. `design_decisions` items are a string, a recorded dec
 must-read items can become PR comment threads, capped by `.claude/loops/loop-limits.json`. `dev-fix` only
 *reads* the brain: `lessons_consulted` names what it recalled and `pending_fix_lesson` is the lesson the
 recipe writes after a green verify — never before.
+
+fix.json v1.5.0 adds OPTIONAL `feature_flag` `{name, off_restores_previous, how_to_turn_off?} | null`,
+recorded only when the change itself is gated by a flag the fixer added or reused. `infra-ship`'s
+`pr_sections.py` renders it first under the PR body's `## How to revert` (a flag flip before a code
+revert; `off_restores_previous: false` says the flip is partial). **DEV-FIX-FF1:** a recorded name is a
+non-blank single line, and `how_to_turn_off` is one line. Additive: every older fix sample validates
+unchanged.
 
 ### `qa-regression.json` — the build + unit-test gate
 
@@ -372,6 +379,8 @@ Every sample validates against its contract (or is a named negative that must fa
 | `EXAMPLE-inconclusive/`, `EXAMPLE-judge-inconclusive/` | qa-repro · qa-verify.repro-judge | pass — the three-value *could not tell* cases |
 | `EXAMPLE-fix-must-read/` | dev-fix | pass — a must-read item beside a recorded decision and a legacy string |
 | `EXAMPLE-bad-must-read-reason/`, `EXAMPLE-bad-must-read-no-ask/` | dev-fix | **fail** — off-enum reason / missing reviewer ask |
+| `EXAMPLE-fix-feature-flag/` | dev-fix | pass — a flag-gated fix (`off_restores_previous: true`) beside its human-action-required must-read item (v1.5.0) |
+| `EXAMPLE-bad-fix-feature-flag/` | dev-fix | **fail** — a blank `feature_flag.name` (DEV-FIX-FF1) |
 | `EXAMPLE-blocked-slice-empty/` | qa-regression | pass — zero tests reported honestly as `blocked-slice-empty` |
 | `EXAMPLE-bad-green-zero-tests/` | qa-regression | **fail** — the incident shape (QA-REGRESSION-C1) |
 | `EXAMPLE-pre-pr-blocked/`, `EXAMPLE-pre-pr-warnings/` | dev-pre-pr | pass — fail-closed on `fix_verified`; heuristics cleared by reading; `warnings` carries a held T1 `risk` + `judged`, `blocked` carries neither (v1.3.0 blocks are optional) |

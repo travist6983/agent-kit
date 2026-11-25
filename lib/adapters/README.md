@@ -161,7 +161,9 @@ default: hint}`. Errors name the missing *variable*, never a value.
 
 ### `deploy` — no built-in (`none`)
 `deployed_version(env) → str|None` · `rollback_hint(env) → str` (rollback is human-only; the adapter
-returns instructions, never acts).
+returns instructions, never acts). `infra-ship`'s `pr_sections.py` reads `rollback_hint(env)` for each
+`app.environments` entry to fill the PR body's `## How to revert`; a provider at `none` is reported
+there ("No rollback instructions are configured"), not fatal to the ship.
 
 ### `notifications` — built-in: `file`
 `post(channel, message) → {channel, at, path, dry_run}`. `file` appends `- <utc iso> — message` to
