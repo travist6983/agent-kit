@@ -50,7 +50,8 @@
         "The placeholder api_key literal is confirmed to be a non-secret on inspection, or stays an unconfirmed warning — never promoted to a blocker without reading the file",
         "Emits a machine-readable readiness verdict in JSON with an explicit overall status field",
         "The JSON validates against contracts/dev-pre-pr.json",
-        "Produces a human-readable readiness report (markdown) alongside the JSON"
+        "Produces a human-readable readiness report (markdown) alongside the JSON",
+        "Does NOT claim to have recorded a dismissed violation as a false positive in the brain; a dismissed heuristic is named in the report and nothing but the pre-pr metric reaches qa-kb"
       ]
     },
     {

@@ -37,6 +37,15 @@ the `git-local` provider — stored as a string. The live path adds `write_ahead
 `run_id` and `reviewed_commit_verified`, and moves `verdict` through `posting` → `posted`
 (or `posted-partial` / `post-unconfirmed` when a send failed mid-way).
 
+A live post also adds a `threads` map: one record per thread it landed, keyed by the host's thread
+id (or `<path>:<line>` when the host returned none) — `{path, line, posted_commit, posted_at,
+severity, dimension, disposition, evidence, counted}`. It is the per-thread state behind
+`dispositions` (see `dispositions.md`) and never holds reply text. `post` at a new head and `mark`
+both carry the map forward (a `mark` used to replace the whole entry, and would have wiped it);
+the provably-nothing-sent rollback restores the prior entry unchanged; `ledger --forget <pr>`
+drops the map with the entry. No brain store holds it, and under the `kb` backend it travels
+inside the same opaque `kb_state` value.
+
 `mode` matters more than it looks: it distinguishes "we reviewed this and showed you a preview"
 from "we reviewed this and the author has seen our comments." When you flip the loop to live
 posting, entries written in `dry-run` mode are the ones whose findings never actually reached

@@ -20,7 +20,7 @@ Design notes worth knowing before you change anything:
 * **Fail closed on the ledger.** If we cannot read the ledger we do NOT fall back to "review
   everything" — that would spam real colleagues' pull requests with duplicate comments.
 
-Verbs: list · unreviewed · health · checkout · post · mark · teardown · ledger · lock
+Verbs: list · unreviewed · health · checkout · post · mark · teardown · ledger · lock · dispositions
 Every candidate-filtering verb takes `--base` (default: LOOP_PR_TARGET, else project.default_branch).
 Exit codes: 0 ok · 1 usage · 2 recoverable failure (class in JSON) · 3 fail-closed refusal
             4 tick lock busy
@@ -1155,7 +1155,7 @@ def build_comment(f):
         body += ["", f"**How it fails:** {f['failure_scenario']}"]
     if f.get("recommendation"):
         body += ["", f"**Suggested fix:** {f['recommendation']}"]
-    body += ["", f"_{BOT_MARKER} · reply here or resolve the thread._"]
+    body += ["", f"_{BOT_MARKER} · reply `fixed`, `wrong` or `intentional`, or resolve the thread._"]
     path_ = norm_path(f.get("file"))
     line = f.get("line")
     try:
@@ -1323,6 +1323,9 @@ def cmd_post(a):
              "reviewer": "dev-pr-feed", "write_ahead": True,
              "run_id": os.environ.get("LOOP_RUN_ID") or None,
              "reviewed_commit_verified": bool(a.reviewed_commit)}
+    # Per-thread disposition state rides in the entry (see references/dispositions.md). A re-review
+    # at a new head must not wipe the threads posted at the old one.
+    entry["threads"] = dict(prior.get("threads") or {}) if isinstance(prior, dict) else {}
     try:
         ledger_put(a.pr, entry)
     except Exception as e:
@@ -1330,7 +1333,7 @@ def cmd_post(a):
              "post comments that nothing would remember. Nothing was posted.", code=3, entry=entry)
 
     posted, err = [], None
-    for c in comments:
+    for f, c in fresh:
         try:
             r = _host("post_review_comment", str(a.pr), c["path"], c["line"], c["body"])
         except HostError as e:
@@ -1339,7 +1342,12 @@ def cmd_post(a):
         except Exception as e:                    # never exit with posted comments unrecorded
             err = HostError("api-unavailable", f"unexpected error posting a comment: {type(e).__name__}: {e}")
             break
-        posted.append((r or {}).get("thread_id") if isinstance(r, dict) else None)
+        tid = (r or {}).get("thread_id") if isinstance(r, dict) else None
+        posted.append(tid)
+        entry["threads"][str(tid) if tid not in (None, "") else f"{c['path']}:{c['line']}"] = {
+            "path": c["path"], "line": c["line"], "posted_commit": pr["head_commit"],
+            "posted_at": now(), "severity": f.get("severity"), "dimension": f.get("dimension"),
+            "disposition": "pending", "counted": False}
 
     base = {"mode": "live", "thread_ids": posted, "thread_count": len(posted), "url": pr["url"],
             **summary}
@@ -1403,6 +1411,15 @@ def cmd_mark(a):
     entry = {"pr_id": a.pr, "head_commit": a.commit,
              "reviewed_at": now(), "verdict": a.verdict, "findings": a.findings_count,
              "mode": a.mode, "reviewer": "dev-pr-feed"}
+    # `mark` replaces the entry, so it must carry the per-thread disposition state forward:
+    # the recipe marks right after a live post, and that used to wipe what `post` recorded.
+    try:
+        prior = ledger_get(a.pr)
+    except Exception as e:
+        fail("ledger-unreadable", f"seen-ledger unreadable ({e}) — refusing to overwrite an entry "
+             "whose thread records could not be read", code=3, entry=entry)
+    if isinstance(prior, dict) and isinstance(prior.get("threads"), dict) and prior["threads"]:
+        entry["threads"] = prior["threads"]
     try:
         ledger_put(a.pr, entry)
     except Exception as e:
@@ -1426,6 +1443,372 @@ def cmd_ledger(a):
              "note": "the kb backend has no prefix scan; query a specific PR via `unreviewed`"})
     out({"status": "ok", "backend": LEDGER_BACKEND, "path": _file_path() if LEDGER_BACKEND == "file" else None,
          "count": len(allrec), "entries": allrec})
+
+
+# --- Dispositions --------------------------------------------------------------------------
+# What happened to the threads this loop posted LIVE: fixed, said wrong, said intentional, or
+# did not matter. Read-only on the host (get_pr + list_review_threads), mechanical, lossy by
+# design, and measured — nothing here gates or suppresses anything. references/dispositions.md
+# is the full rule set; keep the two in step.
+
+SETTLED = ("fixed", "wrong", "intentional", "no-action", "unclassified")
+METRIC_SUFFIX = {"fixed": "fixed", "wrong": "wrong", "intentional": "intentional",
+                 "no-action": "no_action", "unclassified": "unclassified"}
+OPEN_STATUSES = ("active", "pending", "open")
+FIXED_STATUSES = ("fixed",)
+CLOSED_STATUSES = ("resolved", "closed")
+DECLINED_STATUSES = ("wontfix", "bydesign")
+# The FIRST word of the latest human reply, after stripping markdown and punctuation.
+REPLY_TOKENS = {"fixed": "fixed", "wrong": "wrong", "fp": "wrong",
+                "intentional": "intentional", "wontfix": "intentional", "bydesign": "intentional"}
+# Fallback: a phrase anywhere in that reply (case-insensitive; the earliest match wins).
+REPLY_PHRASES = (
+    ("wrong", ("false positive", "not a bug", "not an issue", "incorrect", "does not apply",
+               "doesn't apply", "not applicable")),
+    ("intentional", ("intentional", "by design", "as designed", "on purpose", "deliberate",
+                     "won't fix", "wontfix")),
+)
+DISPOSITION_LIMIT_KEYS = ("disposition_line_tolerance", "disposition_budget_s")
+
+
+def norm_status(s):
+    return re.sub(r"[^a-z0-9]+", "", str(s or "").lower())
+
+
+def reply_disposition(body):
+    """(disposition, evidence) from ONE human reply, or (None, None). The text is matched against
+    fixed word lists and never stored, printed or acted on (R6): it is data, not instructions."""
+    text = str(body or "").lower().replace("’", "'").replace("‘", "'")
+    m = re.search(r"[a-z0-9]+", text)
+    if m and m.group(0) in REPLY_TOKENS:
+        return REPLY_TOKENS[m.group(0)], f"reply-token:{m.group(0)}"
+    best = None
+    for disp, phrases in REPLY_PHRASES:
+        for ph in phrases:
+            i = text.find(ph)
+            if i >= 0 and (best is None or i < best[0]):
+                best = (i, disp, ph)
+    if best:
+        return best[1], f"reply-phrase:{best[2]}"
+    return None, None
+
+
+def anchor_changed(root, posted_commit, head, path_, line, tol):
+    """True: the flagged line (± tol) changed between the commit the comment was posted at and the
+    PR's head, or the file went away. False: measured, untouched. None: cannot be measured (no
+    checkout, a commit not present locally, no anchor). Never fetches."""
+    if not path_ or not line:
+        return None
+    if posted_commit and head and same_commit(posted_commit, head):
+        return False
+    if not root or not posted_commit or not head:
+        return None
+    if not (local_commit(root, posted_commit) and local_commit(root, head)):
+        return None
+    p = _git(["diff", "-U0", "--no-color", "--no-ext-diff", str(posted_commit), str(head), "--", str(path_)], root)
+    if p is None or p.returncode != 0:
+        return None
+    diff = p.stdout or ""
+    if not diff.strip():
+        return False
+    if re.search(r"^\+\+\+ /dev/null$", diff, re.M) or re.search(r"^deleted file mode", diff, re.M):
+        return True
+    line = int(line)
+    for m in re.finditer(r"^@@ -(\d+)(?:,(\d+))? \+", diff, re.M):
+        a = int(m.group(1))
+        b = int(m.group(2)) if m.group(2) is not None else 1
+        lo, hi = a, a + max(b, 1) - 1
+        if hi >= line - tol and lo <= line + tol:
+            return True
+    return False
+
+
+def classify_thread(rec, thread, pr_open, head, root, tol):
+    """(disposition, evidence) for one UNSETTLED thread. Precedence, first match wins:
+    reply word -> host status -> anchor changed -> closed unchanged -> PR closed -> pending."""
+    replies = (thread or {}).get("replies") or []
+    human = [r for r in replies if isinstance(r, dict) and BOT_MARKER not in str(r.get("body") or "")]
+    latest = human[-1] if human else None
+    if latest is not None:
+        d, ev = reply_disposition(latest.get("body"))
+        if d:
+            return d, ev
+    status = norm_status((thread or {}).get("status"))
+    if status in FIXED_STATUSES:
+        return "fixed", f"status:{status}"
+    if status in DECLINED_STATUSES:
+        return "intentional", f"status:{status}"
+    changed = anchor_changed(root, rec.get("posted_commit"), head, rec.get("path"), rec.get("line"), tol)
+    if changed is True:
+        return "fixed", "anchor-changed"
+    if thread is not None and status in CLOSED_STATUSES:
+        if changed is False:
+            return "no-action", "closed-unchanged"
+        if pr_open:
+            return "pending", "anchor-unmeasured"
+    if not pr_open:
+        if latest is not None:
+            return "unclassified", "pr-closed-reply-unrecognized"
+        if changed is None:
+            return "unclassified", "pr-closed-anchor-unmeasured"
+        return "no-action", "pr-closed-unanswered"
+    if thread is None:
+        return "pending", "thread-not-on-host"
+    return "pending", ("reply-unrecognized" if latest is not None else "awaiting-reply")
+
+
+def disposition_limits(path_):
+    try:
+        with open(path_) as fh:
+            block = json.load(fh).get("pr_review_loop")
+    except Exception as e:
+        fail("config-invalid", f"could not read {path_}: {type(e).__name__}: {e}", code=3)
+    if not isinstance(block, dict):
+        fail("config-invalid", f"{path_} has no pr_review_loop block", code=3)
+    vals = []
+    for k in DISPOSITION_LIMIT_KEYS:
+        v = block.get(k)
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0:
+            fail("config-invalid", f"pr_review_loop.{k} in {path_} is missing or not a non-negative "
+                 f"number ({v!r}) — refusing to guess a default", code=3, key=k)
+        vals.append(v)
+    return int(vals[0]), float(vals[1])
+
+
+def _needs_read(entry):
+    th = entry.get("threads")
+    if not isinstance(th, dict):
+        return entry.get("mode") == "live"          # posted before thread records existed
+    return any(isinstance(r, dict) and r.get("disposition") not in SETTLED for r in th.values())
+
+
+def _uncounted(entry):
+    th = entry.get("threads")
+    return isinstance(th, dict) and any(isinstance(r, dict) and r.get("disposition") in SETTLED
+                                        and not r.get("counted") for r in th.values())
+
+
+def _tracked(entry):
+    return isinstance(entry, dict) and (entry.get("mode") == "live" or bool(entry.get("threads")))
+
+
+def _merge_threads(pr_id, records, init=False):
+    """Write changed thread records back into the CURRENT ledger entry, preserving every other key
+    (a concurrent post/mark may have rewritten it since we read it). Returns the entry written."""
+    cur = ledger_get(pr_id)
+    if not isinstance(cur, dict):
+        return None                                  # forgotten meanwhile: nothing to keep
+    th = cur.get("threads") if isinstance(cur.get("threads"), dict) else {}
+    if not records and not init:
+        return cur
+    th.update(records)
+    cur["threads"] = th
+    ledger_put(pr_id, cur)
+    return cur
+
+
+def cmd_dispositions(a):
+    import time
+    tol, budget = disposition_limits(a.limits or os.path.join(FRAMEWORK_ROOT, ".claude", "loops", "loop-limits.json"))
+    if a.budget_s is not None:
+        budget = min(budget, max(float(a.budget_s), 0.0))
+    base_out = {"status": "ok", "backend": LEDGER_BACKEND, "tolerance": tol, "budget_s": budget}
+
+    # Which ledger entries to look at.
+    entries = {}
+    try:
+        if a.pr:
+            for pid in a.pr:
+                entries[str(pid)] = ledger_get(pid)
+        else:
+            allrec = ledger_read_all()
+            if allrec is None:
+                out(dict(base_out, enumerable=False, checked=[], unchecked=[], errors=[], threads=[],
+                         newly_settled={k: 0 for k in SETTLED}, pending=0,
+                         totals={k: 0 for k in SETTLED}, noise_rate=None, metric_calls=[], emitted=[],
+                         emit_failed=[], eval_candidates=[],
+                         note="the kb ledger backend has no prefix scan, so dispositions cannot "
+                              "enumerate PRs; pass --pr <id> for each PR to read"))
+            entries = dict(allrec)
+    except Exception as e:
+        fail("ledger-unreadable", f"seen-ledger unreadable ({e}) — dispositions reads nothing rather "
+             "than guess which threads exist", code=3, backend=LEDGER_BACKEND)
+
+    errors, unchecked, checked, rows = [], [], [], []
+    newly = {k: 0 for k in SETTLED}
+    to_read = []
+    for pid, entry in entries.items():
+        if entry is None and a.pr:
+            errors.append({"pr_id": pid, "failure_class": "untracked",
+                           "message": "no seen-ledger entry for this PR"})
+            continue
+        if entry is not None and not isinstance(entry, dict):
+            fail("ledger-unreadable", f"seen-ledger entry for PR {pid} is {type(entry).__name__}, not an object",
+                 code=3, backend=LEDGER_BACKEND)
+        if _tracked(entry) and _needs_read(entry):
+            to_read.append(pid)
+
+    deadline = time.monotonic() + budget
+    root = None
+    if to_read:
+        root = app_root(required=False)
+    for pid in to_read:
+        if time.monotonic() >= deadline:
+            unchecked.append(pid)
+            continue
+        entry = entries[pid]
+        try:
+            pr = _host("get_pr", str(pid))
+            pr_state, head = None, None
+            if pr is not None:
+                row = pr_row(pr)
+                pr_state, head = (row.get("state") or "open"), row.get("head_commit")
+            else:
+                pr_state = "gone"
+        except HostError as e:
+            low = e.message.lower()
+            if e.http_status == 404 or "no pr" in low or "not found" in low:
+                pr_state, head = "gone", None         # deleted on the host: treated as closed
+            else:
+                errors.append({"pr_id": pid, "failure_class": e.failure_class, "message": e.message[:240]})
+                continue
+        host_threads = []
+        if pr_state != "gone":
+            try:
+                host_threads = _host("list_review_threads", str(pid)) or []
+            except HostError as e:
+                errors.append({"pr_id": pid, "failure_class": e.failure_class, "message": e.message[:240]})
+                continue
+        checked.append(pid)
+        pr_open = (str(pr_state).lower() == "open")
+        records = {k: dict(v) for k, v in (entry.get("threads") or {}).items() if isinstance(v, dict)} \
+            if isinstance(entry.get("threads"), dict) else {}
+        by_anchor = {(norm_path(r.get("path")), r.get("line")): k for k, r in records.items()}
+        seen_keys, pairs = set(), []
+        for t in host_threads:
+            if not isinstance(t, dict) or BOT_MARKER not in str(t.get("body") or ""):
+                continue
+            tid = t.get("thread_id")
+            key = str(tid) if tid not in (None, "") and str(tid) in records else None
+            if key is None:
+                key = by_anchor.get((norm_path(t.get("path")), t.get("line")))
+            if key is None or key in seen_keys:
+                key = str(tid) if tid not in (None, "") else f"{norm_path(t.get('path'))}:{t.get('line')}"
+                records[key] = {"path": norm_path(t.get("path")), "line": t.get("line"),
+                                "posted_commit": None, "posted_at": t.get("at"), "severity": None,
+                                "dimension": None, "disposition": "pending", "counted": False,
+                                "discovered": True}
+            seen_keys.add(key)
+            pairs.append((key, t))
+        for key in records:
+            if key not in seen_keys:
+                pairs.append((key, None))            # recorded, no longer on the host
+        changed = {}
+        known = entry.get("threads") if isinstance(entry.get("threads"), dict) else {}
+        for key, t in pairs:
+            rec = records[key]
+            if rec.get("disposition") in SETTLED:     # first settled disposition wins, forever
+                rows.append({"pr_id": pid, "thread_id": key, "path": rec.get("path"), "line": rec.get("line"),
+                             "disposition": rec["disposition"], "evidence": rec.get("evidence"),
+                             "newly_settled": False})
+                continue
+            d, ev = classify_thread(rec, t, pr_open, head, root, tol)
+            settled = d in SETTLED
+            if rec.get("disposition") != d or rec.get("evidence") != ev or key not in known:
+                rec.update(disposition=d, evidence=ev)
+                if settled:
+                    rec["settled_at"] = now()
+                changed[key] = rec
+            if settled:
+                newly[d] += 1
+            rows.append({"pr_id": pid, "thread_id": key, "path": rec.get("path"), "line": rec.get("line"),
+                         "disposition": d, "evidence": ev, "newly_settled": settled})
+        try:
+            written = _merge_threads(pid, changed, init=not isinstance(entry.get("threads"), dict))
+        except Exception as e:
+            fail("ledger-unreadable", f"could not record dispositions for PR {pid} ({e})", code=3)
+        if written is not None:
+            entries[pid] = written
+
+    # Count once: every settled, not-yet-counted record across the entries seen.
+    pending_n = 0
+    totals = {k: 0 for k in SETTLED}
+    by_class = {k: [] for k in SETTLED}          # [(pr_id, key, record)]
+    eval_candidates = []
+    for pid, entry in entries.items():
+        if not _tracked(entry) or not isinstance(entry.get("threads"), dict):
+            continue
+        for key, rec in entry["threads"].items():
+            if not isinstance(rec, dict):
+                continue
+            d = rec.get("disposition")
+            if d in SETTLED:
+                totals[d] += 1
+                if not rec.get("counted"):
+                    by_class[d].append((pid, key, rec))
+                if d in ("wrong", "intentional"):
+                    eval_candidates.append({"pr_id": pid, "thread_id": key, "path": rec.get("path"),
+                                            "line": rec.get("line"), "posted_commit": rec.get("posted_commit"),
+                                            "disposition": d})
+            else:
+                pending_n += 1
+
+    metric_calls = []
+    for d in SETTLED:
+        items = by_class[d]
+        if not items:
+            continue
+        dims = {}
+        for _, _, rec in items:
+            dim = rec.get("dimension") or "unknown"
+            dims[dim] = dims.get(dim, 0) + 1
+        meta = {"pr_ids": sorted({str(p) for p, _, _ in items}), "by_dimension": dims}
+        metric_calls.append({"class": d, "argv": [
+            "metric", "--name", f"pr_review_threads_{METRIC_SUFFIX[d]}", "--value", str(len(items)),
+            "--unit", "threads", "--area", "pr-review", "--source", "dev-pr-feed",
+            "--loop-id", "dev-loop-pr-review", "--metadata", json.dumps(meta, sort_keys=True)]})
+
+    emitted, emit_failed = [], []
+    if a.emit and metric_calls:
+        kb = os.path.abspath(KB_CLI)
+        for call in metric_calls:
+            d = call["class"]
+            if not os.path.exists(kb):
+                emit_failed.append({"class": d, "reason": f"kb CLI not found at {kb}"})
+                continue
+            p = run_bounded([sys.executable, kb] + call["argv"], PAUSE_TIMEOUT)
+            okay = False
+            if p is not None and p.returncode == 0:
+                try:
+                    okay = json.loads((p.stdout or "").strip().splitlines()[-1]).get("ok") is True
+                except Exception:
+                    okay = False
+            if not okay:
+                why = "timed out" if p is None else f"rc {p.returncode}: {((p.stderr or p.stdout) or '').strip()[:200]}"
+                emit_failed.append({"class": d, "reason": why})
+                continue
+            stamp = now()
+            per_pr = {}
+            for pid, key, rec in by_class[d]:
+                rec.update(counted=True, counted_at=stamp)
+                per_pr.setdefault(pid, {})[key] = rec
+            try:
+                for pid, recs in per_pr.items():
+                    _merge_threads(pid, recs)
+                emitted.append({"class": d, "name": call["argv"][2], "value": len(by_class[d])})
+            except Exception as e:
+                emit_failed.append({"class": d, "reason": f"metric written but the count could not be "
+                                                          f"recorded in the ledger ({e}); it may be emitted again"})
+
+    denom = totals["fixed"] + totals["wrong"] + totals["intentional"] + totals["no-action"]
+    noise = round((totals["wrong"] + totals["intentional"] + totals["no-action"]) / denom, 4) if denom else None
+    out(dict(base_out, enumerable=True, checked=checked, unchecked=unchecked, errors=errors, threads=rows,
+             newly_settled=newly, pending=pending_n, totals=totals, noise_rate=noise,
+             unclassified=totals["unclassified"], metric_calls=metric_calls,
+             emit=bool(a.emit), emitted=emitted, emit_failed=emit_failed,
+             eval_candidates=eval_candidates,
+             note=None if a.emit else "preview: no metric was written; pass --emit to write these "
+                                      "through `kb metric` (each thread is counted once)"))
 
 
 # --- CLI -----------------------------------------------------------------------------------
@@ -1481,6 +1864,15 @@ def main(argv=None):
     lg = sub.add_parser("ledger", help="inspect or clear the seen-ledger")
     lg.add_argument("--forget", help="PR id to re-queue")
 
+    dp = sub.add_parser("dispositions",
+                        help="read-only: what people did with the threads we posted live; --emit writes metrics")
+    dp.add_argument("--pr", action="append", help="limit to this PR id (repeatable); required under the kb backend")
+    dp.add_argument("--emit", action="store_true",
+                    help="write the pr_review_threads_* metrics through `kb metric` (default: preview only)")
+    dp.add_argument("--budget-s", dest="budget_s", type=float, default=None,
+                    help="lower the host-read budget below pr_review_loop.disposition_budget_s")
+    dp.add_argument("--limits", default=None, help="loop-limits.json to read (default: the framework's)")
+
     a = p.parse_args(argv)
     global _BASE_OVERRIDE
     _BASE_OVERRIDE = (getattr(a, "base", None) or "").strip() or None
@@ -1492,7 +1884,7 @@ def main(argv=None):
         fail("config-invalid", f"LOOP_PR_AUTHOR_SCOPE={AUTHOR_SCOPE!r} — expected own, all or others")
     return {"lock": cmd_lock, "list": cmd_list, "unreviewed": cmd_unreviewed, "health": cmd_health,
             "checkout": cmd_checkout, "teardown": cmd_teardown, "post": cmd_post, "mark": cmd_mark,
-            "ledger": cmd_ledger}[a.verb](a)
+            "ledger": cmd_ledger, "dispositions": cmd_dispositions}[a.verb](a)
 
 
 if __name__ == "__main__":

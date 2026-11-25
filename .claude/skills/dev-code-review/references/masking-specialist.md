@@ -43,8 +43,10 @@ A finding object like the other specialists (`dimension: "masking"`), plus it dr
 **verdict**: any confirmed `SYMPTOM_MASKING` (confidence ≥ 80) forces overall `request-changes` and
 lowers the fix's confidence — even if every other specialist is clean and the replay is green.
 
-## False positives → qa-kb, not a flat file
-A standalone review tool typically suppresses known false positives from a flat JSON file in the
-repo. `dev-code-review` routes them through **`qa-kb`** (the `flakiness`/known-FP provenance store)
-so the suppression is shared across machines, decayed, and audited with the rest of the brain — not
-a stray JSON only one checkout can see.
+## False positives: measured, not suppressed
+No false-positive suppression store exists — not in `qa-kb`, not in a flat file — so a finding this
+judge rejects is simply not reported, and nothing is looked up before a finding is raised. False
+positives that reach a pull request are measured after the fact by `dev-pr-feed dispositions` (threads
+a human answered `wrong` or `intentional`), and a human-confirmed one is turned into a `clean` case in
+`evals/cases` (`origin: human-review`, see `eval-set.md`), so every later change to the reviewer is
+scored against it, in the open, rather than hidden behind a suppression list.

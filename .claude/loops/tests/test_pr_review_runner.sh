@@ -86,6 +86,14 @@ if a and a[0] == "unreviewed":
         print(json.dumps({"status": "failed", "failure_class": fc, "message": "fake " + fc}, indent=2))
         raise SystemExit(2)
     print(json.dumps({"ok": True, "candidates": []})); raise SystemExit(0)
+if a and a[0] == "dispositions":
+    with open("$W/disp_calls.log", "a") as fh: fh.write(" ".join(a) + "\n")
+    if os.environ.get("FAKE_DISP") == "fail":
+        print(json.dumps({"status": "failed", "failure_class": "api-unavailable", "message": "fake"})); raise SystemExit(2)
+    print(json.dumps({"status": "ok", "enumerable": True, "checked": ["5586"], "pending": 1,
+                      "newly_settled": {"fixed": 1, "wrong": 1, "intentional": 0, "no-action": 0, "unclassified": 0},
+                      "noise_rate": 0.5, "emitted": [{"class": "fixed", "value": 1}, {"class": "wrong", "value": 1}],
+                      "emit_failed": []}, indent=2)); raise SystemExit(0)
 if a and a[0] == "health":
     h = os.environ.get("FAKE_HEALTH", "attention")
     if h == "fail":
@@ -328,6 +336,35 @@ ckout "…and the report has no health section" "PR health" "$W/gx.md"
 RC="$(gate_tick gy prs --health)"
 ck    "--health never replaces a review: a queue with PRs still starts the session" "$(ran)" "yes"
 ckout "…and the sweep does not run on that tick" "health=on" "$W/gy.log"
+
+# ══ 8. THREAD DISPOSITIONS: ONCE PER REAL TICK, BEFORE THE GATE, NEVER CHANGING THE OUTCOME ═══
+nlines(){ grep -c "event=dispositions" "$1" 2>/dev/null || echo 0; }
+: > "$W/disp_calls.log"
+RC="$(gate_tick dq empty)"
+ck    "an empty-queue tick logs exactly one dispositions line" "$(nlines "$W/dq.log")" "1"
+ckin  "…with the counts the feed returned" "event=dispositions status=ok checked=1 pending=1 fixed=1 wrong=1 intentional=0 no_action=0 unclassified=0 emitted=2 noise_rate=0.5" "$W/dq.log"
+ckin  "…passes --emit when the brain is on" "dispositions --emit" "$W/disp_calls.log"
+ckin  "…and the empty-queue report gains the dispositions line" "Thread dispositions — 1 PR(s) read" "$W/dq.md"
+ckin  "…outcome is still empty-queue" "outcome=empty-queue" "$W/dq.log"
+: > "$W/disp_calls.log"
+RC="$(gate_tick ds prs)"
+ck    "a tick that reaches the session also logs exactly one dispositions line" "$(nlines "$W/ds.log")" "1"
+ck    "…and the session still starts" "$(ran)" "yes"
+: > "$W/disp_calls.log"
+RC="$(run_tick dn claude-quick)"
+ck    "a --no-brain tick logs one dispositions line" "$(nlines "$W/dn.log")" "1"
+ckout "…and never passes --emit" "--emit" "$W/disp_calls.log"
+ckin  "…but did call the verb" "dispositions" "$W/disp_calls.log"
+RC="$(FAKE_DISP=fail gate_tick df empty)"
+ck    "a failing dispositions call leaves the exit code alone" "$RC" "0"
+ckin  "…and the outcome" "outcome=empty-queue" "$W/df.log"
+ckin  "…and logs its failure class, not zero counts as success" "event=dispositions status=api-unavailable" "$W/df.log"
+ck    "…still exactly one dispositions line" "$(nlines "$W/df.log")" "1"
+RC="$(FAKE_DISP=fail gate_tick dg prs)"
+ck    "a failing dispositions call never stops a session tick" "$(ran)" "yes"
+: > "$W/disp_calls.log"
+LOOP_CLAUDE_BIN="$W/bin/claude-quick" bash "$PRR" --dry-run --no-brain >/dev/null 2>&1
+ck    "--dry-run never runs dispositions" "$(wc -c < "$W/disp_calls.log" | tr -d ' ')" "0"
 
 # ══ NO RESIDUE ═══════════════════════════════════════════════════════════════
 ck "this test left no runner lock in the repo" \

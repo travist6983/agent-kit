@@ -1,0 +1,21 @@
+{
+  "skill_name": "dev-loop-pr-review",
+  "note": "Behaviour evals for the recipe. Run them in a throwaway fixture (git-local vcs_host, temp ledger, fake brain); never against a real board.",
+  "evals": [
+    {
+      "id": 1,
+      "name": "hand-run-tick-reads-dispositions-first",
+      "prompt": "run the PR review loop by hand once — no scheduler, just do one tick. dry-run.",
+      "expected_output": "Takes the tick lock, then runs `pr_feed.py dispositions` (without --emit, since metrics were not asked for) before `unreviewed`, puts the one-line dispositions summary in the tick report, and lets nothing in it change which PRs are reviewed. Posting stays dry-run. Releases the lock and tears down worktrees in a finally. Does not claim that waved-off findings are suppressed next time.",
+      "files": [],
+      "assertions": [
+        "Runs dispositions before unreviewed",
+        "Does NOT pass --emit to dispositions unasked",
+        "The report carries a dispositions line",
+        "Does NOT post live and does not mark --mode live",
+        "Does not claim a false-positive suppression store or automatic suppression exists",
+        "Releases the tick lock"
+      ]
+    }
+  ]
+}

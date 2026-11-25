@@ -103,8 +103,14 @@ someone shortens the interval, overlap is the default, not the exception.
 
 ```bash
 F=.claude/skills/dev-pr-feed/scripts/pr_feed.py
+python3 $F dispositions          # hand-run tick only: read back earlier threads first (read-only)
 python3 $F unreviewed --limit <prs_per_tick>
 ```
+
+Under the headless runner `pr_review.sh` has already read the dispositions of earlier threads
+before the queue gate (once per real tick, `--emit` unless `--no-brain`), so skip that line there.
+On a hand-run tick call it first, without `--emit` unless you were asked to write metrics, and put
+its one-line summary in the report. It never changes what this tick reviews.
 
 An empty queue is the **normal, healthy outcome** for most ticks and is a success, not a no-op to
 work around. Report it in one line and stop — do not go looking for PRs to review by relaxing the
@@ -226,10 +232,16 @@ ships** — it reviews and comments. A PR needing a code change is the author's 
 
 Writes a `pr-review` metric per tick (R5/R8: PRs swept, reviewed, findings, consumption) so you can tell
 whether the loop is getting better rather than just running. Reads the R9 pause flag. The
-seen-ledger is runtime state, not knowledge — see `dev-pr-feed/references/seen-ledger.md`. False
-positives go to `qa-kb` through `dev-code-review`'s existing known-FP path, so a finding a human
-waves off is suppressed next time. That write-back is the point: the loop should get quieter and
-sharper over weeks, not repeat the same rejected finding every hour.
+seen-ledger is runtime state, not knowledge — see `dev-pr-feed/references/seen-ledger.md`.
+
+How the loop learns whether it is noise: `dev-pr-feed dispositions` reads back what humans did with
+each posted thread (fixed, wrong, intentional, no-action, unclassified) and writes the
+`pr_review_threads_*` metrics, each thread counted once, from which a noise rate follows. There is
+**no automatic suppression**: no store remembers a waved-off finding, so the same false positive can
+be raised again on another PR. The correction path is deliberate and human: a thread disposed of as
+wrong or intentional is an `eval_candidates` entry, a human confirms it into a `clean` case in
+`dev-code-review`'s eval set (`origin: human-review`), and the reviewer is fixed and scored against
+it. Nothing gates on the noise rate yet; it is measured, not enforced.
 
 ## Running it hourly
 
@@ -247,7 +259,8 @@ envelope a scheduled job needs and the recipe deliberately does not own: a singl
 lock, the R9 brain gate before a token is spent, a metered-API-key refusal (exit 28) under a
 subscription posture, the per-day consumption gate (exits 26/27), a queue gate that answers an
 empty queue or an expired host credential itself with no model call (so on most ticks this recipe
-never runs), a watchdog, crash-safe teardown of `pr_feed`'s tick lock and this tick's worktrees, a
+never runs), a read-back of earlier threads' dispositions before the queue gate (observation only, never
+changing the tick's outcome), a watchdog, crash-safe teardown of `pr_feed`'s tick lock and this tick's worktrees, a
 posting guard that strips `--live` on a dry-run tick, and a post-run assertion that the tick left a
 receipt. It overrides one line of the Report template (see below). Its operator docs are
 `.claude/loops/scheduler/README.md`, and the schedule it is armed with is printed by:

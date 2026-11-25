@@ -107,8 +107,10 @@ human decides:
 - **Escalation or re-fix cycle** → a `bad` case when a human confirms the reviewer missed or
   mis-located the bug (`origin: escalation` or `re-fix`). When the human confirms the first-round diff
   was actually fine and the reviewer blocked it, that diff is a `clean` case.
-- **A false positive the brain already suppresses** is a good `clean` case: it proves the
-  suppression, and it keeps working if the brain entry decays.
+- **A thread a human disposed of as wrong or intentional** (`dev-pr-feed dispositions` lists it under
+  `eval_candidates`) is a `clean`-case candidate, `origin: human-review`. A human confirms it, as
+  always: the disposition is mechanical and can be mistaken, and there is no suppression store that
+  would make the case redundant.
 
 Every non-seed case needs `source.ref` and `source.confirmed_by`. Minimise the diff to the files that
 matter and regenerate it with a real `git diff` over a minimal `base/`. Sanitise: a case holding an

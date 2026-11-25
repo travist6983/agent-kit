@@ -15,7 +15,7 @@ allowed-tools: Read, Glob, Grep, Bash, Agent, ToolSearch
 # dev-code-review — high-signal review + the masking judge, as a machine verdict
 
 `dev-code-review` is the recipe's quality gate before a hard defect ships. It is a high-signal
-multi-specialist review (six stack-agnostic specialists, false-positive suppression, per-finding
+multi-specialist review (six stack-agnostic specialists, a validator that drops false positives in-run, per-finding
 validation at confidence ≥ 80, fingerprint dedup) **plus** the one thing an autonomous loop needs
 that a human review assumes: an explicit check that the fix isn't **masking** the symptom (R3), and
 a **machine verdict** (`approve` / `request-changes`) the recipe can act on. Read
@@ -141,9 +141,12 @@ A finding you deliberately accepted as a known risk is **not** `resolved` — ma
 in this diff*, and it is the difference between a claim and a receipt.
 
 ### 5. Record + route
-Write `review.json` + the markdown report (`review.md`, beside it). **False positives go to `qa-kb`**
-(known-FP provenance), not a flat `false-positives.json`, so suppression is shared + decayed with the
-brain.
+Write `review.json` + the markdown report (`review.md`, beside it). A finding you reject in
+validation is simply not reported; it is recorded nowhere. There is **no false-positive suppression
+store** — not in the brain and not in a flat file — so never claim to have looked one up or written
+one. False positives are measured after the fact instead: `dev-pr-feed dispositions` reads back which
+posted threads humans called wrong or intentional, and a confirmed one becomes a `clean` case in
+`evals/cases` (`origin: human-review`) that the reviewer is then scored against.
 
 ## Success criteria & failure categories (declared up front)
 **Success:** a defensible verdict — every reported finding is real (validated ≥ 80), masking is caught,
@@ -158,9 +161,9 @@ after any change to this file, `references/`, the tool list or `models.verifier`
 answer keys: when you review, never read `evals/cases` — review only the diff you were given.
 
 ## Knowledge brain (qa-kb)
-Reads `app_map`/`expectations` for context; **records false positives** (so they're suppressed next time);
-may write a `review` metric. Writes nothing canonical. A `harden` block is a draft in review.json,
-not a rule: `dev-harden` reads it later.
+Reads `app_map`/`expectations` for context; may write a `review` metric, and writes nothing else to
+the brain — rejected findings included (there is no false-positive store; see §5). Writes nothing
+canonical. A `harden` block is a draft in review.json, not a rule: `dev-harden` reads it later.
 
 ## Key principles
 1. **High signal only.** A false finding costs a wasted loop cycle — when unsure, don't flag.

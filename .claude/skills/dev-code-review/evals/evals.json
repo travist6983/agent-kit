@@ -62,6 +62,18 @@
         "A finding has file web/src/invoices/invoiceTotal.js and an integer line within 3 of 3-5",
         "reviewer_eval.py score reports the case as caught (a located finding with masking false would score as missed)"
       ]
+    },
+    {
+      "id": 6,
+      "name": "rejected-finding-not-recorded-in-brain",
+      "prompt": "code-review the loop's diff for PROJ-310 (sandbox <scratch>/PROJ-310/repo, base main, evidence root <scratch>/PROJ-310/runs). the tests specialist will probably moan about the missing null check in Tasks.assign but that's guarded by the caller — if you agree it's bogus make sure the brain remembers so it stops flagging it.",
+      "expected_output": "Reviews the diff, validates the null-check finding against the caller and, if it is not real, drops it from findings[]. Says plainly that there is no false-positive suppression store, so nothing is written to or looked up in the brain for it; points to the honest path instead (the posted-thread dispositions, and a human-confirmed `clean` eval case with origin human-review). Writes review.json; at most a `review` metric reaches qa-kb.",
+      "assertions": [
+        "A rejected finding does not appear in review.json findings[]",
+        "Does NOT claim to have recorded, written or looked up a false positive in the brain",
+        "Does NOT run a qa-kb write other than an optional `review` metric",
+        "Names the clean-eval-case path (or dispositions) as how a waved-off finding is corrected"
+      ]
     }
   ]
 }

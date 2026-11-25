@@ -60,6 +60,10 @@
 #      queue (count 0) or an expired host credential (auth-expired) is answered by the
 #      runner itself — report, metric, log line — and no session starts. Anything else,
 #      including a gate read that failed any other way, hands the tick to the session.
+#   5b. Just before the queue gate, once per real tick, reads back what happened to the threads
+#      earlier ticks posted (pr_feed `dispositions`, read-only on the host; --emit unless
+#      --no-brain writes the pr_review_threads_* metrics). Observation only: it can never change
+#      the tick's exit code, verdict, stuck counter or consumption accounting.
 #   6. Cleans up after the session on ANY exit path — a watchdog kill skips the model's own
 #      `finally`, so the RUNNER releases the pr_feed tick lock and tears down review
 #      worktrees THIS TICK CREATED. It never releases a lock it cannot show is ours and
@@ -1385,6 +1389,65 @@ except Exception:
   return 0
 }
 
+# ── thread dispositions: what happened to the threads earlier ticks posted ───
+# Runs pr_feed's read-only `dispositions` verb once per REAL tick, before the queue gate, so it
+# happens on the next tick even when the queue is empty and no model runs. With the brain on it
+# passes --emit, so each newly settled thread is counted once through `kb metric`
+# (pr_review_threads_*). OBSERVATION ONLY: it always returns 0 and never touches RC, the gate
+# verdict, the stuck counter or the consumption accounting (feed_run restores WD_TIMED_OUT).
+# Sets DISP_LINE to a one-line summary for the report; a response without `newly_settled` (an
+# older feed, non-JSON, a watchdog kill) is logged as status=unmeasured or its failure class,
+# never as zero.
+DISP_LINE=""
+dispositions_sweep() {
+  local out err rc fields
+  out="$(mktemp -t pr-review-disp)" || out="/tmp/pr-review-disp.$$"
+  err="$(mktemp -t pr-review-disp-err)" || err="/tmp/pr-review-disp-err.$$"
+  if [ "$NO_BRAIN" -eq 0 ]; then
+    KB_CLI="$KB" feed_run "$out" "$err" dispositions --emit; rc=$?
+  else
+    KB_CLI="$KB" feed_run "$out" "$err" dispositions; rc=$?
+  fi
+  # A plain heredoc into a file, never inside $( … ) (bash 3.2 re-lexes those).
+  python3 - "$out" "$rc" > "$out.fields" 2>/dev/null <<'PY'
+import json, sys
+path, rc = sys.argv[1:3]
+try:
+    raw = open(path).read()
+    o = json.loads(raw[raw.index("{"):])
+except Exception:
+    o = None
+if not isinstance(o, dict) or not isinstance(o.get("newly_settled"), dict):
+    st = o.get("failure_class") if isinstance(o, dict) else None
+    st = st or ("timeout" if rc == "124" else "unmeasured")
+    print("status=%s checked=0 pending=0 fixed=0 wrong=0 intentional=0 no_action=0 unclassified=0 emitted=0 noise_rate=none" % st)
+    print("Thread dispositions — not measured this tick (%s)" % st)
+    raise SystemExit(0)
+n = o["newly_settled"]
+nr = o.get("noise_rate")
+nr_s = "none" if nr is None else str(nr)
+emitted = sum(int(e.get("value") or 0) for e in (o.get("emitted") or []))
+checked = len(o.get("checked") or [])
+pending = int(o.get("pending") or 0)
+print("status=%s checked=%d pending=%d fixed=%d wrong=%d intentional=%d no_action=%d unclassified=%d emitted=%d noise_rate=%s" % (
+    "ok" if o.get("enumerable", True) else "not-enumerable", checked, pending,
+    n.get("fixed", 0), n.get("wrong", 0), n.get("intentional", 0), n.get("no-action", 0),
+    n.get("unclassified", 0), emitted, nr_s))
+print("Thread dispositions — %d PR(s) read · newly settled: %d fixed, %d wrong, %d intentional, %d no-action, %d unclassified · %d pending · noise rate %s%s" % (
+    checked, n.get("fixed", 0), n.get("wrong", 0), n.get("intentional", 0),
+    n.get("no-action", 0), n.get("unclassified", 0), pending, nr_s,
+    " · metric write failed, retried next tick" if o.get("emit_failed") else ""))
+PY
+  fields="$(sed -n '1p' "$out.fields" 2>/dev/null)"
+  DISP_LINE="$(sed -n '2p' "$out.fields" 2>/dev/null)"
+  [ -n "$fields" ] || fields="status=unmeasured checked=0 pending=0 fixed=0 wrong=0 intentional=0 no_action=0 unclassified=0 emitted=0 noise_rate=none"
+  [ -n "$DISP_LINE" ] || DISP_LINE="Thread dispositions — not measured this tick (unmeasured)"
+  log_line "run_id=$RUN_ID event=dispositions $fields"
+  echo "pr_review.sh: $DISP_LINE" >&2
+  rm -f "$out" "$err" "$out.fields"
+  return 0
+}
+
 # ══ DRY RUN ═════════════════════════════════════════════════════════════════
 # Queue read only: no lock (not this script's, not pr_feed's), no claude call, no posting,
 # no brain write, no log line, no assertion. `unreviewed` is read-only, so this is safe to
@@ -2152,6 +2215,10 @@ PYGUARD
 #
 # Placed AFTER every refusal above (metered-key guard, all three locks, the brain + R9 gate,
 # the daily cap), so a gated tick is exactly as authorized as a session tick. --no-gate skips it.
+# Thread dispositions: once per real tick, before the gate, so empty and session ticks both read
+# back what happened to the threads earlier ticks posted. Never changes the tick's outcome.
+dispositions_sweep || true
+
 if [ "$NO_GATE" -eq 0 ]; then
   GATE_START="$(now_epoch)"
   GATE_POSTING="dry-run"; [ "$LIVE" -eq 1 ] && GATE_POSTING="live"
@@ -2248,6 +2315,9 @@ PY
           sed -n '1,4p' "$GATE_KB" >&2
         fi
         rm -f "$GATE_KB"
+      fi
+      if [ "$GATE_VERDICT" = "empty-queue" ] && [ -n "$DISP_LINE" ]; then
+        { echo ""; echo "$DISP_LINE"; } >> "$REPORT"
       fi
       GATE_HEALTH="off"
       if [ "$HEALTH" -eq 1 ] && [ "$GATE_VERDICT" = "empty-queue" ]; then

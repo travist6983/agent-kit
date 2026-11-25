@@ -246,9 +246,10 @@ if a human did, the report *is* the deliverable.
 
 ### 7. Write back to the brain
 Record a `pre-pr` metric via `qa-kb` (status, blocker count, wall time — R5/R8 loop health). A violation
-you judged and **dismissed** as a false positive goes to `qa-kb` as a known-FP with its provenance, the
-same path `dev-code-review` uses — so suppression is shared and decayed with the brain instead of
-accumulating in a stray JSON. Writes nothing canonical.
+you judged and **dismissed** as a false positive is dropped from the verdict and named, with the reason,
+in `pre-pr-report.md`; nothing is written to the brain for it, because no false-positive suppression
+store exists (not in `qa-kb`, not in a flat file). If the same false positive keeps recurring, the fix is
+to the conventions rule itself (`dev-harden` proposes those). Writes nothing canonical.
 
 ## Success criteria & failure categories (declared up front)
 **Success:** a verdict a human would agree with on inspection — every blocker is real and reproducible
@@ -270,7 +271,7 @@ older than the code.
   clean conventions scan, or an `approve` review. None of those look at the reported bug.
 
 ## Knowledge brain (qa-kb)
-**Writes** a `pre-pr` metric (R5/R8) and known-FP provenance. **Reads** nothing canonical, proposes
+**Writes** a `pre-pr` metric (R5/R8) and nothing else. **Reads** nothing canonical, proposes
 nothing. Judgment about *behavior* lives in `expectations`, and this skill has no opinion about behavior.
 
 ## Key principles

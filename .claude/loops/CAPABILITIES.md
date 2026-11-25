@@ -47,7 +47,7 @@ between steps; workflow variables are not a seam.
 | `infra-ship` | atomic | Format, commit, push, open the PR via `vcs_host` after the gates; never auto-deploys to prod | PR via adapter; `ship` record | reads `kb_control` |
 | `infra-prod-verify` | atomic | Confirm the fix held in prod via `analytics` + `deploy`, or roll back | prod-verify result | reads `kb_control`; writes metrics |
 | `dev-escalate` | atomic | Warm handoff from a configurable template; dry-run until authorized | handoff comment via adapter | — |
-| `dev-pr-feed` | atomic | The PR surface on `vcs_host`: list, unreviewed, checkout, post, mark | seen-ledger | — |
+| `dev-pr-feed` | atomic | The PR surface on `vcs_host`: list, unreviewed, checkout, post, mark, dispositions | seen-ledger | `pr_review_threads_*` metrics (`dispositions --emit` only) |
 | `qa-personas` | atomic | Select a persona (role + lens) from the configured pack for a walk or repro | — | — |
 | `qa-run-case` | atomic | Run one structured case against a live environment; propose a grade | `qa-run-case.json` → `case-run.json` | — |
 | `qa-diagnose` | atomic | Diagnose one failed run, propose a minimal diff; never applies it | `qa-diagnose.json` → `diagnose.json` | — |
@@ -172,11 +172,11 @@ never a silent skip and never an unclassified retry.
 - Stops: an empty handoff → fails loudly rather than post; posting is dry-run until the recipe authorizes. The decision *to* escalate belongs to the recipe.
 
 **`dev-pr-feed`**
-- Purpose: the PR mechanics on `vcs_host` and nothing else: `list`, `unreviewed` (keyed on PR id + head commit, so a PR returns when the author pushes), `checkout` into a read-only worktree, `post`, `mark`, `teardown`.
+- Purpose: the PR mechanics on `vcs_host` and nothing else: `list`, `unreviewed` (keyed on PR id + head commit, so a PR returns when the author pushes), `checkout` into a read-only worktree, `post`, `mark`, `teardown`, and `dispositions` — a read-only read-back (`get_pr` + `list_review_threads`, including the optional `replies`/`status`) that sorts every thread posted live into fixed / wrong / intentional / no-action / unclassified (else pending) by mechanical rules (`references/dispositions.md`), bounded by `pr_review_loop.disposition_line_tolerance` / `disposition_budget_s`.
 - Inputs: author scope (`own` by default), the loop label (loop-opened PRs are skipped unless included), findings from `dev-code-review`.
-- Outputs: the seen-ledger; posted review threads (dry-run by default).
-- Brain: —
-- Stops: `global_pause` set → no live post (fail closed); `vcs_host` at `none` → `blocked` on the first call. Has no opinion about code.
+- Outputs: the seen-ledger (each live entry carries a `threads` map: per-thread disposition state, never reply text); posted review threads (dry-run by default); the dispositions report (classes, `noise_rate`, `eval_candidates` for human-confirmed `clean` reviewer eval cases).
+- Brain: `pr_review_threads_fixed|wrong|intentional|no_action|unclassified` metrics through `kb metric`, only with `dispositions --emit`, each thread counted once. There is no false-positive store and nothing suppresses a future finding; the rate is measured, not gated.
+- Stops: `global_pause` set → no live post (fail closed); `vcs_host` at `none` → `blocked` on the first call; ledger unreadable or disposition limits missing → exit 3. Has no opinion about code.
 
 **`qa-personas`**
 - Purpose: select and hand over a persona (role, engagement tier, critical lens) from the pack named by `personas_file`, so a repro or walk finds what a real user hits first.
@@ -294,7 +294,7 @@ and ships nothing, so it has its own router (`onboard_router.py`, in the onboard
 
 **`dev-loop-feature-complete`** (④) — intake(story) → provision → plan-synthesis → implement → [blind `qa-verify` vs acceptance criteria ∥ `qa-regression` ∥ `dev-code-review` fan-out] → checker → pre-pr → `infra-ship` opens a PR for human QA → `human-explore` blesses the AC expectations → stop. No `repro.json` exists in a feature run and nothing downstream may require one. Never auto-merges, never auto-deploys.
 
-**`dev-loop-pr-review`** (⑤) — `dev-pr-feed unreviewed` → per PR, bounded by `pr_review_loop.prs_per_tick`: `checkout → dev-code-review → post → mark`, teardown in a `finally`. Owns four things only: PRs per tick, what each failure class does, the R5 consumption cap (checked between PRs), the R9 posture. Author scope defaults to `own`; posting is dry-run until armed.
+**`dev-loop-pr-review`** (⑤) — (`dev-pr-feed dispositions`, read once per real tick by the runner before the queue gate; observation only) → `dev-pr-feed unreviewed` → per PR, bounded by `pr_review_loop.prs_per_tick`: `checkout → dev-code-review → post → mark`, teardown in a `finally`. Owns four things only: PRs per tick, what each failure class does, the R5 consumption cap (checked between PRs), the R9 posture. Author scope defaults to `own`; posting is dry-run until armed.
 
 **`qa-loop-release-ac`** — given a release version: find its PRs through `vcs_host` and the tickets they deliver, reconcile against the tracker's fix version, confirm the build is deployed through `ci_cd` / `deploy`, extract every Gherkin scenario and explicit AC bullet, write one `qa-run-case` case file per browser scenario, execute those (`qa-run-case`, one fresh-context spawn each) and the chat scenarios (`qa-run-chatbot`), and emit `ac-matrix.json`. Every scenario ends in exactly one of pass · fail · blocked · manual · not-deployed · too-thin · dev-gate; `summary.verdict` is `all-ac-pass` only when every scenario was judged and passed. Writes nothing to any external system directly — the owning skill's refusal is the answer.
 

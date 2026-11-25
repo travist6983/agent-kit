@@ -54,9 +54,9 @@ For every specialist finding:
    `## Noticed, not changed`).
 2. Confirm the claim is true as written. A convention finding must cite a `rule_id` that exists in
    `conventions.rules[]` or a quotable line of the guidelines file.
-3. Drop anything under 80 after re-reading. Drop known false positives recorded in the brain
-   (`qa-kb search` on the fingerprint), and record every new false positive you reject *as* a false
-   positive, with provenance, so the next run skips it.
+3. Drop anything under 80 after re-reading. A rejected finding is dropped and recorded nowhere:
+   there is no false-positive store to consult or write. False positives that slip through are
+   measured later from what humans did with the posted threads (`dev-pr-feed dispositions`).
 4. Dedup by fingerprint.
 
 What survives is `findings[]`; the counts fill `critical` / `high`; the verdict rule in `SKILL.md`

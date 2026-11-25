@@ -357,6 +357,7 @@ was real.
 **⑤ `dev-loop-pr-review` — the scheduled review loop**
 
 ```
+   [dev-pr-feed: dispositions — read back earlier threads, read-only; runner, before the gate]
    [dev-pr-feed: list unreviewed PRs at their current head] → for each (bounded per tick):
        [dev-pr-feed: read-only checkout] → [dev-code-review] → [dev-pr-feed: post findings]
                                                                  (dry-run until authorized ·
@@ -391,7 +392,7 @@ adapter layer, and is held to the loop-readiness checklist in
 | `dev-code-review` | The blind review judge: specialist fan-out over the diff against the repo's guidelines and `conventions.json`, plus the R3 symptom-masking judge. Emits a machine verdict (`approve` / `request-changes`) in `review.json`; findings validated at a confidence floor; marks findings `resolved` once a cycle closes them. | — |
 | `dev-pre-pr` | The last gate before a PR: one readiness verdict (`ready` / `warnings` / `blocked`) from the loop's evidence. **Fails closed on `verify.json`** — missing, stale, malformed or not-`pass` all block at every tier. Deterministic standards scan on added lines; reconciles `regression.json` + `review.json` by freshness; re-runs the build when that evidence is stale. Has no edit tool. | — |
 | `dev-escalate` | Hand a stuck loop to a human warm, from a configurable template: attempt log, failure class, repro + expected/actual, verdicts, decisions, every recording. Assigns per area, transitions the ticket. Posting is dry-run until the recipe authorizes. | (the ticket is the signal) |
-| `dev-pr-feed` | The VCS-host PR surface: list PRs unreviewed at their current head, pull one into a read-only worktree, post findings as review comments, remember what was reviewed. Keyed on PR id + head commit. Fails closed on the R9 pause before any live post. | — |
+| `dev-pr-feed` | The VCS-host PR surface: list PRs unreviewed at their current head, pull one into a read-only worktree, post findings as review comments, remember what was reviewed, and read back what humans did with each posted thread (`dispositions`: fixed / wrong / intentional / no-action / unclassified — the loop's noise measure). Keyed on PR id + head commit. Fails closed on the R9 pause before any live post. | `pr_review_threads_*` metrics (opt-in `--emit`) |
 | `dev-onboard-survey` | The onboarding loop's first look at a codebase, with no model in it: languages, the commands the repo declares (file and line), entry points, tests, docs and decision records, churn hotspots, and areas sized for one reader each with their import edges. Same commit, same survey. See `docs/onboarding-loop.md`. | none |
 | `dev-onboard-how` | The how lens of the onboarding loop: one read-only agent per area writes a card of atomic claims about what the code does, each citing file, lines and a symbol; `check_card.py` proves every cite. Relearn modes fix only what the quiz showed was missing, wrong or vague. | none |
 | `dev-onboard-why` | The why lens: reasons from the record (commits, the pull requests they name, decision docs), quoted with a ref or marked as inference with an honest confidence; what the record does not answer is a gap, never a story. | none |
