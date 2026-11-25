@@ -86,10 +86,10 @@ never a silent skip and never an unclassified retry.
 
 **`qa-kb`**
 - Purpose: the single read / write / search / propose → bless / forget interface to the brain, via the `kb` CLI, never raw SQL. Storage-agnostic so the brain can lift into its own service.
-- Inputs: a verb (`read`, `write`, `search`, `propose`, `bless`, `reject`, `forget`, `decay`, `receipt`, `undo`, `pause`, `flag`, `state`, `metric`, `outbox`, `status`) plus store, key or query, `--source`, `--expect-version` on writes, and `--project` (default: `$AGENT_KIT_PROJECT`, else the cwd's git repo name, else `global`).
+- Inputs: a verb (`read`, `write`, `search`, `propose`, `bless`, `reject`, `forget`, `decay`, `receipt`, `undo`, `pause`, `flag`, `state`, `metric`, `metrics` (incl. read-only `metrics --breakdown`: counts per metric × area × `metadata.outcome`, what the R8 meta-monitor reads), `outbox`, `status`) plus store, key or query, `--source`, `--expect-version` on writes, and `--project` (default: `$AGENT_KIT_PROJECT`, else the cwd's git repo name, else `global`).
 - Outputs: JSON per verb; every write returns a receipt id that `kb undo` reverses.
 - Brain: `app_map` (keyed), `expectations` (semantic; propose-only for AI), `flakiness` (counters + quarantine), `fix_lessons` (semantic by symptom), `lessons` (general non-defect knowledge; proposed → active, semantic over active) — every knowledge row carries `project`, reads see the current project + `global`; plus `kb_control` (`global_pause`, `staging_only`), `metrics`, `kb_writes` (provenance ledger), `kb_state` (durable key/value), and a write outbox for retry.
-- Stops: `database_url` empty → error (never defaulted); loopback host without `scope: single-machine` in the config or `KB_ALLOW_UNSHARED=1` → refused; a write to a brain whose schema predates projects → queued as `schema_outdated` until `kb schema --apply`; `pause` answers fail-closed — a ship may proceed only on an explicit `paused:false`; a version mismatch on `--expect-version` → conflict, never last-write-wins.
+- Stops: `database_url` empty → error (never defaulted); loopback host without `scope: single-machine` in the config or `KB_ALLOW_UNSHARED=1` → refused; a write to a brain whose schema predates projects → queued as `schema_outdated` until `kb schema --apply`; `pause` answers fail-closed — a ship may proceed only on an explicit `paused:false`; `pause --on` has one scripted caller, the R8 meta-monitor (`--by meta-monitor`, only when armed), and `pause --off` is human-only; a version mismatch on `--expect-version` → conflict, never last-write-wins.
 
 ### The defect spine
 
@@ -284,7 +284,7 @@ never a silent skip and never an unclassified retry.
 All five `dev-loop-*` recipes share one engine (`dev-loop-defect/references/recipe-engine.md`,
 `scripts/recipe_router.py`, `check_convergence.py`). After every stage the router returns one of
 `advance · re-fix · re-repro · reject · escalate · rollback · stop-budget · halt-paused`; the
-recipe acts on it and nothing else. `dev-loop-onboard` is not one of the five: it takes no ticket
+recipe acts on it and nothing else. At loop start, beside the R9 check, the engine's R8 meta-monitor (`scripts/meta_monitor.py`, contract `dev-loop-defect.meta-monitor.json`) returns trip / no-trip / insufficient-data over loop-health metrics; report-only unless a human arms it in `loop-limits.json r8_meta_monitor`, and invoked by prose only, not yet by any runner. `dev-loop-onboard` is not one of the five: it takes no ticket
 and ships nothing, so it has its own router (`onboard_router.py`, in the onboarding lane above). Every external system is a role in `stack.config`; a role at
 `none` yields a structured `blocked` with `adapter-unavailable:<role>`, which escalates.
 
@@ -389,7 +389,7 @@ The risk register is `docs/architecture.md` §7. Which skill carries each gate:
 | R5 | Invisible cost | `r5_budget.per_loop_usd_cap` + token cap in `loop-limits.json`, compared by the router at every gate → `stop-budget`; a declared cap until the runner supplies spend; dollars are notional under a subscription posture | the router, `qa-kb` metrics, the runner |
 | R6 | Poisoned input, blast radius | ticket text is data, sanitized once at intake; the denylist (migrations, secrets / env, auth config, IaC, CI) enforced in `dev-fix` and re-scanned in `infra-ship`; sandboxed execution | `dev-intake`, `dev-fix`, `infra-ship`, `infra-worktree` |
 | R7 | Flaky suite | a flakiness point every run; quarantine at `flake_rate ≥ 0.30` over `≥ 5` runs, surfaced never dropped; a quarantined test is not a gate | `qa-regression`, `flakiness`, `loop-limits.json` |
-| R8 | Nobody watches the watcher | loop-health metrics (escalation rate, repeat failure by area, cost per fix) with thresholds that can trip R9 | `qa-kb` metrics, the engine |
+| R8 | Nobody watches the watcher | `meta_monitor.py`: prod-regressed rate, escalation rate and repeat failure by area against `loop-limits.json r8_meta_monitor`, a trip / no-trip decision (contract `dev-loop-defect.meta-monitor.json`); report-only as shipped, a human-armed trip turns R9 on via `kb pause --on --by meta-monitor`, never off; tested comparator and trip path, not yet scheduled, metric writers are prose | `qa-kb` metrics, the engine |
 | R9 | No kill switch | `global_pause` in `kb_control`, read fail-closed before any ship or post; `staging_only` posture; prefer a flag flip to a redeploy; rollback on the prod signal | `infra-ship`, `infra-prod-verify`, `dev-pr-feed`, every recipe |
 | R10 | Human QA bottleneck | risk-ranked human queue; batched blessings; semantic dedup; alert when rejects approach zero | `human-explore`, `dev-escalate`, `qa-kb` |
 

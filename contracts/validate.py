@@ -148,7 +148,43 @@ def validate(schema, doc):
         _check_reviewer_eval_case(doc, errors)
     if str(schema.get("$id", "")).endswith("/dev-pre-pr.json"):
         _check_pre_pr_risk(doc, errors)
+    if str(schema.get("$id", "")).endswith("/dev-loop-defect.meta-monitor.json"):
+        _check_meta_monitor(doc, errors)
     return errors
+
+
+def _check_meta_monitor(doc, errors):
+    """META-MON-D1/D2/A1/A2, the rules the schema keywords can't express for the R8 decision.
+    D1 decision trip iff at least one signal is breached, and breaches is non-empty iff trip.
+    D2 insufficient-data only when no signal is breached and none is ok.
+    A1 an outward action (paused / already-paused / pause-failed) needs armed true AND decision trip.
+    A2 action paused needs a pause object with a non-empty reason and by."""
+    sigs = [s for s in (doc.get("signals") or []) if isinstance(s, dict)] \
+        if isinstance(doc.get("signals"), list) else []
+    statuses = [s.get("status") for s in sigs]
+    decision = doc.get("decision")
+    breached = "breached" in statuses
+    breaches = doc.get("breaches") if isinstance(doc.get("breaches"), list) else []
+    if (decision == "trip") != breached:
+        errors.append(f"META-MON-D1: decision={decision!r} but a signal is "
+                      f"{'breached' if breached else 'not breached'} (trip iff any signal breached)")
+    if (decision == "trip") != bool(breaches):
+        errors.append(f"META-MON-D1: decision={decision!r} with {len(breaches)} breach(es) "
+                      "(breaches is non-empty iff trip)")
+    if decision == "insufficient-data" and (breached or "ok" in statuses):
+        errors.append("META-MON-D2: decision insufficient-data while a signal is breached or ok")
+    if decision == "no-trip" and "ok" not in statuses:
+        errors.append("META-MON-D2: decision no-trip needs at least one ok signal "
+                      "(all insufficient is insufficient-data)")
+    action = doc.get("action")
+    if action in ("paused", "already-paused", "pause-failed") \
+            and not (doc.get("armed") is True and decision == "trip"):
+        errors.append(f"META-MON-A1: action={action!r} needs armed true and decision trip "
+                      f"(armed={doc.get('armed')!r}, decision={decision!r}); report-only never pauses")
+    if action == "paused":
+        p = doc.get("pause") if isinstance(doc.get("pause"), dict) else {}
+        if not str(p.get("reason") or "").strip() or not str(p.get("by") or "").strip():
+            errors.append("META-MON-A2: action paused needs a pause object with a non-empty reason and by")
 
 
 _TIER_RANK = {"T0": 0, "T1": 1, "T2": 2}

@@ -57,6 +57,11 @@ must_fail "$C/dev-code-review.json" "$C/samples/EXAMPLE-bad-review-bug-class/rev
 must_pass "$C/dev-loop-defect.review-rounds.json" "$C/samples/EXAMPLE-review-rounds/review-rounds.json"
 must_fail "$C/dev-loop-defect.review-rounds.json" "$C/samples/EXAMPLE-bad-review-rounds/review-rounds.json"
 
+# dev-loop-defect.meta-monitor v1.0.0 (proposed): meta_monitor.py's R8 decision (real script output);
+# negative: action paused while unarmed must FAIL (META-MON-A1: report-only never pauses)
+must_pass "$C/dev-loop-defect.meta-monitor.json" "$C/samples/EXAMPLE-meta-monitor/meta-monitor.json"
+must_fail "$C/dev-loop-defect.meta-monitor.json" "$C/samples/EXAMPLE-bad-meta-monitor/meta-monitor.json"
+
 # dev-code-review eval case (v1.0.0, proposed): a signed re-fix bad case and a signed clean case pass;
 # a bad case naming no bug must FAIL (validate.py DEV-REVIEW-EVAL-K1)
 must_pass "$C/dev-code-review.eval-case.json" "$C/samples/EXAMPLE-reviewer-eval-bad/case.json"

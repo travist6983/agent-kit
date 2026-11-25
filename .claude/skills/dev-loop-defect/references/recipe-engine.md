@@ -270,8 +270,46 @@ registry mutates only under an exclusive lock, race-tested), so file paths are n
 `version_conflict` means re-read + resolve, never clobber.
 
 ## R8 — meta-monitor
-Each stage records a `qa-kb` metric (cost, attempt count, escalation/flake/bless, time). The
-meta-monitor trends these (escalation rate climbing, cost-per-fix rising) and can trip the global pause.
+Each stage records a `qa-kb` metric (cost, attempt count, escalation/flake/bless, time). The meta-monitor
+is a deterministic comparator over three of them, with no model in it:
+
+```bash
+python3 .claude/skills/dev-loop-defect/scripts/meta_monitor.py [--out <evidence.root>/meta-monitor.json]
+```
+
+**When a recipe runs it:** at loop start, beside the R9 `kb pause --status` check. As shipped it is
+report-only: a `trip` goes at the top of the run report and nothing else happens. When a human has armed
+it (below), a trip turns the R9 pause on, so the next R9 check halts this loop and every other one.
+
+**What it reads:** `kb metrics --breakdown --since <window_days>d`, every project (the pause is global).
+The numbers are `loop-limits.json r8_meta_monitor`; every comparison is `>=`:
+- `prod_regressed_rate` — `prod_outcome` rows with `metadata.outcome` prod-regressed / those with
+  prod-confirmed or prod-regressed (inconclusive excluded from both), at ≥ `min_prod_verdicts` decisive rows;
+- `escalation_rate` — `escalation` rows / `loop_outcome` rows, at ≥ `min_loop_outcomes`; more escalations
+  than loop outcomes means `loop_outcome` is under-recorded: a warning, no breach;
+- `repeat_failure_by_area` — `escalation` rows in one non-empty area ≥ `area_escalations_trip` (events, not
+  distinct tickets; rows with no area are reported unattributed and never count toward an area).
+
+Any breached signal = `trip`; all three insufficient = `insufficient-data`; else `no-trip`. The decision
+document is contract `contracts/dev-loop-defect.meta-monitor.json` (branch on `decision`).
+
+**Arming:** `trip_mode: "armed"` plus a non-empty `armed_by` in the tracked limits file, changed by PR.
+Only then does a trip run `kb pause --on --reason <breaches> --by meta-monitor` (an existing pause is left
+alone). No flag or env var arms it; `--report-only` and `--metrics-file` only disarm. It never unpauses:
+clearing is a human `kb pause --off --by <human>`.
+
+**Exit codes:** 0 decision produced and its action done · 1 armed trip but the pause could not be set ·
+2 bad usage or bad limits (no decision, no kb call) · 3 metrics unreadable (no pause, nothing written) ·
+4 the document violated its contract (nothing written). Treat 2, 3 and 4 as "the guardrail is blind":
+report it at the top of the run, never as health.
+
+**Enforced vs declared.** Enforced and tested (`test_meta_monitor.sh`): the comparator, the fail-closed
+limits, the trip path through the existing pause verb, and the absence of any unpause path. Declared, not
+enforced: nothing schedules or invokes the monitor yet — this section is prose — so until a runner does,
+it is a tested comparator with a tested trip path, not an enforced guardrail. The signals are only as
+good as the metric writes, which are skill and recipe prose (dev-escalate calls its `escalation` write
+optional), so missing writes read as insufficient-data or a quiet no-trip, never as health. Every number
+is argued, not measured.
 
 ## Knowledge write-back — every run (strongly encouraged, NOT a hard gate)
 This is loop-engineering principle #2: every run writes reusable knowledge back so the next task is

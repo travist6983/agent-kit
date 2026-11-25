@@ -1,0 +1,54 @@
+{
+  "decision": "trip",
+  "armed": false,
+  "action": "paused",
+  "window_days": 14,
+  "metrics_source": "file",
+  "signals": [
+    {
+      "signal": "prod_regressed_rate",
+      "status": "insufficient-data",
+      "value": null,
+      "numerator": 0,
+      "denominator": 4,
+      "threshold": 0.2,
+      "min_samples": 5,
+      "detail": "0 prod-regressed of 4 decisive verdicts; 2 excluded (inconclusive or other)"
+    },
+    {
+      "signal": "escalation_rate",
+      "status": "breached",
+      "value": 0.5833333333333334,
+      "numerator": 7,
+      "denominator": 12,
+      "threshold": 0.5,
+      "min_samples": 10,
+      "detail": "7 escalations over 12 loop outcomes"
+    },
+    {
+      "signal": "repeat_failure_by_area",
+      "status": "breached",
+      "value": 4,
+      "numerator": 4,
+      "denominator": null,
+      "threshold": 3,
+      "min_samples": 1,
+      "area": "invoices",
+      "detail": "4 escalations in area invoices; 1 unattributed escalation(s)"
+    }
+  ],
+  "breaches": [
+    "escalation_rate",
+    "repeat_failure_by_area:invoices"
+  ],
+  "warnings": [
+    "1 escalation(s) carry no area: reported as unattributed, never counted toward an area"
+  ],
+  "report_only_reason": "trip-mode-report-only",
+  "pause": {
+    "reason": "R8 meta-monitor: escalation_rate 0.5833>=0.5 over 14d; armed by nobody",
+    "by": "meta-monitor",
+    "receipt": null
+  },
+  "limits_file": ".claude/loops/loop-limits.json"
+}

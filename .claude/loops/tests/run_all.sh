@@ -55,6 +55,11 @@
 #   test_review_rounds    in-loop review convergence: review_rounds.py records one fingerprinted
 #                         round per review (file + bug_class, line excluded) and recipe_router.py
 #                         --review-rounds escalates review-stagnation before the retry cap.
+#   test_meta_monitor     the R8 guardrail: meta_monitor.py trips at exactly its thresholds (>=),
+#                         excludes inconclusive verdicts and unattributed escalations, fails
+#                         closed on bad limits (exit 2) and unreadable metrics (exit 3), stays
+#                         report-only as shipped, and when armed turns the R9 pause ON once via
+#                         `kb pause --on --by meta-monitor` — never off. Fake kb, offline.
 #   test_pr_review_rounds the PR-review loop converges: rounds per head, the round cap and
 #                         round_capped, one step-back comment (dry-run, R9, write-ahead), the
 #                         interdiff re-review scope, rounds-to-pass metrics counted once.

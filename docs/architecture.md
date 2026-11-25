@@ -133,8 +133,14 @@ prunes.
 paused / staging-only. A ship proceeds only on an explicit `paused: false`.
 
 **Metrics (R5 / R8).** Each stage records cost, attempt count, escalation / flake / bless
-events and time. The meta-monitor trends them — escalation rate climbing, cost-per-fix
-rising, bless-rate with no rejects — and can trip the global pause. `kb_state` holds durable
+events and time. The R8 meta-monitor (`dev-loop-defect/scripts/meta_monitor.py`, no model)
+reads them through `kb metrics --breakdown` and compares three signals — prod-regressed
+rate, escalation rate, repeat failure by area — against `loop-limits.json r8_meta_monitor`,
+returning trip / no-trip / insufficient-data. As shipped it is report-only; only when a human
+arms it in the tracked limits file does a trip turn the global pause on (`kb pause --on --by
+meta-monitor`), and it never turns it off. Nothing schedules it yet, and its inputs are
+metric writes that are skill prose, so this is a tested comparator and trip path, not an
+enforced guardrail. `kb_state` holds durable
 cross-machine key/value such as the consolidation watermark.
 
 **Concurrency (R4).** Updates to `app_map` pass `--expect-version`; a lost race is a
@@ -487,7 +493,7 @@ system itself is healthy.
 | **R5** | **Cost is invisible until the bill arrives.** The system loops on token-hungry stages — recording, multi-attempt fix, a judge on every verify, exploration sweeps. A pathological ticket could burn enormous spend silently retrying. | pre-launch | A per-loop cap as a number in `loop-limits.json`, compared by the recipe router at every stage gate; on breach, stop and escalate. Cost-per-fix is a first-class metric. Honest status: a declared cap with a tested comparator until the runner supplies spend; a scheduled job that hands the cap to the harness is the one place it is enforced today. | recipe router (`stop-budget`) · `qa-kb` metrics · the runner |
 | **R6** | **Adversarial / poisoned input and blast radius.** A ticket is untrusted text that becomes agent instructions (prompt injection via the ticket body). The agent has deploy authority and no defined sandbox; a wrong repro step can send it down a destructive path. | pre-launch | Ticket content is data, never instructions — sanitized once at intake and carried into the context pack. A hard denylist: `dev-fix` may never touch migrations, secrets / env config, auth configuration, infra / IaC, or CI definitions without a forced human gate; `infra-ship` re-scans the full change set. Sandboxed execution; least-privilege deploy credentials. | `dev-intake` (sanitize) · `dev-fix` (denylist) · `infra-ship` (preflight scan) · `infra-worktree` · runner permissions |
 | **R7** | **A flaky suite poisons the signal.** If the regression suite is flaky the loop cannot trust its own evaluator — escalating real passes, re-fixing phantom failures. Autonomous shipping needs a trusted suite first. | high | Record a flakiness data point for every test run, pass or fail; quarantine a test at `flake_rate ≥ 0.30` over `≥ 5` runs and surface every quarantine in the report — never drop a test silently; a quarantined test cannot act as a gate until stabilized. A suite-health prerequisite on shipping is tracked as future work, not claimed. | `qa-regression` · `flakiness` store · `loop-limits.json` (`r7_flake_quarantine`) |
-| **R8** | **Nobody watches the watcher.** Auto-escalation and autonomous brain writes — if the escalation rate spikes or one area fails repeatedly, that is a meta-signal something systemic broke. We have the data, no alerting. | medium | A meta-monitor over loop-health metrics (escalation-rate trend, repeat-failure-by-area, cost-per-fix) with thresholds, able to trip the global pause; a human in the loop for the loop itself degrading. | `qa-kb` metrics · the recipe engine (trips R9) |
+| **R8** | **Nobody watches the watcher.** Auto-escalation and autonomous brain writes — if the escalation rate spikes or one area fails repeatedly, that is a meta-signal something systemic broke. A deterministic comparator now exists (`meta_monitor.py`: prod-regressed rate, escalation rate, repeat failure by area against `loop-limits.json r8_meta_monitor`) with a tested trip path through `kb pause --on`; it ships report-only, never unpauses, and is not scheduled by any runner yet; its metric writers are prose (the `escalation` write is optional), and cost-per-fix is not one of its signals. | medium | Arm the monitor (a human sets `trip_mode: armed` + `armed_by` by PR) once real data has tuned the argued numbers; wire it into a scheduled runner; make the metric writes mechanical; a human in the loop for the loop itself degrading. | `qa-kb` metrics · the recipe engine (`meta_monitor.py`, trips R9) |
 | **R9** | **No rollback or kill switch.** Everything is forward motion: fix → ship. An auto-shipped fix causes an incident at 2am and there is no defined response for the *system* failing, only for individual bugs. | pre-launch | An auto-rollback trigger tied to the prod error signal (R2's hook). A global human kill switch (`global_pause` in `kb_control`) that pauses all autonomous shipping, read fail-closed before any ship or post. Ship behind a flag where possible so revert is a flag flip, not a redeploy. A `staging_only` posture flag that forbids the prod lane until a human flips it. | `infra-ship` · `infra-prod-verify` · `dev-pr-feed` · every recipe · `qa-kb` flags |
 | **R10** | **Human QA is the scaling bottleneck.** Every sensitive fix, every escalation and every expectation-blessing funnels to humans. As volume grows this queue becomes the constraint, and blessing-fatigue means rubber-stamping, which silently defeats the propose-then-bless guard. | medium | Prioritize the human queue by risk and confidence; batch and summarize blessings; semantic dedup so the same rule is never blessed twice; track bless-rate vs reject-rate — if rejects approach zero, humans have stopped scrutinizing (alert on it). | `human-explore` · `dev-escalate` · `qa-kb` (dedup, metrics) |
 
@@ -521,7 +527,8 @@ both degrade trust slowly and invisibly. R3 is never fully closed; it is bounded
                                   required before the first autonomous prod ship
    7  qa-explore · human-explore  the learning producers
    8  the recipe engine           tiered caps, budget breaker (R5), concurrency (R4),
-                                  meta-monitor (R8), convergence checker
+                                  meta-monitor (R8: meta_monitor.py, report-only
+                                  until armed), convergence checker
    9  dev-loop-*                  the thin recipes, last
 ```
 
