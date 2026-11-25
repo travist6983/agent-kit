@@ -123,7 +123,7 @@
 # why the default is dry-run here and widening the scope is an edit to the scheduler's job
 # definition that a human performs.
 #
-# A --live tick has three PRECONDITIONS the runner refuses to guess at (exit 25):
+# A --live tick has four PRECONDITIONS the runner refuses to guess at (exit 25):
 #   * a seen-ledger file must already exist, or --first-run must say out loud that a blank
 #     ledger is intended. A missing ledger reads as "nothing has ever been reviewed", and
 #     the first live tick then re-reviews and re-comments on pull requests that already
@@ -132,6 +132,10 @@
 #     line. Inheriting a widened scope from loop-limits.json is exactly how a one-line JSON
 #     edit turns into comments on colleagues' pull requests.
 #   * the R9 pause flag must read an explicit paused:false (that gate is older than these).
+#   * loop-limits pr_review_loop.timing must record a measurement (measured true, a named
+#     measured_by, samples >= timing_min_samples). prs_per_tick predates the validators and
+#     the deep pass; dry-run ticks are how it gets re-measured (measure_ticks.py), and they
+#     are not gated by this.
 #
 # --no-brain skips the brain health gate, and with it the ledger half of the post-run
 # assertion (there is no brain to ask). --no-assert skips the post-run assertion ENTIRELY,
@@ -376,7 +380,9 @@ KB="${KB_BIN:-$REPO/.claude/skills/qa-kb/scripts/kb.py}"
 PR_FEED="${LOOP_PR_FEED:-$REPO/.claude/skills/dev-pr-feed/scripts/pr_feed.py}"
 LOOPS_DIR="$REPO/.claude/loops"
 TICKS_DIR="$LOOPS_DIR/pr-reviews"
-LIMITS_FILE="$LOOPS_DIR/loop-limits.json"
+# stack.config `limits_file` (env override LOOPS_CFG__LIMITS_FILE), the same key dream.sh reads.
+LIMITS_FILE="$(stack_cfg limits_file .claude/loops/loop-limits.json)"
+case "$LIMITS_FILE" in /*) ;; *) LIMITS_FILE="$REPO/$LIMITS_FILE" ;; esac
 # Named after this runner, not after pr_feed's tick lock — they are two different locks
 # guarding two different overlaps. See "why a SECOND lock" below.
 LOCK_DIR="${LOOP_PR_REVIEW_LOCK_DIR:-$LOOPS_DIR/pr-review.lock}"
@@ -1702,6 +1708,28 @@ if [ "$LIVE" -eq 1 ]; then
     log_line "run_id=$RUN_ID event=refused reason=live_wide_scope_not_reaffirmed scope=$SCOPE"
     exit 25
   fi
+  # (3) The per-tick timing behind prs_per_tick must have been MEASURED since the review grew
+  # (validators, deep pass). Unmeasured, unreadable or malformed all refuse: fail closed.
+  # Dry-run ticks are not gated — they post nothing and are how the measurement is taken.
+  TIMING_STATE="$(python3 - "$LIMITS_FILE" <<'PY' 2>/dev/null || echo unreadable
+import json, sys
+o = json.load(open(sys.argv[1]))["pr_review_loop"]
+t, m = o["timing"], o["timing_min_samples"]
+ok = (isinstance(t, dict) and t.get("measured") is True
+      and isinstance(t.get("measured_by"), str) and t["measured_by"].strip()
+      and type(t.get("samples")) is int and type(m) is int and m >= 1 and t["samples"] >= m)
+print("measured" if ok else "unmeasured")
+PY
+)"
+  if [ "$TIMING_STATE" != "measured" ]; then
+    echo "pr_review.sh: REFUSING a LIVE tick — pr_review_loop.timing is $TIMING_STATE in" >&2
+    echo "    $LIMITS_FILE" >&2
+    echo "  prs_per_tick was measured before independent validators and the deep review pass" >&2
+    echo "  landed. Run dry-run ticks, then measure_ticks.py --log <pr-review.log>, and have a" >&2
+    echo "  person record timing.measured / measured_by / samples (see timing_rule)." >&2
+    log_line "run_id=$RUN_ID event=refused reason=timing_unmeasured state=$TIMING_STATE"
+    exit 25
+  fi
 fi
 
 # NB: capture the rc explicitly — inside `if ! cmd; then`, `$?` is the negation's 0.
@@ -2046,11 +2074,12 @@ build_posting_guard() {   # sets GUARD_FEED (or leaves it empty on any failure)
   # auto-mark after a live post) unbuilt and sent every queue-gate tick to the session.
   RUN_TMP="$(mktemp -d "${TMPDIR:-/tmp}/pr-review-guard.XXXXXX")" || { echo "pr_review.sh: WARNING — mktemp -d failed; the session gets pr_feed.py directly." >&2; return 1; }
   python3 - "$RUN_TMP/guard.json" "$PR_FEED" "$POSTING_MODE" "$SCOPE" "$MAX_THREADS" \
-           "$POSTED_RECEIPT" "$RUN_ID" "$RUN_TMP/violations.txt" <<'PY' || return 1
+           "$POSTED_RECEIPT" "$RUN_ID" "$RUN_TMP/violations.txt" \
+           "$REPO/.claude/skills/dev-code-review/scripts/finding_votes.py" <<'PY' || return 1
 import json, sys
 json.dump({"real": sys.argv[2], "posting": sys.argv[3], "scope": sys.argv[4],
            "max_threads": int(sys.argv[5]), "receipt": sys.argv[6],
-           "run_id": sys.argv[7], "violations": sys.argv[8]},
+           "run_id": sys.argv[7], "violations": sys.argv[8], "finding_votes": sys.argv[9]},
           open(sys.argv[1], "w"), indent=2)
 PY
   cat > "$RUN_TMP/pr_feed.py" <<'PYGUARD' || return 1
@@ -2145,6 +2174,38 @@ if "--live" in argv and POSTING != "live":
 
 capped = []
 fpath = argval("--findings")
+# REVIEW CHECKS before anything is posted or previewed (fail CLOSED): the findings file is the
+# PR's review.json. It must carry the independent-validation and depth blocks dev-code-review
+# writes, and finding_votes.py check must accept it against the votes in the review-validation
+# dir beside it. A review that fails is not posted; the session reports it. review_depth /
+# review_brief `check` need the PR worktree and are run by the session, not here (prose).
+if fpath:
+    def _refuse(why):
+        note("REFUSED post — review checks failed (%s). Nothing was posted or previewed; "
+             "re-run dev-code-review for this PR and report it in the tick report." % why)
+        emit({"status": "failed", "failure_class": "review-check-failed", "message": why}, 3)
+    try:
+        _rev = json.load(open(fpath))
+    except Exception as exc:
+        _refuse("review.json unreadable: %s" % exc)
+    if not isinstance(_rev, dict):
+        _refuse("review.json is not an object")
+    _miss = [k for k in ("validation", "depth") if not isinstance(_rev.get(k), dict)]
+    if _miss:
+        _refuse("review.json lacks " + ", ".join(_miss))
+    _fv = G.get("finding_votes") or ""
+    if not os.path.isfile(_fv):
+        _refuse("finding_votes.py not found at %r" % _fv)
+    try:
+        _cp = subprocess.run([sys.executable, _fv, "check", "--dir",
+                              os.path.join(os.path.dirname(os.path.abspath(fpath)), "review-validation"),
+                              "--review", fpath], env=env, text=True, capture_output=True, timeout=120)
+        if _cp.returncode != 0:
+            _refuse("finding_votes.py check exit %s: %s" % (_cp.returncode, (_cp.stdout or _cp.stderr).strip()[-300:]))
+    except subprocess.TimeoutExpired:
+        _refuse("finding_votes.py check timed out")
+    except OSError as exc:
+        _refuse("finding_votes.py check could not run: %s" % exc)
 # Interdiff scope BEFORE the volume cap, so the cap ranks only findings this re-review may
 # comment on. Fails OPEN: on any failure the findings pass through and the real `post` applies
 # the same scope itself. Not an intervention, so it is not written to the violations file.

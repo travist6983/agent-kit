@@ -9,8 +9,9 @@ named by --review-rounds: no adapters, no brain, no network — the recipe suppl
 Review convergence (--review-rounds, code-review stage only): the file is the per-round history
 review_rounds.py records after every review. When one finding fingerprint (file + bug_class) is open in
 the last review_convergence.stagnation_fix_cycles + 1 consecutive rounds, the router escalates with
-failure_class review-stagnation BEFORE the retry cap: step back and reconsider, do not re-fix. Without
-the flag the code-review stage behaves exactly as before.
+failure_class review-stagnation BEFORE the retry cap: step back and reconsider, do not re-fix. A
+request-changes WITHOUT the flag escalates (failure_class review-rounds-missing): fail closed, since a
+re-fix with no round history cannot be shown to converge.
 
 Usage:
   recipe_router.py --stage repro|fix|verify|regression|code-review|pre-pr|prod-verify|ship --result R
@@ -193,10 +194,15 @@ def main():
             # e.g. `validation-unavailable` / `blocked`: the review did not produce a verdict, so there is
             # no evidence about the fix. Like verify=blocked: escalate, never burn a re-fix on it.
             return out("escalate", f"code-review={r} — the review produced no verdict (not a finding about the fix); a re-fix cannot help")
-        if a.review_rounds is not None:
-            stuck = _review_stagnation(a.review_rounds)
-            if stuck is not None:
-                return out("escalate", stuck[0], **stuck[1])
+        if a.review_rounds is None:
+            # Fail CLOSED: a re-fix without the round history cannot prove the review is converging,
+            # which is the exact blind repeat the stagnation rule exists to stop.
+            return out("escalate", "review request-changes without --review-rounds — record the round "
+                       "(review_rounds.py record) and pass the history; failing CLOSED",
+                       failure_class="review-rounds-missing")
+        stuck = _review_stagnation(a.review_rounds)
+        if stuck is not None:
+            return out("escalate", stuck[0], **stuck[1])
         return retry_or_escalate("re-fix", "review request-changes (incl. masking) — refine the fix")
 
     if s == "pre-pr":

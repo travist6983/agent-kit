@@ -121,7 +121,7 @@ echo "$o" | grep -q "stagnation_fix_cycles" && [ "$(echo "$o" | action)" = escal
 [ "$(route "$TMP/stuck/rr.json" 2 request-changes --paused true | action)" = halt-paused ] && ok "--paused true beats stagnation" || bad "paused" ""
 o=$(python3 "$R" --stage code-review --result request-changes --attempt 2 --max 5)
 k=$(echo "$o" | python3 -c "import json,sys;d=json.load(sys.stdin);print(sorted(d), d['action'])")
-[ "$k" = "['action', 'reason'] re-fix" ] && ok "no flag -> re-fix, output keys unchanged" || bad "no flag" "$o"
+[ "$k" = "['action', 'failure_class', 'reason'] escalate" ] && ok "no flag -> escalate (fail closed)" || bad "no flag" "$o"
 
 # dev-code-review v1.8.0 / review-rounds v1.1.0: a needs-human review is recorded (contract-valid),
 # is never a pass, and the router escalates it to a human even where stagnation would also fire

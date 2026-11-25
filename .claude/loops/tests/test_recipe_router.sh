@@ -21,7 +21,13 @@ t "R5 budget breach→stop-budget"       stop-budget --stage fix --result fixed 
 t "R9 paused→halt-paused"              halt-paused --stage ship --result ok --paused true
 t "prod-regressed→rollback"            rollback    --stage prod-verify --result prod-regressed
 t "prod-confirmed→advance"             advance     --stage prod-verify --result prod-confirmed
-t "review request-changes→re-fix"      re-fix      --stage code-review --result request-changes --attempt 1 --max 3
+# a rounds file with one round open: converging, so request-changes re-fixes
+RR1="$(mktemp "${TMPDIR:-/tmp}/rr1.XXXXXX")"; trap 'rm -f "$RR1"' EXIT
+python3 -c "import json,sys; d=json.load(open(sys.argv[1])); d['rounds']=d['rounds'][:1]; json.dump(d,open(sys.argv[2],'w'))" \
+  "$SK/../../contracts/samples/EXAMPLE-review-rounds/review-rounds.json" "$RR1"
+t "review request-changes→re-fix"      re-fix      --stage code-review --result request-changes --attempt 1 --max 3 --review-rounds "$RR1"
+t "request-changes, no rounds→escalate" escalate   --stage code-review --result request-changes --attempt 1 --max 3
+t "approve needs no rounds→advance"    advance     --stage code-review --result approve
 # a review that produced no verdict is not a finding about the fix: escalate, never re-fix
 t "review validation-unavailable→esc"  escalate    --stage code-review --result validation-unavailable --attempt 1 --max 3
 t "review blocked→escalate"            escalate    --stage code-review --result blocked --attempt 1 --max 3
@@ -34,7 +40,7 @@ got=$(fcj --stage code-review --result needs-human --attempt 1 --max 5)
 if [ "$got" = "review-needs-human True" ]; then pass=$((pass+1)); else echo "  [FAIL] needs-human failure_class/reason → $got"; fail=$((fail+1)); fi
 got=$(fcj --stage code-review --result needs-human --attempt 2 --max 5 --review-rounds "$SK/../../contracts/samples/EXAMPLE-review-rounds/review-rounds.json")
 if [ "$got" = "review-needs-human True" ]; then pass=$((pass+1)); else echo "  [FAIL] needs-human with review-rounds → $got (a human gate outranks stagnation)"; fail=$((fail+1)); fi
-got=$(fcj --stage code-review --result request-changes --attempt 1 --max 5)
+got=$(fcj --stage code-review --result request-changes --attempt 1 --max 5 --review-rounds "$RR1")
 if [ "$got" = "None False" ]; then pass=$((pass+1)); else echo "  [FAIL] request-changes must stay a plain re-fix → $got"; fail=$((fail+1)); fi
 t "repro not_reproduced→reject"        reject      --stage repro --result not_reproduced
 t "repro inconclusive→re-repro"        re-repro    --stage repro --result inconclusive --attempt 1 --max 3
@@ -70,7 +76,7 @@ if [ "$fc" = "readiness-unbound" ]; then pass=$((pass+1)); else echo "  [FAIL] r
 # Full coverage lives in test_review_rounds.sh.
 RR="$SK/../../contracts/samples/EXAMPLE-review-rounds/review-rounds.json"
 t "review stagnation→escalate (attempt<max)" escalate --stage code-review --result request-changes --attempt 2 --max 5 --review-rounds "$RR"
-t "review no --review-rounds→re-fix"   re-fix      --stage code-review --result request-changes --attempt 2 --max 5
+t "review no --review-rounds→escalate" escalate    --stage code-review --result request-changes --attempt 2 --max 5
 
 echo "  recipe_router: $pass passed, $fail failed"
 [ "$fail" = 0 ]

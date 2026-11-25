@@ -25,6 +25,7 @@
 #   0 ok · 1 bad-repo-dir · 2 R9 pause (set or unreadable) · 3 on-base-branch (base or protected)
 #   4 R6 denylist hit · 5 R6 scan failed (fail closed) · 6 nothing-to-ship
 #   7 prod-lane-branch (pushing this branch — or where git config would push it — IS a prod deploy)
+#   8 meta-monitor-failed (R8 monitor missing, bad limits, armed trip could not pause — fail closed)
 # Every string that can carry user/git-controlled text (branch, file lists) goes through jstr —
 # git allows '"' in a branch name, and an unescaped one turns the one JSON line into garbage.
 set -uo pipefail
@@ -85,6 +86,25 @@ while IFS= read -r l; do [ -n "$l" ] && PROD_LANES+=("$l"); done < <(cfg_lines p
 while IFS= read -r l; do [ -n "$l" ] && PREFIX_MAP+=("$l"); done < <(cfg_lines branch_prefixes)
 
 cd "$REPO_DIR" 2>/dev/null || { echo '{"ok":false,"abort":"bad-repo-dir"}'; exit 1; }
+
+# 0b. R8 meta-monitor, BEFORE the R9 check: an ARMED trip sets the global pause, which the R9 check
+# below then refuses on. Report-only unless loop-limits r8_meta_monitor is armed by a named human
+# (meta_monitor.py decides that; nothing here arms it). Metrics unreadable (exit 3) is reported and
+# never blocks: missing data is not a trip. A monitor that cannot run, bad limits (2), an armed trip
+# that could not pause (1) or a contract-invalid decision (4) fail CLOSED (exit 8).
+MM="$SCRIPT_DIR/../../dev-loop-defect/scripts/meta_monitor.py"
+MM_DECISION="null"
+if [ ! -f "$MM" ]; then
+  echo '{"ok":false,"abort":"meta-monitor-failed","detail":"R8 meta_monitor.py not found — failing CLOSED, refusing to ship."}'
+  exit 8
+fi
+MM_OUT=$(KB_CLI="$KB" python3 "$MM" 2>/dev/null); MM_RC=$?
+case "$MM_RC" in
+  0) MM_DECISION=$(printf '%s' "$MM_OUT" | python3 -c "import sys,json;d=json.load(sys.stdin);print(json.dumps({'decision':d.get('decision'),'action':d.get('action')}))" 2>/dev/null || echo '{"decision":"unparsed"}') ;;
+  3) MM_DECISION='{"decision":"metrics-unavailable"}' ;;
+  *) echo "{\"ok\":false,\"abort\":\"meta-monitor-failed\",\"detail\":\"R8 meta_monitor.py exited $MM_RC — failing CLOSED, refusing to ship.\"}"
+     exit 8 ;;
+esac
 
 # 1. R9 kill-switch — the most important gate. Refuse to ship if the brain's global_pause is set.
 PAUSED=$(python3 "$KB" pause --status 2>/dev/null \
@@ -299,6 +319,6 @@ NEW_FILES=$(git ls-files --others --exclude-standard 2>/dev/null \
   | { if [ "$IS_SANDBOX" = "true" ] && [ -n "$SCAFFOLD_RE" ]; then grep -vE "$SCAFFOLD_RE"; else cat; fi; } | paste -sd, -)
 LANES_JSON=$(printf '%s' "$CFG_JSON" | python3 -c "import sys,json;print(json.dumps(json.load(sys.stdin).get('prod_lanes') or []))")
 
-printf '{"ok":true,"abort":null,"paused":false,"r6":"clean","staging_only":%s,"prod_deploy_allowed":%s,"prod_lane":%s,"prod_lane_override":%s,"prod_lane_patterns":%s,"branch":%s,"base":%s,"remote":%s,"commit_type":"%s","changed_source":%s,"new_files":%s,"excluded_scaffolding":%s,"dry_run":%s,"config":%s,"next":"format -> commit -> push -> vcs_host open_pr  [PR opens LIVE; staging_only gates the PROD DEPLOY only, which stays disabled until R2/R5/R6/R9. Set SHIP_DRY_RUN=1 for a no-PR rehearsal.]"}\n' \
+printf '{"ok":true,"abort":null,"paused":false,"r6":"clean","staging_only":%s,"prod_deploy_allowed":%s,"prod_lane":%s,"prod_lane_override":%s,"prod_lane_patterns":%s,"branch":%s,"base":%s,"remote":%s,"commit_type":"%s","changed_source":%s,"new_files":%s,"excluded_scaffolding":%s,"dry_run":%s,"config":%s,"meta_monitor":%s,"next":"format -> commit -> push -> vcs_host open_pr  [PR opens LIVE; staging_only gates the PROD DEPLOY only, which stays disabled until R2/R5/R6/R9. Set SHIP_DRY_RUN=1 for a no-PR rehearsal.]"}\n' \
   "$STAGING_ONLY" "$PROD_DEPLOY_ALLOWED" "$PROD_LANE" "$PROD_LANE_OVERRIDE" "$LANES_JSON" "$(jstr "$BRANCH")" "$(jstr "$BASE")" "$(jstr "$PUSH_REMOTE")" "$TYPE" \
-  "$(jstr "$CHANGED")" "$(jstr "$NEW_FILES")" "$(jstr "$EXCLUDED_SCAFFOLD")" "$DRYRUN" "$(jstr "$CONFIG_SOURCE")"
+  "$(jstr "$CHANGED")" "$(jstr "$NEW_FILES")" "$(jstr "$EXCLUDED_SCAFFOLD")" "$DRYRUN" "$(jstr "$CONFIG_SOURCE")" "$MM_DECISION"

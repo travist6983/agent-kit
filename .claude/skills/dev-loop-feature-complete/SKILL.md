@@ -125,7 +125,7 @@ cap (`--max`), the spend (`--budget-spent`, compared against `loop-limits.json` 
 `global_pause` flag read through `qa-kb`, and act on its verdict.
 
 ## The pre-PR gate
-- **`dev-pre-pr` before ship.** The readiness gate: it reconciles this loop's `regression.json` (and
+- **`dev-pre-pr` before ship**, with `review_gate.py --require-review` (this recipe has a review stage, so a missing or unchecked review.json blocks). The readiness gate: it reconciles this loop's `regression.json` (and
   `review.json`, where the recipe ran one) **by freshness**, runs the deterministic conventions scan
   (`.claude/loops/conventions.json`, the ruleset the target repo supplies) on the added lines, rolls
   up the blockers, and emits one verdict. Router: `ready`/`warnings` → advance; `blocked` → back to

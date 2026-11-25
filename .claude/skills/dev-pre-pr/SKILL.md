@@ -110,6 +110,19 @@ unreadable JSON, a missing `verdict`, stale vocabulary, a git command that canno
 so there is no path where a gap reads as clean. It is covered by
 `.claude/loops/tests/test_verify_gate.sh`.
 
+**The code review is gated the same way.** When the recipe has a code-review stage
+(`dev-loop-hard-defect`, `dev-loop-feature-complete`), pass `--require-review`; a review.json that is
+present is always checked, with or without it:
+
+```bash
+python3 scripts/review_gate.py --evid <EVID_ROOT>/<KEY> --repo <repo-dir> [--require-review]
+# exit 0 → continue · exit 1 → BLOCKED (status=blocked, its reason in Blockers) · exit 2 → bad usage
+```
+
+It blocks a review.json that is missing (with `--require-review`), unreadable, lacks the
+`validation` or `depth` block, or fails `finding_votes.py check`, `review_depth.py check` or
+`review_brief.py check`. Covered by `.claude/loops/tests/test_review_gate.sh`.
+
 What it enforces, for reference:
 
 | `verify.json` | `checks.fix_verified` | `sources.verify` | Verdict |

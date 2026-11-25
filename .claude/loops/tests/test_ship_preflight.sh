@@ -28,7 +28,9 @@ bad(){ echo "  [FAIL] $1"; fail=$((fail+1)); }
 
 # ── scratch skills tree: the preflight under test + the REAL R6 scan + a stub kb.py ─────
 T="$ROOT/skills"
-mkdir -p "$T/infra-ship/scripts" "$T/dev-fix/scripts" "$T/dev-fix/assets" "$T/qa-kb/scripts"
+mkdir -p "$T/infra-ship/scripts" "$T/dev-fix/scripts" "$T/dev-fix/assets" "$T/qa-kb/scripts" "$T/dev-loop-defect/scripts"
+# the R8 meta-monitor, symlinked so it resolves the real repo's limits + contract; its kb is the stub
+ln -s "$SK/dev-loop-defect/scripts/meta_monitor.py" "$T/dev-loop-defect/scripts/meta_monitor.py"
 cp "$PRE_SRC" "$T/infra-ship/scripts/ship_preflight.sh"
 cp "$SK/dev-fix/scripts/r6_denylist_scan.sh" "$T/dev-fix/scripts/"
 cp "$SK/dev-fix/assets/r6-denylist.globs" "$T/dev-fix/assets/"
@@ -39,6 +41,10 @@ import json, os, sys
 a = sys.argv[1:]
 if a[:1] == ["pause"]:
     print(json.dumps({"ok": True, "action": "status", "control": {"value": os.environ.get("FAKE_PAUSED", "false") == "true"}}))
+elif a[:1] == ["metrics"]:
+    if os.environ.get("FAKE_METRICS") == "fail":
+        print(json.dumps({"ok": False, "error": "stub: metrics unavailable"})); sys.exit(1)
+    print(json.dumps({"ok": True, "breakdown": []}))
 elif a[:1] == ["flag"]:
     v = os.environ.get("FAKE_STAGING", "true")
     print(json.dumps({"ok": True, "action": "flag_status", "flag": "staging_only", "value": None if v == "missing" else v == "true"}))
@@ -159,6 +165,16 @@ run "protected/PROJ-123-typo" LOOPS_STACK_CONFIG="$CFG_DEFAULT"
 expect "no lanes declared: protected branches are still refused (exit 3)" 3 'abort="on-base-branch"'
 run "deploy/PROJ-123-typo" LOOPS_STACK_CONFIG="$CFG_DEFAULT" FAKE_PAUSED=true
 expect "no lanes declared: R9 pause still refuses (exit 2)" 2 'abort="global-pause"'
+# 10b. R8 meta-monitor runs before R9: insufficient data reports, unreadable metrics never block,
+# a monitor that cannot run fails closed (exit 8).
+run "bug/PROJ-123-typo" LOOPS_STACK_CONFIG="$CFG_DEFAULT"
+expect "meta-monitor decision is in the preflight output" 0 'ok=true' 'meta_monitor={"decision": "insufficient-data", "action": "reported"}'
+run "bug/PROJ-123-typo" LOOPS_STACK_CONFIG="$CFG_DEFAULT" FAKE_METRICS=fail
+expect "metrics unreadable is reported, never a block" 0 'ok=true' 'meta_monitor={"decision": "metrics-unavailable"}'
+mv "$T/dev-loop-defect/scripts/meta_monitor.py" "$ROOT/mm.lnk"
+run "bug/PROJ-123-typo" LOOPS_STACK_CONFIG="$CFG_DEFAULT"
+expect "meta-monitor missing fails closed (exit 8)" 8 'abort="meta-monitor-failed"'
+mv "$ROOT/mm.lnk" "$T/dev-loop-defect/scripts/meta_monitor.py"
 # 11. Nothing outward was attempted.
 if [ -s "$NETLOG" ]; then bad "preflight called the network: $(tr '\n' ';' < "$NETLOG")"; else ok; fi
 

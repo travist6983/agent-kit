@@ -277,7 +277,10 @@ is a deterministic comparator over three of them, with no model in it:
 python3 .claude/skills/dev-loop-defect/scripts/meta_monitor.py [--out <evidence.root>/meta-monitor.json]
 ```
 
-**When a recipe runs it:** at loop start, beside the R9 `kb pause --status` check. As shipped it is
+**When it runs:** mechanically, in `infra-ship`'s `ship_preflight.sh` before its R9 check, so every
+ship runs it and an armed trip halts that ship (decision in the preflight's `meta_monitor` field;
+unreadable metrics never block; a monitor that cannot run fails closed, exit 8). A recipe also runs it
+at loop start, beside the R9 `kb pause --status` check (prose). As shipped it is
 report-only: a `trip` goes at the top of the run report and nothing else happens. When a human has armed
 it (below), a trip turns the R9 pause on, so the next R9 check halts this loop and every other one.
 
