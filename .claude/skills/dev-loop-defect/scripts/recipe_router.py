@@ -181,6 +181,10 @@ def main():
 
     if s == "code-review":
         if r == "approve": return out("advance", "review clean")
+        if r != "request-changes":
+            # e.g. `validation-unavailable` / `blocked`: the review did not produce a verdict, so there is
+            # no evidence about the fix. Like verify=blocked: escalate, never burn a re-fix on it.
+            return out("escalate", f"code-review={r} — the review produced no verdict (not a finding about the fix); a re-fix cannot help")
         if a.review_rounds is not None:
             stuck = _review_stagnation(a.review_rounds)
             if stuck is not None:

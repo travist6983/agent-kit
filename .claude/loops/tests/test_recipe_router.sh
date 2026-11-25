@@ -22,6 +22,9 @@ t "R9 paused→halt-paused"              halt-paused --stage ship --result ok --
 t "prod-regressed→rollback"            rollback    --stage prod-verify --result prod-regressed
 t "prod-confirmed→advance"             advance     --stage prod-verify --result prod-confirmed
 t "review request-changes→re-fix"      re-fix      --stage code-review --result request-changes --attempt 1 --max 3
+# a review that produced no verdict is not a finding about the fix: escalate, never re-fix
+t "review validation-unavailable→esc"  escalate    --stage code-review --result validation-unavailable --attempt 1 --max 3
+t "review blocked→escalate"            escalate    --stage code-review --result blocked --attempt 1 --max 3
 t "repro not_reproduced→reject"        reject      --stage repro --result not_reproduced
 t "repro inconclusive→re-repro"        re-repro    --stage repro --result inconclusive --attempt 1 --max 3
 t "repro inconclusive at cap→escalate" escalate    --stage repro --result inconclusive --attempt 3 --max 3
