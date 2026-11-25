@@ -141,6 +141,15 @@ mkrepo; put api/invoices/new.py; plan
 want "untracked text counted" changed_lines 1
 want "untracked text counted" level quick
 
+# ---- (d2) a change with no changed line (mode-only, empty new file): unknown, never quick --------
+mkrepo; chmod +x "$R/api/invoices/total.py"; plan
+want "mode-only" files 1
+want "mode-only" level standard
+want "mode-only" reasons '["changed-lines-unknown"]'
+mkrepo; : > "$R/api/invoices/empty.py"; plan
+want "empty new file" level standard
+want "empty new file" reasons '["changed-lines-unknown"]'
+
 # ---- (e) --changed-file override: never quick ---------------------------------------------------
 mkrepo; plan --changed-file api/invoices/total.py
 want "override" level standard
@@ -173,6 +182,19 @@ for p in db/migrations/001.sql .github/workflows/ci.yml; do
   want "floor $p" risk_files "[{\"file\": \"$p\", \"reason\": \"blast-radius\"}]"
   riskpass "floor $p"
 done
+
+# ---- (h2) an author-chosen path with a newline / control character: the R6 scan cannot see it as
+# itself (".github/workflows/x<NL>y.yml" would scan as ".github/workflows/x" + "y.yml"), so the
+# hit cannot be dropped: deep, unavailable, exit 2 ------------------------------------------------
+mkrepo; mkdir -p "$R/.github/workflows"; printf 'on: push\n' > "$R/.github/workflows/x
+y.yml"; plan
+deep_unavail "newline path" r6-scan-unavailable
+mkrepo; printf 'a\n' > "$R/web/src/a$(printf '\t')b.js"; plan
+deep_unavail "tab path" r6-scan-unavailable
+mkrepo; mkdir -p "$R/.github/workflows"; printf 'on: push\n' > "$R/.github/workflows/x
+y.yml"
+OUT=$(LOOPS_STACK_CONFIG="$ROOT/stack-adopter.json" "$PY" "$RD" plan --repo "$R" 2>/dev/null); RC=$?; six "newline adopter"
+deep_unavail "newline path, adopter list" r6-scan-unavailable
 
 # ---- (i) shared core: deep ----------------------------------------------------------------------
 mkrepo; put api/core/base.py; plan
@@ -230,7 +252,8 @@ OUT=$(PATH="$ROOT/nobash" "$PY" "$RD" plan --repo "$R" 2>/dev/null); RC=$?; six 
 deep_unavail "R6 scan unavailable" r6-scan-unavailable
 
 # ---- (o) --evid: in-loop floor, sensitive intake, malformed intake ---------------------------------
-mkdir -p "$ROOT/ev-none" "$ROOT/ev-sens" "$ROOT/ev-plain" "$ROOT/ev-bad" "$ROOT/ev-arr"
+mkdir -p "$ROOT/ev-none" "$ROOT/ev-sens" "$ROOT/ev-plain" "$ROOT/ev-bad" "$ROOT/ev-arr" "$ROOT/ev-str"
+printf '{"key": "PROJ-123", "sensitive": "true"}' > "$ROOT/ev-str/intake.json"
 printf '{"key": "PROJ-123", "sensitive": true}' > "$ROOT/ev-sens/intake.json"
 printf '{"key": "PROJ-123", "sensitive": false}' > "$ROOT/ev-plain/intake.json"
 printf '{bad' > "$ROOT/ev-bad/intake.json"; printf '[1]' > "$ROOT/ev-arr/intake.json"
@@ -244,6 +267,10 @@ plan --evid "$ROOT/ev-bad"
 deep_unavail "intake malformed" seam-unreadable
 plan --evid "$ROOT/ev-arr"
 deep_unavail "intake not an object" seam-unreadable
+plan --evid "$ROOT/ev-str"
+deep_unavail "intake sensitive not a boolean" seam-unreadable
+plan --evid "$ROOT/ev-missing-dir"
+deep_unavail "evid dir missing" seam-unreadable
 
 # ---- (p) --min-depth raises, never lowers ---------------------------------------------------------
 plan --min-depth deep
@@ -308,6 +335,14 @@ for body in '{bad' '[1]'; do
   printf '%s' "$body" > "$ROOT/rn.json"; cp "$ROOT/rn.json" "$ROOT/rn.first"
   run record --review "$ROOT/rn.json" --repo "$R"; want_rc "record unreadable $body" 2
   if cmp -s "$ROOT/rn.json" "$ROOT/rn.first"; then ok; else bad "record touched an unreadable draft"; fi
+done
+
+# a draft whose existing depth block names no valid level is refused, untouched, exit 2
+for prior in '{"level": "ultra"}' '{}' '"deep"' '[1]'; do
+  draft "$ROOT/rv.json"; "$PY" -c "import json,sys; d=json.load(open(sys.argv[1])); d['depth']=json.loads(sys.argv[2]); json.dump(d, open(sys.argv[1],'w'))" "$ROOT/rv.json" "$prior"
+  cp "$ROOT/rv.json" "$ROOT/rv.first"
+  run record --review "$ROOT/rv.json" --repo "$R"; want_rc "record invalid prior $prior" 2
+  if cmp -s "$ROOT/rv.json" "$ROOT/rv.first"; then ok; else bad "record overwrote an invalid prior depth $prior"; fi
 done
 
 # ---- (s) recorded drafts validate against the contract ------------------------------------------

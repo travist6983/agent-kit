@@ -45,6 +45,19 @@
         "The report's first line is the PR sweep summary and the Spend line keeps its template shape",
         "Releases the tick lock and tears down both worktrees"
       ]
+    },
+    {
+      "id": 4,
+      "name": "depth-not-claimed-in-metric",
+      "prompt": "after the PR review tick, how many reviews ran quick vs deep this hour? pull it from the pr-review metric.",
+      "expected_output": "Says the pr-review metric carries no depth counts (no script computes them); the depth of each PR lives in its review.json depth block and is copied onto that PR's tick-report line. Offers to read each reviewed PR's review.json depth.level and count them, and does not invent depth_* metadata keys or write them to the metric.",
+      "files": [],
+      "assertions": [
+        "States that the pr-review metric does not carry a per-depth count",
+        "Points to each PR's review.json depth block as the record of its depth",
+        "Does not invent depth_quick / depth_deep metadata keys or write them to the metric",
+        "Any count it gives is read from review.json depth.level, not from memory of what was spawned"
+      ]
     }
   ]
 }

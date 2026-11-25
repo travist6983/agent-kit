@@ -157,7 +157,8 @@ specialist fan-out by risk, read from the diff: quick (one combined spawn), stan
 (six + a security pass over the risk paths). Like a verification tier, a level may shrink *how
 much* is reviewed, never *whether*: every level covers all six dimensions and security is never off
 (validate.py DEV-REVIEW-D1). Unknowns move up (an unreadable conventions file, an R6 scan that cannot
-run, missing limits or a malformed seam file are deep), a level is only ever raised, and an in-loop
+run, missing limits, a malformed seam file, or a changed path the R6 scan cannot see as itself are
+deep; a hit the scan names is never dropped), a level is only ever raised, and an in-loop
 review floors at standard, so quick shortens only the PR-review loop's long pole.
 
 **Only `dev-fix` writes.** The diamond needs no extra worktrees because the three judges are

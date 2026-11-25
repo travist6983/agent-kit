@@ -255,10 +255,12 @@ ships** — it reviews and comments. A PR needing a code change is the author's 
 
 ## Knowledge brain (qa-kb)
 
-Writes a `pr-review` metric per tick (R5/R8: PRs swept, reviewed, findings, consumption, and how many
-reviews ran at each depth — `depth_quick`, `depth_standard`, `depth_deep`, `depth_unrecorded` in
-its metadata, counted from each PR's review.json `depth`) so you can tell
-whether the loop is getting better rather than just running. Reads the R9 pause flag. The
+Writes a `pr-review` metric per tick (R5/R8: PRs swept, reviewed, findings, consumption) so you can tell
+whether the loop is getting better rather than just running. Review depth is **not** in that metric:
+no script counts it yet. Each PR's depth lives only in its own review.json `depth` block (written by
+`review_depth.py record`), and the tick report copies it onto that PR's line — so the record is the
+review.json, and the report line is a copy you make, not a computed count. Do not add depth counts
+to the metric's metadata by hand; a number nothing computes is a number nobody can trust. Reads the R9 pause flag. The
 seen-ledger is runtime state, not knowledge — see `dev-pr-feed/references/seen-ledger.md`.
 
 How the loop learns whether it is noise: `dev-pr-feed dispositions` reads back what humans did with

@@ -56,7 +56,7 @@ raised:
 |---|---|---|
 | `small-diff` | quick | the only reason: within loop-limits `review_depth`, no risk, no unknown |
 | `size-over-quick` | standard | more files or changed lines than the quick limits |
-| `changed-lines-unknown` | standard | a binary or unreadable file, or a `--changed-file` override |
+| `changed-lines-unknown` | standard | a binary or unreadable file, a change with no changed line (mode-only, an empty new file), or a `--changed-file` override |
 | `empty-diff` | standard | nothing changed |
 | `in-loop-review` | standard | `--evid` given: a loop fix behind a review gate is never quick |
 | `min-depth` / `prior-record` | raised | the caller's `--min-depth`, or a deeper level already recorded |
@@ -65,6 +65,12 @@ raised:
 | `sensitive-area` | deep | intake.json `sensitive: true` |
 | `conventions-changed` | deep | the diff edits the conventions file (it may not strip its own denylist) |
 | `r6-scan-unavailable`, `conventions-unreadable`, `limits-invalid`, `seam-unreadable`, `diff-unavailable` | deep, `unavailable` | an unknown: plan exit 2, the deep plan still printed |
+
+`r6-scan-unavailable` also fires when a changed path holds a newline or control character (the R6
+scan reads one path per line, so such a name could split a denylisted path into harmless pieces) or
+when the scan names a path that is no changed file: a hit is never dropped. `seam-unreadable` also
+fires when `--evid` is not a directory or intake.json's `sensitive` is not a boolean. `record`
+refuses (exit 2, draft untouched) a draft whose existing `depth` block names no valid level.
 
 **The combined pass (quick).** ONE fresh `Agent` gets all six specialist briefs below, the shared
 rules, the files and the brief's area lines, exactly as six spawns would. It reviews through each

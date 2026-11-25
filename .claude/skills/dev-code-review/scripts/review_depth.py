@@ -18,10 +18,13 @@ THE RULE (closed `reasons` vocabulary; level = the highest any reason demands, n
   deep, status decided     blast-radius (R6 adopter list OR framework floor) · shared-core
                            (conventions shared_core_globs) · sensitive-area (intake.json sensitive)
                            · conventions-changed (a change may not strip its own denylist)
-  deep, status unavailable r6-scan-unavailable · conventions-unreadable · limits-invalid ·
-                           seam-unreadable (intake.json present but malformed) · diff-unavailable
-  standard floor           size-over-quick · changed-lines-unknown (binary / unreadable file, or a
-                           --changed-file override) · empty-diff · in-loop-review (--evid given)
+  deep, status unavailable r6-scan-unavailable (scan cannot run, a changed path holds a newline or
+                           control character, or a hit maps to no changed file) · conventions-
+                           unreadable · limits-invalid · seam-unreadable (--evid not a directory, or
+                           intake.json malformed / `sensitive` not a boolean) · diff-unavailable
+  standard floor           size-over-quick · changed-lines-unknown (binary / unreadable file, a
+                           change with zero changed lines such as a mode-only change or an empty
+                           new file, or a --changed-file override) · empty-diff · in-loop-review
   raise only               min-depth (--min-depth above the plan) · prior-record (record only: the
                            draft already carries a deeper depth.level)
   quick                    only when no other reason fired: reasons == ["small-diff"]
@@ -37,7 +40,8 @@ Verbs (each prints ONE JSON object on stdout):
   record --review DRAFT.json + the plan flags
          recomputes the plan (never trusts a plan file), keeps a deeper level already in the draft,
          writes `depth` atomically and touches no other key; idempotent. exit 0 (also when the plan
-         is unavailable: the record is written at deep) · 2 unreadable draft (untouched) / bad usage
+         is unavailable: the record is written at deep) · 2 unreadable draft, or a draft whose
+         existing depth block names no valid level (untouched) / bad usage
   check  --review review.json + the plan flags
          read-only: exit 0 {"ok": true} · 1 {"ok": false, "violations": [{class, detail}]} ·
          2 uncheckable. Classes: depth-missing, depth-below-plan, risk-file-unrecorded,
@@ -85,7 +89,8 @@ def _count_lines(path):
     if b"\0" in data:
         return None
     n = data.count(b"\n")
-    return n + (1 if data and not data.endswith(b"\n") else 0)
+    n += 1 if data and not data.endswith(b"\n") else 0
+    return n or None  # an empty new file changes no line: its size says nothing, unknown
 
 
 def diff_facts(repo, base, override):
@@ -106,8 +111,8 @@ def diff_facts(repo, base, override):
             continue
         added, removed, path = parts
         files.add(path.strip())
-        if added == "-" or removed == "-":
-            lines = None
+        if added == "-" or removed == "-" or (added == "0" and removed == "0"):
+            lines = None  # binary, or a change with no line in it (mode-only, empty file): unknown
         elif lines is not None:
             lines += int(added) + int(removed)
     for path in rb.git(repo, "ls-files", "--others", "--exclude-standard", "-z").split("\0"):
@@ -182,11 +187,24 @@ def compute_depth(repo, base, limits_arg, evid, min_depth, changed_override):
         errors.append(f"conventions file {raw_conv} unreadable: {e}")
 
     if files:
+        # The R6 scan reads one path per line, so a path with a newline or any other control
+        # character cannot be scanned as itself (an author-chosen name could split a denylisted
+        # path into harmless-looking pieces). Such a path, or a hit that maps back to no changed
+        # file, is an unknown: deep, unavailable — never silently dropped.
+        odd = [f for f in files if any(ord(c) < 32 or ord(c) == 127 for c in f)]
+        if odd:
+            reasons.add("r6-scan-unavailable")
+            errors.append(f"{len(odd)} changed path(s) contain a newline or control character and "
+                          f"cannot be scanned for R6: {[f for f in odd][:5]!r}")
         try:
             deny = rb.r6_hits(files, floor=False) | rb.r6_hits(files, floor=True)
             for f in deny:
                 if f in files:
                     risk[f] = "blast-radius"
+            stray = sorted(str(f) for f in deny if f not in files)
+            if stray:
+                reasons.add("r6-scan-unavailable")
+                errors.append(f"R6 denylist scan named path(s) that are not a changed file: {stray[:5]!r}")
         except rb.Unavailable as e:
             reasons.add("r6-scan-unavailable")
             errors.append(str(e))
@@ -209,13 +227,19 @@ def compute_depth(repo, base, limits_arg, evid, min_depth, changed_override):
     if evid:
         reasons.add("in-loop-review")
         ipath = os.path.join(evid, "intake.json")
-        if os.path.exists(ipath):
+        if not os.path.isdir(evid):
+            reasons.add("seam-unreadable")
+            errors.append(f"--evid {evid} is not a directory: the run's seams cannot be read")
+        elif os.path.exists(ipath):
             try:
                 with open(ipath) as fh:
                     intake = json.load(fh)
                 if not isinstance(intake, dict):
                     raise ValueError("not a JSON object")
-                if intake.get("sensitive") is True:
+                sens = intake.get("sensitive", False)
+                if not isinstance(sens, bool):
+                    raise ValueError(f"sensitive is {sens!r}, not a boolean")
+                if sens:
                     reasons.add("sensitive-area")
             except Exception as e:  # noqa: BLE001
                 reasons.add("seam-unreadable")
@@ -282,9 +306,14 @@ def cmd_plan(a):
 
 def cmd_record(a):
     doc = rb.read_review(a.review)
+    prior = doc.get("depth", None)
+    if prior is not None and not (isinstance(prior, dict) and prior.get("level") in RANK):
+        # A depth block the draft already carries but that names no known level is not ours to
+        # overwrite: refuse, draft untouched, so the bad record is seen rather than papered over.
+        raise rb.Fatal(f"review file {a.review} carries a depth block with no valid level "
+                       f"({prior.get('level') if isinstance(prior, dict) else prior!r}); fix or remove it")
     plan = _plan(a)
-    prior = doc.get("depth") if isinstance(doc.get("depth"), dict) else {}
-    plevel = prior.get("level")
+    plevel = (prior or {}).get("level")
     if plevel in RANK and RANK[plevel] > RANK[plan["level"]]:
         plan["level"] = plevel
         plan["reasons"] = sorted(set(plan["reasons"]) | {"prior-record"})
