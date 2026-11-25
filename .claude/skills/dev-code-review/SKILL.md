@@ -128,6 +128,12 @@ underlying state actually correct now, or just less visible?"** Any confirmed `S
   comment.
 - Clean → **`approve`**.
 
+**`approve` is a machine verdict, never a human approval.** The recipe routes on it; it fills no
+required-reviewer slot on the PR, and this skill never approves, votes or merges on a host (the
+`vcs_host` adapter has no such operation). How many humans must approve is stated by `dev-pre-pr` in
+`pre-pr.json` `risk.human_approvals_required`, from the actual diff, and an agent `approve` never lowers
+it. A reviewer's approval covers the commit it read; a later push needs reviewing again.
+
 **Set `resolved: true` on every finding a re-fix cycle actually closed.** `review.json` is
 overwritten in place, so a later `approve` otherwise erases the fact that an earlier round said
 `request-changes` — and an audit reading only the artifacts would count a loop that iterated as

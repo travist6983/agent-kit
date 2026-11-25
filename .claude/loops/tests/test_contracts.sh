@@ -77,6 +77,14 @@ must_fail "$C/dev-harden.json" "$C/samples/EXAMPLE-bad-harden-prose-skip/harden.
 # warnings verdict (heuristics cleared, no blockers).
 must_pass "$C/dev-pre-pr.json" "$C/samples/EXAMPLE-pre-pr-blocked/pre-pr.json"
 must_pass "$C/dev-pre-pr.json" "$C/samples/EXAMPLE-pre-pr-warnings/pre-pr.json"
+# dev-pre-pr v1.3.0: the post-diff `risk` block + the `judged` commit binding. EXAMPLE-pre-pr-blocked
+# above carries neither (they are optional); a T0 run that outgrew its tier passes as `warnings`;
+# lowering the tier (DEV-PRE-PR-T1), counting an agent approval as human (enum [false]) and saying
+# `ready` while escalated (DEV-PRE-PR-R1) must FAIL
+must_pass "$C/dev-pre-pr.json" "$C/samples/EXAMPLE-pre-pr-risk-escalated/pre-pr.json"
+must_fail "$C/dev-pre-pr.json" "$C/samples/EXAMPLE-bad-pre-pr-deescalated/pre-pr.json"
+must_fail "$C/dev-pre-pr.json" "$C/samples/EXAMPLE-bad-pre-pr-agent-approval/pre-pr.json"
+must_fail "$C/dev-pre-pr.json" "$C/samples/EXAMPLE-bad-pre-pr-ready-escalated/pre-pr.json"
 
 # qa-verify collateral (v1.0.0, proposed): a rung-4 safety fact with its command and output passes;
 # the same claim without them must FAIL (validate.py QA-COLLATERAL-P1)

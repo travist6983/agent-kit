@@ -2,9 +2,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "loops/contracts/dev-pre-pr.json",
   "title": "dev-pre-pr pre-pr.json — the branch readiness verdict",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "status": "proposed",
-  "description": "The output of the dev-pre-pr skill, written to <evid_root>/<key>/pre-pr.json. The last gate before infra-ship: it consolidates the loop's existing evidence (regression.json, review.json) with a deterministic standards scan and emits one verdict the recipe router branches on. The router reads `status`: ready|warnings advance to ship, blocked routes back to dev-fix (or escalates). `sources` is the anti-stale-evidence record — every check names where its answer came from, so a PASS can always be dated against the diff.",
+  "description": "The output of the dev-pre-pr skill, written to <evid_root>/<key>/pre-pr.json. The last gate before infra-ship: it consolidates the loop's existing evidence (regression.json, review.json) with a deterministic standards scan and emits one verdict the recipe router branches on. The router reads `status`: ready|warnings advance to ship, blocked routes back to dev-fix (or escalates). `sources` is the anti-stale-evidence record — every check names where its answer came from, so a PASS can always be dated against the diff. v1.3.0 (additive, backward compatible): optional `risk` (the post-diff tier from scripts/risk_reclass.py, escalate-only, the independent human gate and how many HUMAN approvals the PR needs; an agent approval never counts as one) and optional `judged` (the content fingerprint from scripts/commit_binding.py stamp that binds the verdict to the commit infra-ship pushes). Both are optional here so existing artifacts stay valid; inside a loop infra-ship's commit_binding.py check refuses to ship without them (readiness-unbound).",
   "type": "object",
   "additionalProperties": false,
   "required": ["status", "next_action", "checks", "blockers", "warnings", "summary"],
@@ -115,6 +115,137 @@
         "started_at": { "type": "string", "description": "ISO-8601 UTC, e.g. 2026-01-01T00:00:00Z" },
         "ended_at": { "type": "string", "description": "ISO-8601 UTC" },
         "duration_s": { "type": "number", "minimum": 0 }
+      }
+    },
+    "risk": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "OPTIONAL (v1.3.0). Copied verbatim from scripts/risk_reclass.py, never hand-judged. The diff sets the tier: tier = max(triage tier, decide() on the actual diff, the scope-surprise tier), so it never moves down (DEV-PRE-PR-T1). A second, independent check can demand a human anyway. human_approvals_required is STATED here, in ship.json and in the PR body; the host's branch protection enforces it. An escalated tier or a demanded human gate makes the verdict at least `warnings` (DEV-PRE-PR-R1); neither blocks.",
+      "required": [
+        "triage_tier",
+        "diff_tier",
+        "tier",
+        "escalated",
+        "reasons",
+        "human_gate",
+        "human_approvals_required",
+        "agent_approval_counts_as_human"
+      ],
+      "properties": {
+        "triage_tier": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "T0",
+            "T1",
+            "T2",
+            null
+          ],
+          "description": "The highest tier triage recorded (context.json tier / tier_history, intake.json tier). null = untiered, which behaves as T1."
+        },
+        "diff_tier": {
+          "type": "string",
+          "enum": [
+            "T0",
+            "T1",
+            "T2"
+          ],
+          "description": "assign_tier.py decide() re-run on facts from the actual diff (changed non-test files, projects spanned, shared-core hits) plus the triage facts the diff cannot supply."
+        },
+        "tier": {
+          "type": "string",
+          "enum": [
+            "T0",
+            "T1",
+            "T2"
+          ],
+          "description": "The final tier. Never below triage_tier (or T1 when null) or diff_tier."
+        },
+        "escalated": {
+          "type": "boolean",
+          "description": "tier > triage_tier (T1 when triage_tier is null) — DEV-PRE-PR-T2."
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "facts": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "The diff facts the script used (files, test_files, projects, likely_files, shared_core_hits, denylist_hits, tests_weakened, merge_base, diff_source)."
+        },
+        "human_gate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "demanded",
+            "triggers"
+          ],
+          "properties": {
+            "demanded": {
+              "type": "boolean"
+            },
+            "triggers": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "symptom-only-fix",
+                  "tests-weakened",
+                  "blast-radius",
+                  "sensitive-area"
+                ]
+              },
+              "description": "Closed vocabulary. symptom-only-fix = fix.json is_root_cause false; tests-weakened = an existing test file deleted or with removed lines; blast-radius = an R6 denylist hit; sensitive-area = intake sensitive true. Adding a trigger is a contract change."
+            }
+          }
+        },
+        "human_approvals_required": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "How many HUMAN approvals the PR needs before merge: loop-limits.json risk_reclass.human_approvals_by_tier[tier], raised to human_gate_min_approvals when the gate is demanded. Never 0: a loop PR is never merged without a human."
+        },
+        "agent_approval_counts_as_human": {
+          "type": "boolean",
+          "enum": [
+            false
+          ],
+          "description": "Pinned false. dev-code-review `approve` is an agent verdict the recipe routes on; it fills no human approval slot. A document claiming otherwise is contract-invalid."
+        }
+      }
+    },
+    "judged": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "OPTIONAL (v1.3.0). What content this verdict judged, from scripts/commit_binding.py stamp, run FIRST. change_fingerprint = sha256 over path + git blob id of every file that differs from the merge-base (worktree, report artifacts excluded); it is identical before and after the commit when nothing changed, so infra-ship's commit_binding.py check can prove the commit it pushes is exactly this content. A verdict covers that one commit only.",
+      "required": [
+        "head_commit",
+        "change_fingerprint"
+      ],
+      "properties": {
+        "head_commit": {
+          "type": "string",
+          "description": "HEAD when the verdict was written; the judged content may be uncommitted on top of it (dirty)."
+        },
+        "merge_base": {
+          "type": "string"
+        },
+        "dirty": {
+          "type": "boolean",
+          "description": "true when the judged content was not yet committed."
+        },
+        "change_fingerprint": {
+          "type": "string",
+          "description": "sha256:<64 hex>."
+        },
+        "files": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     }
   }

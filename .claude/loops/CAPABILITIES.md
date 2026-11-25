@@ -134,14 +134,16 @@ never a silent skip and never an unclassified retry.
 - Outputs: `review.json` (contract v1.4.0) — `verdict ∈ {approve, request-changes}`, findings with confidence, each carrying `file` (repo-relative), an integer `line` (the new-file line of the added or changed line), a `bug_class` from a closed vocabulary and `instances` (the other places in the diff with the same class, so one finding covers the class), masking flag, `resolved` marks once a cycle closes a finding.
 - Eval set: `evals/cases/` holds bad cases (a diff + a confirmed bug location and class, scored for recall) and clean cases (scored for harmful false flags); `scripts/reviewer_eval.py` checks, materializes and scores them with no model call (`references/eval-set.md`). The bar is `loop-limits.json` `reviewer_eval`: declared, argued not measured, and not enforced by any runner or ship gate yet.
 - Brain: —
+- `approve` is an agent verdict the recipe routes on. It is never a human approval, fills no required-reviewer slot, and the skill never approves, votes or merges on a host; how many humans must approve is `pre-pr.json` `risk.human_approvals_required`.
 - Stops: masking detected → `request-changes`, a hard block in the hard-defect recipe; the same finding (file + `bug_class`) surviving two fix cycles → `recipe_router.py --review-rounds` escalates with `failure_class: review-stagnation` (`review_rounds.py` records the rounds; the number is `loop-limits.json review_convergence.stagnation_fix_cycles`).
 
 **`dev-pre-pr`**
 - Purpose: the last gate before a PR: one readiness verdict from evidence that is actually fresh. Consolidates, never duplicates — reconciles `regression.json` + `review.json` by freshness, re-runs the build when stale, runs the deterministic conventions scan on added lines (zero tokens).
-- Inputs: `verify.json`, `regression.json`, `review.json`, the diff, `conventions.json` rules.
-- Outputs: `pre-pr.json` — `status ∈ {ready, warnings, blocked}`, `checks.*` (`skipped` is not `pass`), `sources` (`fresh | stale | missing | ran-locally`), `blockers`, `warnings`; plus `pre-pr-report.md`.
+- Inputs: `verify.json`, `regression.json`, `review.json`, the diff, `conventions.json` rules; `context.json` / `intake.json` / `fix.json` for the risk reclassification (optional).
+- Outputs: `pre-pr.json` (contract v1.3.0) — `status ∈ {ready, warnings, blocked}`, `checks.*` (`skipped` is not `pass`), `sources` (`fresh | stale | missing | ran-locally`), `blockers`, `warnings`, `risk` (from `scripts/risk_reclass.py`: `triage_tier`, `diff_tier`, `tier`, `escalated`, `human_gate`, `human_approvals_required`, `agent_approval_counts_as_human: false`) and `judged` (from `scripts/commit_binding.py stamp`: the content fingerprint the verdict covers); plus `pre-pr-report.md`.
+- Risk reclassification: `assign_tier.py`'s own `decide()` re-run on the actual diff (changed non-test files, projects spanned, shared-core hits) plus the scope surprise (files > `risk_reclass.scope_surprise_factor` x `likely_files`); the tier is the highest of that and the triage tier, never lower. An independent human gate (`symptom-only-fix`, `tests-weakened`, `blast-radius`, `sensitive-area`) raises approvals to `risk_reclass.human_gate_min_approvals`. The numbers are `loop-limits.json` `risk_reclass`, argued not measured. The kit states the count; the host's branch protection enforces it. A tier-up does not re-run verification at the higher tier's breadth.
 - Brain: —
-- Stops: `verify.json` missing, stale, malformed or not `pass` → `blocked` at every tier; a missing build result → `blocked`, never `ready`; a heuristic finding blocks only when `confirmed: true`. Has no edit tool.
+- Stops: `verify.json` missing, stale, malformed or not `pass` → `blocked` at every tier; a missing build result → `blocked`, never `ready`; a heuristic finding blocks only when `confirmed: true`; `risk_reclass.py` or `commit_binding.py stamp` exit 2 → `blocked` / `escalate`; an escalated tier or a demanded human gate is a warning, never `ready` and never a blocker (DEV-PRE-PR-R1). Has no edit tool.
 
 **`infra-worktree`**
 - Purpose: provision and tear down an isolated branch + port sandbox (+ DB clone when the repo supplies a clone command) on the `sandbox` adapter, with the loop concerns on top: per-slot port offsets, a lock-protected registry, a concurrent-sandbox cap, port reclamation, credential preflight, idempotent teardown.
@@ -153,9 +155,9 @@ never a silent skip and never an unclassified retry.
 **`infra-ship`**
 - Purpose: format, commit (including new files), push, and open the PR through `vcs_host` per the repo's branch policy — after the gates. Embeds before / after media; posts a PR thread only for a must-read item through a capped funnel (expected count zero); prefers a feature flag over a redeploy.
 - Inputs: the verified branch, `fix.json` decisions, `verify.json` media, `pre-pr.json`.
-- Outputs: a PR (`{url, id, dry_run}`) and the ship record.
+- Outputs: a PR (`{url, id, dry_run}`) whose body carries `commit_binding.py check`'s `## Review requirements` block (tier, human approvals required, the agent-verdict sentence, the one commit the readiness verdict covers), and the ship record with `readiness`.
 - Brain: reads `kb_control.global_pause` and `staging_only` fail-closed.
-- Stops: `global_pause` set or unreadable → halt; on the base or a protected branch → refuse; branch matches `deploy.prod_lane_branch_patterns` → refuse (a push there is a production deploy); R6 denylist hit in the full change set → refuse; `vcs_host` provider `none` → `blocked`, `adapter-unavailable:vcs_host`. Never auto-deploys to prod.
+- Stops: `global_pause` set or unreadable → halt; on the base or a protected branch → refuse; branch matches `deploy.prod_lane_branch_patterns` → refuse (a push there is a production deploy); R6 denylist hit in the full change set → refuse; `vcs_host` provider `none` → `blocked`, `adapter-unavailable:vcs_host`; after the commit and before the push, `dev-pre-pr/scripts/commit_binding.py check` exits non-zero → no push, abort `stale-readiness` (the commit is not the judged content) or `readiness-unbound` (no usable verdict; `--no-loop` only for the ticketless parity draft), both escalated by the router. Never auto-deploys to prod.
 
 **`infra-prod-verify`**
 - Purpose: confirm a shipped fix held **in prod**: post-deploy smoke plus the ticket's original error signal through `analytics` on the version `deploy` reports (R2). On regression, roll back (prefer a flag flip) and escalate with prod evidence.
@@ -399,6 +401,7 @@ The risk register is `docs/architecture.md` §7. Which skill carries each gate:
 - No autonomous prod deploy while `staging_only` is set; sensitive areas and features never auto-ship.
 - A green replay obtained by swallowing an exception, suppressing a log or special-casing an input is a failure, not a fix.
 - Fix verification runs at every tier; `dev-pre-pr` fails closed on `verify.json`.
+- The diff sets the tier, escalate-only (`risk_reclass.py`); an agent approval never fills a human slot; a readiness verdict covers one commit, proven by `commit_binding.py check` before the push.
 - A producer never grades its own work; a convergence point never merges a flagged or `null` input silently.
 - Teardown runs in a `finally`; falling back to the main checkout is a logged decision, forbidden while another loop is active.
 - Outward writes (tracker comments, PR threads, test-management results) are dry-run until a recipe or a human authorizes them, and reach the system only through the owning skill.

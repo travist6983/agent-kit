@@ -87,3 +87,22 @@ Blast radius measured: only 3 files render `<Checkbox>`, only 2 pass `initialVal
   dialog end to end, so `qa-verify`'s live browser oracle above is the only UI-level signal for this
   change.
 - `dev-pre-pr`: `ready` — conventions scan 0 blocking across 227 added lines.
+  `pre-pr.json` carries `judged` (fingerprint `sha256:8d41c07be2a9…`) and `risk`: triage T2 (hard
+  defect), diff tier T1, tier **T2**, not escalated, human gate not demanded,
+  `human_approvals_required: 2`, `agent_approval_counts_as_human: false`.
+- Step 3b (dry run): `commit_binding.py check` on the fix commit `3f9c2a1d4e5b7a60c8d9e0f1a2b3c4d5e6f70812`
+  returned exit 0, `bound: true`, with this `pr_body_block`:
+
+  ```markdown
+  ## Review requirements
+
+  Risk tier: **T2**
+
+  Human approvals required before merge: **2**
+
+  The loop's own review verdict (approve) is an agent verdict and fills none of them.
+
+  Readiness verdict (ready) covers commit `3f9c2a1d4e5b` only (change fingerprint `8d41c07be2a9`). A later push is not covered until the gate runs again.
+
+  The count is enforced by the host's branch protection, not by the loop.
+  ```

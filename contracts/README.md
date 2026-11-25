@@ -27,7 +27,7 @@ URLs come from the `evidence_store` adapter, and the evidence root is `evidence.
 | `dev-code-review.eval-case.json` | 1.0.0 | a human (seed cases: the kit), checked by `reviewer_eval.py check` (proposed) | `.claude/skills/dev-code-review/evals/cases/<id>/case.json` | `reviewer_eval.py` check / score; never the reviewer | `kind` |
 | `dev-code-review.eval-score.json` | 1.0.0 | `reviewer_eval.py score` (proposed) | a caller-chosen path (`--out`), or stdout | a person or a later job comparing reviewer versions | `status` |
 | `dev-harden.json` | 1.0.0 | `dev-harden` | `<evid_root>/harden/<fingerprint>/harden.json` | `collect_candidates.py` (decided skip); a human `--apply` | `status` |
-| `dev-pre-pr.json` | 1.2.0 | `dev-pre-pr` | `<evid_root>/<key>/pre-pr.json` | router | `status` |
+| `dev-pre-pr.json` | 1.3.0 | `dev-pre-pr` | `<evid_root>/<key>/pre-pr.json` | router; infra-ship `commit_binding.py check` | `status` |
 | `qa-run-case.json` | 1.0.0 | `qa-run-case` (`DRIVER=cli` default · `chrome`) | `<evid_root>/<key>/case-run.json` | grade + drift (stored verbatim); `steps` → per-step rows | `status` |
 | `qa-run-chatbot.json` | 1.0.0 | `qa-run-chatbot` | `<evid_root>/<key>/chatbot-run.json` | per-case rows | `status` |
 | `qa-diagnose.json` | 1.0.0 | `qa-diagnose` | `<evid_root>/<key>/diagnose.json` | the run record's diagnosis (propose-only) | `failure_layer` |
@@ -158,6 +158,19 @@ than a changed source file is `stale` and re-run, never trusted. `checks.fix_ver
 `not-applicable`, which a loop run may never use) or the verdict is `blocked` — at every tier. `skipped` is not
 `pass`. Heuristic violations block only when `confirmed: true`. The scanner's rules come from
 `.claude/loops/conventions.json`; the samples cite its generic default rule ids.
+
+v1.3.0 (additive) adds two optional blocks. `risk` is `scripts/risk_reclass.py`'s output copied verbatim:
+`triage_tier` (null = untiered, behaves as T1), `diff_tier`, `tier`, `escalated`, `reasons`, `facts`,
+`human_gate {demanded, triggers}` (closed vocabulary `symptom-only-fix | tests-weakened | blast-radius |
+sensitive-area`), `human_approvals_required` (integer ≥ 1) and `agent_approval_counts_as_human` (pinned
+`false` with `enum: [false]` — an agent approve never fills a human slot). `judged` is
+`scripts/commit_binding.py stamp`'s content fingerprint (`head_commit`, `change_fingerprint`, plus
+`merge_base`, `dirty`, `files`). `validate.py` adds three cross-field rules: **DEV-PRE-PR-T1** the tier is
+never below `triage_tier` or `diff_tier`; **DEV-PRE-PR-T2** `escalated` equals tier > (`triage_tier` or
+T1); **DEV-PRE-PR-R1** `ready` is invalid while `escalated` or `human_gate.demanded` is true. Both blocks
+are optional in the contract so older artifacts stay valid; inside a loop `infra-ship`'s
+`commit_binding.py check` is what requires them (`readiness-unbound`) and proves the commit matches
+`judged` (`stale-readiness`).
 
 ### `qa-run-case.json`, `qa-run-chatbot.json`, `qa-diagnose.json` — the control plane's QA lane
 
@@ -321,7 +334,9 @@ Every sample validates against its contract (or is a named negative that must fa
 | `EXAMPLE-bad-must-read-reason/`, `EXAMPLE-bad-must-read-no-ask/` | dev-fix | **fail** — off-enum reason / missing reviewer ask |
 | `EXAMPLE-blocked-slice-empty/` | qa-regression | pass — zero tests reported honestly as `blocked-slice-empty` |
 | `EXAMPLE-bad-green-zero-tests/` | qa-regression | **fail** — the incident shape (QA-REGRESSION-C1) |
-| `EXAMPLE-pre-pr-blocked/`, `EXAMPLE-pre-pr-warnings/` | dev-pre-pr | pass — fail-closed on `fix_verified`; heuristics cleared by reading |
+| `EXAMPLE-pre-pr-blocked/`, `EXAMPLE-pre-pr-warnings/` | dev-pre-pr | pass — fail-closed on `fix_verified`; heuristics cleared by reading; `warnings` carries a held T1 `risk` + `judged`, `blocked` carries neither (v1.3.0 blocks are optional) |
+| `EXAMPLE-pre-pr-risk-escalated/` | dev-pre-pr | pass — triage T0, diff T2, human gate `tests-weakened`, 2 human approvals, `warnings` (v1.3.0) |
+| `EXAMPLE-bad-pre-pr-deescalated/`, `EXAMPLE-bad-pre-pr-agent-approval/`, `EXAMPLE-bad-pre-pr-ready-escalated/` | dev-pre-pr | **fail** — tier below triage (DEV-PRE-PR-T1) / agent approval counted as human (enum) / `ready` while escalated (DEV-PRE-PR-R1) |
 | `case-4012-run-9001/`, `case-4055-run-9007/` | qa-run-case | pass — a PASS with drift + media, and a BLOCKED auth failure |
 | `EXAMPLE-bad-enum/` | qa-run-case | **fail** — off-enum grade and step status |
 | `diag-app-bug/`, `diag-inconclusive/` | qa-diagnose | pass — a proposed diff, and the empty-diff give-up path |

@@ -313,8 +313,11 @@ at triage, by rule.
 | Trigger | Action |
 |---|---|
 | a fix attempt fails verify | fix step → next model up, retry within cap, with the observation as new context |
-| scope surprise: files touched > 2× the triage estimate | **tier up** and model up |
-| cross-layer impact discovered (one layer turns out to need another) | tier up |
+| scope surprise: files touched > 2× the triage estimate | **tier up** and model up — decided mechanically by `dev-pre-pr/scripts/risk_reclass.py` (`loop-limits.json` `risk_reclass.scope_surprise_factor`) |
+| the diff itself is bigger than triage thought (more files, a second project, a shared-core hit) | tier up — `risk_reclass.py` re-runs `assign_tier.py`'s own `decide()` on the actual diff and keeps the higher of that and the triage tier |
+| cross-layer impact discovered (one layer turns out to need another) | tier up (the diff spanning ≥ 2 conventions projects is read as layer `both`) |
+| the second check demands a human (`is_root_cause` false, an existing test weakened, an R6 denylist hit, a sensitive area) | `risk.human_gate.demanded`; human approvals raised to `risk_reclass.human_gate_min_approvals` whatever the tier |
+| the commit infra-ship is about to push is not the content `dev-pre-pr` judged | `commit_binding.py check` aborts `stale-readiness` before the push → escalate (deterministic, never re-shipped) |
 | triage confidence < 70 / < 50 | start at T1 / T2 |
 | `qa-regression` returns `unrelated-break` | escalate immediately — no retry |
 | `dev-code-review` finds R3 masking | fix → stronger model; hard block on ship |
@@ -335,6 +338,15 @@ an invalid one, and the checker blocks on it.
 escalation keeps `context.json`, `intake.json` and `repro.json` and re-runs only what the
 higher tier requires. The move is recorded in `context.json.tier_history[]`, so the run's own
 record shows what it started as.
+
+**The diff sets the tier; the kit states how many humans must approve.** At `dev-pre-pr` the tier is
+read again from the real change and recorded in `pre-pr.json` `risk` (`triage_tier`, `diff_tier`,
+`tier`, `escalated`, `human_approvals_required`). A tier-up raises the human gate and makes the
+verdict `warnings`; it does **not** re-run verify or review at the higher tier's breadth — that is
+not built and not claimed. An agent `approve` never counts as a human approval
+(`agent_approval_counts_as_human` is pinned false), and the readiness verdict covers one commit:
+the one whose content matches `pre-pr.json` `judged`. The kit states the count in `pre-pr.json`,
+`ship.json` and the PR body; the host's branch protection, set by a human, enforces it.
 
 ---
 
@@ -509,7 +521,9 @@ is untouched — and T0's lower cap means fewer chances to notice. The guards, i
 
 1. Verification is never removed, only narrowed — T0 still runs a blind judge and still
    requires `verify.json.verdict == pass`.
-2. Scope-surprise auto-escalation: files touched > 2× the estimate → tier up mid-flight.
+2. Scope-surprise auto-escalation: files touched > 2× the estimate → tier up, decided by
+   `dev-pre-pr/scripts/risk_reclass.py` from the actual diff (escalate-only), which also raises the
+   number of human approvals the PR states.
 3. `dev-pre-pr` fails closed on `verify.json` — a prerequisite, not a nicety; without it,
    parallelism makes the misclassification risk strictly worse.
 4. Gherkin coverage check: if parsed scenarios exist that the T0 verify did not exercise, the

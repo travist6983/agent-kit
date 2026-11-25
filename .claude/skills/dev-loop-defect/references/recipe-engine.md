@@ -192,6 +192,25 @@ malformed JSON — plus a judge weaker than its producer, ranked by `models.rank
 input never merges silently, and a `null` result from an agent is a reported failure — never
 something to filter away.** On exit 1 route by its `next_action`; on exit 2 escalate.
 
+## Risk reclassification and the commit binding
+
+The tier is set at triage from an estimate; the diff sets it again. `dev-pre-pr` runs
+`scripts/commit_binding.py stamp` first (the content it judges) and `scripts/risk_reclass.py` after its
+verify gate, and writes both into `pre-pr.json` (`judged`, `risk`). The recipe's part:
+
+- **Format right after `dev-fix` returns `fixed`, before the judges spawn.** Run the formatter the target
+  repo's guidelines name in the sandbox, so `infra-ship`'s own formatter is a no-op and the commit is
+  the tree the judges and `dev-pre-pr` saw. A formatter that changes a byte after the verdict makes
+  `infra-ship`'s `commit_binding.py check` abort `stale-readiness`.
+- **When `pre-pr.json.risk.escalated` is true**, append `{tier, reason, at}` to `context.json`
+  `tier_history` (a record — the tier never moves down) and carry `risk.human_approvals_required` into
+  the run report. A tier-up raises the human gate; it does **not** re-run verify or review at the higher
+  tier's breadth (not built). It is a warning, so the pre-pr result is `warnings` and the loop advances.
+- **`stale-readiness` / `readiness-unbound` from ship** go to the router (`--stage ship --result <abort>`),
+  which escalates with that `failure_class`: deterministic failures, never re-shipped or re-fixed.
+- The loop's `dev-code-review` `approve` is an agent verdict. It fills none of the
+  `human_approvals_required`; the PR body says so and the host's branch protection enforces the count.
+
 ## Caps (per retryable stage) — rebalanced by tier
 
 Measured on real runs, `qa-repro` and `qa-verify` almost never needed a failure-retry; the

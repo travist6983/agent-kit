@@ -47,7 +47,14 @@ interactive prompt (this is autonomous).
    `plan.md`/`TASK.md`/`*-report.md`.
 4. commit via HEREDOC; type from the branch prefix (`project.branch_prefixes`: `fix/`→`fix`,
    `feature/`→`feat`; conventional prefixes otherwise).
-5. push to the preflight's `remote` (with `git pull --rebase` retry on non-fast-forward).
+5. **bind the readiness verdict to the commit** (after the commit, before the push):
+   `dev-pre-pr/scripts/commit_binding.py check --pre-pr <EVID_ROOT>/<KEY>/pre-pr.json --repo . --key <KEY>`.
+   Exit 0 = the commit is exactly the content `dev-pre-pr` judged (path + blob id); record `readiness`
+   in `ship.json` and put its `pr_body_block` (tier, human approvals required, the agent-verdict
+   sentence, the bound commit) in the body under `description_top`. Exit 1/2 = abort
+   `stale-readiness` / `readiness-unbound`, nothing pushed, escalate. Re-run after any
+   `git pull --rebase`. `--no-loop` only for the ticketless parity `--draft` ship.
+   push to the preflight's `remote` (with `git pull --rebase` retry on non-fast-forward).
 6. **release target, when the tracker provides one** — the normalized `Ticket` has no release field, so
    this is provider-specific (`raw`): bracket the **version** in the title, full name in the body:
    `python3 lib/adapters/cli.py vcs_host open_pr --json '{"branch": "<branch>", "base": "<default_branch>", "title": "<type>: PROJ-123 [<version>] — <summary>", "body": "…(Tickets section lists PROJ-123 + its full release target, e.g. Release 1.2.3)…", "draft": false, "labels": ["agent-loop"]}'`

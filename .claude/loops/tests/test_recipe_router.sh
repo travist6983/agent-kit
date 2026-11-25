@@ -39,6 +39,14 @@ t "config default cap catches spend"   stop-budget --stage fix --result fixed --
 t "explicit --budget-cap 0 disables"   advance     --stage fix --result fixed --budget-spent 100 --budget-cap 0
 t "regression flaky→advance"           advance     --stage regression --result flaky --attempt 1 --max 3
 t "ship preflight global-pause→halt"   halt-paused --stage ship --result global-pause
+# commit binding (commit_binding.py check): a commit that is not what dev-pre-pr judged, or no
+# bound verdict at all, escalates — deterministic, never re-shipped or re-fixed
+t "ship stale-readiness→escalate"      escalate    --stage ship --result stale-readiness
+t "ship readiness-unbound→escalate"    escalate    --stage ship --result readiness-unbound
+fc=$(python3 "$R" --stage ship --result stale-readiness | python3 -c "import sys,json;print(json.load(sys.stdin).get('failure_class'))")
+if [ "$fc" = "stale-readiness" ]; then pass=$((pass+1)); else echo "  [FAIL] stale-readiness failure_class → $fc"; fail=$((fail+1)); fi
+fc=$(python3 "$R" --stage ship --result readiness-unbound | python3 -c "import sys,json;print(json.load(sys.stdin).get('failure_class'))")
+if [ "$fc" = "readiness-unbound" ]; then pass=$((pass+1)); else echo "  [FAIL] readiness-unbound failure_class → $fc"; fail=$((fail+1)); fi
 # Review convergence (item 3): the same file+bug_class open in 3 consecutive recorded rounds is
 # stagnation and escalates BEFORE the retry cap; without --review-rounds the stage is unchanged.
 # Full coverage lives in test_review_rounds.sh.

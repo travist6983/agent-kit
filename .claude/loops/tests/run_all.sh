@@ -59,6 +59,15 @@
 #                         round_capped, one step-back comment (dry-run, R9, write-ahead), the
 #                         interdiff re-review scope, rounds-to-pass metrics counted once.
 #                         git-local + a fake kb — offline, never the shared brain.
+#   test_risk_reclass     the diff sets the tier, escalate-only: dev-pre-pr's risk_reclass.py
+#                         re-runs assign_tier.py's decide() on the actual diff, fires the scope
+#                         surprise and the independent human gate, reads every number from
+#                         loop-limits.json risk_reclass (exit 2 on a bad one), and never counts an
+#                         agent approval as a human one. Throwaway git repos — offline.
+#   test_commit_binding   a readiness verdict covers one commit: commit_binding.py stamp/check
+#                         bind pre-pr.json to the exact content that ships; any later edit, a
+#                         missing or extra file is stale-readiness, no usable verdict is
+#                         readiness-unbound. Throwaway git repos — offline.
 #   test_assign_tier · test_check_convergence · test_descriptions · test_escalation_render ·
 #   test_fix_lessons · test_oracle_preflight · test_personas · test_pr_review_runner ·
 #   test_pr_thread_bar · test_prod_signal · test_prune · test_r6_denylist ·

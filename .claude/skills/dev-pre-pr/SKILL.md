@@ -54,23 +54,32 @@ No adapter role is needed: git is used locally, and the brain is reached through
 
 ## Inputs / Outputs
 **Inputs:** the branch + its diff vs the base; and, when running inside a loop, `<EVID_ROOT>/<KEY>/`'s
-`regression.json`, `review.json` and **`verify.json`**. `regression.json`/`review.json` are optional —
+`regression.json`, `review.json` and **`verify.json`**, plus `context.json` / `intake.json` / `fix.json`
+(read by the risk reclassification in step 2c, all optional). `regression.json`/`review.json` are optional —
 with neither, the skill degrades to a standalone developer check that runs the validations itself.
 **`verify.json` is NOT optional inside a loop** — see the next section.
 **Outputs:** `pre-pr.json` at **`<EVID_ROOT>/<KEY>/pre-pr.json`** (contract: `contracts/dev-pre-pr.json`)
-`{ status, next_action, branch, checks, sources, violations, blockers, warnings, counts, summary }`,
+`{ status, next_action, branch, checks, sources, violations, blockers, warnings, counts, summary, risk, judged }`,
 plus **`pre-pr-report.md`** next to it — the human half, because a JSON blob is not something a
 developer reads at the end of the day before opening a PR.
 
 ## Procedure
 
-### 1. Gather context (cheap — do this first)
+### 1. Gather context (cheap — do this first) and stamp what you are judging
 ```bash
+python3 scripts/commit_binding.py stamp --repo <repo-dir>   # FIRST; --base defaults to project.default_branch
+# stdout {"judged": {head_commit, merge_base, dirty, change_fingerprint, files}} → copy it into pre-pr.json `judged`
 BASE="$(python3 -c 'import sys; sys.path.insert(0, "."); from lib.adapters.config import load_config; print(load_config().require("project.default_branch"))')"
 git branch --show-current
 git diff --stat $(git merge-base "$BASE" HEAD)
 git diff --name-only $(git merge-base "$BASE" HEAD)
 ```
+Stamp before you read anything else: the verdict you are about to write is about *that* content, and
+the stamp is what lets `infra-ship` prove the commit it pushes is the same content (path + git blob id,
+so it is identical before and after the commit). Exit 2 means git could not answer: the verdict is
+`blocked` / `escalate`, because a verdict bound to nothing covers nothing. An approval covers one
+specific commit; a later push is not covered until this gate runs again.
+
 Classify the changed paths by `conventions.projects[]` — the first project whose `path_globs` match a
 path owns it; anything unmatched is **other** (repo-wide commands). The classification decides which
 validations even apply — running a backend test suite for a stylesheet-only branch is a five-minute
@@ -153,6 +162,30 @@ find $(git diff --name-only $(git merge-base "$BASE" HEAD)) -newer <EVID_ROOT>/<
   stage) — record it and move on. A missing *build* result is: with nothing proving it compiles, the
   honest verdict is `blocked`, not `ready`.
 
+### 2c. Reclassify risk from the actual diff — and state how many humans must approve
+The tier was assigned at intake from an *estimate* of the files a fix would touch; the diff is better
+evidence. **Do not hand-judge this either.** Run the script and copy its `risk` block into
+`pre-pr.json` verbatim:
+
+```bash
+python3 scripts/risk_reclass.py --evid <EVID_ROOT>/<KEY> --repo <repo-dir>   # --base / --limits default from stack.config
+# exit 0 → classified (escalated or not) · exit 2 → could not classify: status blocked, next_action escalate
+# stdout: {"risk": {triage_tier, diff_tier, tier, escalated, reasons, facts, human_gate,
+#                   human_approvals_required, agent_approval_counts_as_human: false}, "warnings": [...]}
+```
+
+It re-runs `dev-intake/scripts/assign_tier.py`'s own `decide()` on the changed non-test files, the
+projects they span and the shared-core hits, fires the scope surprise (files > `risk_reclass.
+scope_surprise_factor` x `likely_files`), and takes the highest of that and the triage tier: it
+**never moves down**. A second, independent check can demand a human anyway (`symptom-only-fix`,
+`tests-weakened`, `blast-radius`, `sensitive-area`). `human_approvals_required` comes from
+`loop-limits.json` `risk_reclass`. Append its `warnings` to yours. A tier-up does not re-run
+verification at the higher tier's breadth; say so rather than implying it.
+
+**`checks.code_review: approve` is an agent verdict.** It is what the recipe routes on, and it fills
+none of the human approvals this step counts — `agent_approval_counts_as_human` is pinned `false` in
+the contract. The kit states the number; the host's branch protection enforces it.
+
 ### 3. Run the deterministic conventions scan
 ```bash
 bash scripts/standards_check.sh --repo <repo-dir>          # --base / --rules default from stack.config
@@ -190,16 +223,19 @@ A blocker is anything that must change before a human should see this as a PR:
 - build / lint-above-baseline / test failure, or a build result that could not be established (step 2b),
 - a confirmed CRITICAL or HIGH conventions violation (steps 3–4),
 - an unresolved CRITICAL or HIGH finding in `review.json` (an `approve` verdict clears these),
-- evidence that could not be established at all (scan exit 2, unreadable artifacts).
+- evidence that could not be established at all (scan exit 2, unreadable artifacts, `commit_binding.py
+  stamp` or `risk_reclass.py` exit 2).
 
-Everything real but non-blocking — MEDIUM/LOW violations, unconfirmed heuristics, a missing review stage
-— is a **warning**. Warnings inform; they never stop the loop, or the gate becomes noise the recipe
+Everything real but non-blocking — MEDIUM/LOW violations, unconfirmed heuristics, a missing review stage,
+**a tier that rose on the diff (`risk.escalated`) or a demanded human gate** — is a **warning**. The last
+two never block (they ask for more humans, not for a different fix) and never allow `ready` either: the
+contract rejects `ready` with either (DEV-PRE-PR-R1). Warnings inform; they never stop the loop, or the gate becomes noise the recipe
 learns to route around.
 
 ### 6. Verdict + report
 | status | Meaning | `next_action` |
 |---|---|---|
-| `ready` | validations pass, zero blockers, zero warnings | `ship-ok` |
+| `ready` | validations pass, zero blockers, zero warnings (so not escalated, no human gate) | `ship-ok` |
 | `warnings` | validations pass, zero blockers, warnings present | `ship-ok` |
 | `blocked` | any blocker, or evidence that couldn't be established | `re-fix` (or `escalate`) |
 
@@ -211,7 +247,9 @@ same blocker already survived a fix cycle.
 Write `pre-pr.json` (validate: `python3 contracts/validate.py`), then `pre-pr-report.md`. `checks`
 carries one `build` / `lint` / `tests` entry per touched project, keyed `<project>_build`,
 `<project>_lint`, `<project>_tests` (plain `build` / `lint` / `tests` when the repo declares no
-projects), plus `standards_scan`, `code_review` and `fix_verified`:
+projects), plus `standards_scan`, `code_review` and `fix_verified`. Copy step 1's `judged` and step
+2c's `risk` in unchanged: inside a loop `infra-ship` refuses to ship a verdict without them
+(`readiness-unbound`) or one whose content differs from its commit (`stale-readiness`):
 
 ```markdown
 # Pre-PR Readiness — <branch>
@@ -224,7 +262,10 @@ projects), plus `standards_scan`, `code_review` and `fix_verified`:
 | <project> build / lint | PASS/FAIL/SKIPPED/UNKNOWN | regression.json (fresh) \| ran locally \| n/a |
 | <project> tests (<the configured command>) | PASS/FAIL/SKIPPED/UNKNOWN | ... |
 | Conventions scan | N violations (C/H/M/L) | standards_check.sh |
-| Code review | approve / request-changes / not run | review.json (fresh) |
+| Code review | approve / request-changes / not run (an agent verdict — not a human approval) | review.json (fresh) |
+| Risk tier | <tier> (triage <triage_tier>; escalated yes/no — first reason) | risk_reclass.py |
+| Human approvals required | <N> (human gate: <triggers> or none) | risk_reclass.py |
+| Judged commit | <12-char head_commit> + fingerprint <12 hex> (dirty yes/no) | commit_binding.py stamp |
 
 Put **Fix verified** first in the table. It is the row a reader should see before any other,
 and a `FAIL`/`MISSING` there makes every row under it irrelevant.
@@ -269,6 +310,10 @@ older than the code.
   `missed-blocker`, because the loop's entire justification is the verified fix.
 - `verification-by-proxy` — inferred that the fix works from a green `regression.json`, a
   clean conventions scan, or an `approve` review. None of those look at the reported bug.
+- `risk-unclassified` — `risk_reclass.py` or `commit_binding.py stamp` exited 2 and the verdict was
+  written as if the diff were small or the content bound. Fail closed: blocked / escalate.
+- `agent-approval-counted` — reported a `dev-code-review` `approve` (or any agent verdict) as one of
+  the human approvals, or lowered `human_approvals_required` because the review passed.
 
 ## Knowledge brain (qa-kb)
 **Writes** a `pre-pr` metric (R5/R8) and nothing else. **Reads** nothing canonical, proposes
@@ -291,3 +336,6 @@ nothing. Judgment about *behavior* lives in `expectations`, and this skill has n
    Missing, stale, malformed or not-`pass` all block, at every tier, with no override. This is the
    mechanical form of the invariant that a tier may shrink *how much* is verified but never *whether*
    — and it is what makes the parallel verify/regression/review layer safe to run at all.
+8. **The diff sets the tier, and only humans fill human slots.** The tier from `risk_reclass.py` never
+   moves below triage; `human_approvals_required` is stated, never reduced by an agent `approve`; and
+   the verdict covers the one commit whose content matches `judged`.

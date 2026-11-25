@@ -38,7 +38,8 @@ fix in prod (`infra-prod-verify`). It ships the PR and hands the prod-confirmati
 the PR body + media).
 **Output:** `ship.json`, written to **`<EVID_ROOT>/<KEY>/ship.json`** (EVID_ROOT = stack.config
 `evidence.root`, default `runs/`)
-`{ ok, abort, branch, base, commit_type, commit, pr_id?, pr_url?, pr_dry_run?, draft, media?, media_in_body?, decision_threads?, thread_selection?, thread_audit?, dry_run, paused }`
+`{ ok, abort, branch, base, commit_type, commit, readiness?, pr_id?, pr_url?, pr_dry_run?, draft, media?, media_in_body?, decision_threads?, thread_selection?, thread_audit?, dry_run, paused }`
+(`readiness` = Step 3b's binding `{bound, commit, change_fingerprint, status, tier, human_approvals_required}`.)
 (`draft` = `true` only when the invoker passed `--draft` and the PR was opened as a draft; otherwise `false`.)
 (`pr_dry_run` = what the provider reported: the default `git-local` provider writes the PR as a file under
 `<evidence.root>/prs/` and returns `dry_run: true` — record it, so nobody mistakes a file for a review.)
@@ -112,9 +113,29 @@ that creates a component/unit test must ship it — `git add -u` alone silently 
 `plan.md`/`TASK.md`/`*-report.md`. Confirm with `git diff --cached --name-only`.
 
 ### 3. Commit (HEREDOC) + push (rebase-retry)
-Commit with the type from the preflight (`fix`/`feat`/…), the ticket key, and a tight file list. Push
-`git push -u <remote> <branch>` (`remote` from the preflight JSON) — only the branch the preflight
-cleared, never a different or renamed one; on non-fast-forward, `git pull --rebase` then re-push.
+Commit with the type from the preflight (`fix`/`feat`/…), the ticket key, and a tight file list. Then
+run Step 3b **before** the push. Push `git push -u <remote> <branch>` (`remote` from the preflight JSON)
+— only the branch the preflight cleared, never a different or renamed one; on non-fast-forward,
+`git pull --rebase`, run Step 3b again on the rebased commit, then re-push.
+
+### 3b. Bind the readiness verdict to this commit (after the commit, before the push)
+A readiness verdict covers one specific commit. `dev-pre-pr` judged a working tree and stamped its
+content (`pre-pr.json` `judged`); this proves the commit you are about to push is exactly that content:
+```bash
+python3 "<agents-repo>/.claude/skills/dev-pre-pr/scripts/commit_binding.py" check \
+  --pre-pr "$TASK_DIR/pre-pr.json" --repo . --key "$KEY"      # --base defaults to project.default_branch
+# exit 0 → {ok, bound, commit, change_fingerprint, status, tier, human_approvals_required, human_gate, pr_body_block}
+# exit 1 → abort "stale-readiness" | "readiness-unbound"   ·   exit 2 → git failure, treat as an abort
+```
+On exit 1 or 2 **do not push**: write `ship.json` with `ok: false` and `abort` = the script's `abort`
+(`stale-readiness` when a file changed, was added or was left out after the verdict — a formatter run
+here is the usual cause; `readiness-unbound` when there is no usable verdict) and stop. The recipe
+router escalates both: never re-ship the same commit, and never edit `pre-pr.json` to match.
+On exit 0 record `readiness: {bound, commit, change_fingerprint, status, tier,
+human_approvals_required}` in `ship.json` and keep `pr_body_block` for Step 4. Pass `--no-loop` only for
+the ticketless parity `--draft` ship, which has no `pre-pr.json`: it ships with `readiness.bound: false`
+and a body block that says no readiness verdict covers the commit. Every other ship is loop mode, which
+fails closed.
 
 ### 4. Open the PR — live and PUBLISHED; prod deploy still gated
 **Release target (optional).** If the ticket your `issue_tracker` provider returned carries a release
@@ -132,6 +153,11 @@ assemble:
   / Testing (a caveat about what could not be verified is **one line** here; so is each `dev-pre-pr`
   warning worth keeping) / then the funnel's `noticed_block` verbatim — the `## Noticed, not changed`
   section, empty on most PRs.
+- **Review requirements.** Place Step 3b's `pr_body_block` verbatim directly under `description_top`:
+  the risk tier, how many human approvals the PR needs before merge, that the loop's own review verdict
+  (approve) is an agent verdict that fills none of them, and the one commit the readiness verdict
+  covers. Never edit the number. On a re-ship of an existing PR the body cannot be updated (no update
+  op), so the new binding goes in `ship.json` and the run report.
 - **Run the thread funnel now, so the top and bottom of the body are known up front** (command and rules
   in Step 6). Prepend its `description_top` verbatim — the banner when a thread will be posted, plus a
   `## ⚠️ Before merging` section for any must-read item past the cap — and append its `noticed_block`.
@@ -285,7 +311,7 @@ gates are verified.
 
 ## Success criteria & failure categories (declared up front)
 **Success:** kill-switch clear, source-only commit on a non-base, non-protected, non-prod-lane branch,
-pushed, PR assembled and opened **published** (a draft only when the invoker passed `--draft`, recorded
+bound to the readiness verdict (Step 3b), pushed, PR assembled and opened **published** (a draft only when the invoker passed `--draft`, recorded
 as `draft: true`), and the PR's threads are exactly `select_pr_threads.py`'s selection — usually none.
 No prod deploy unless the gates enabled it.
 **Failure categories:**
@@ -300,6 +326,10 @@ No prod deploy unless the gates enabled it.
 - `r6-denylist` / `r6-scan-failed` — the change set touches the blast-radius denylist, or the scan could
   not run → forced human gate.
 - `nothing-to-ship` — no source change and no unpushed commit.
+- `stale-readiness` — `commit_binding.py check` exit 1: the commit is not the content `dev-pre-pr`
+  judged. Nothing pushed; escalate (deterministic — never re-ship the same commit).
+- `readiness-unbound` — no usable readiness verdict for this commit (missing, malformed, blocked,
+  for another key, or without `judged` / `risk`). Nothing pushed; escalate.
 - `blocked` — `adapter-unavailable:vcs_host` (provider `none`, CLI exit 3) → escalate; never fall back to
   a host CLI.
 - `auth-failure` — the vcs_host adapter / remote not ready (CLI exit 1) → escalate, don't prompt.
@@ -327,7 +357,9 @@ quieter?" is answerable from the brain.
    to a `deploy.prod_lane_branch_patterns` branch *is* a prod deploy, so the preflight refuses it.
 4. **PRs by one route, and the merge is human.** Only `vcs_host open_pr` with the `agent-loop` label
    (never a host CLI or an MCP PR tool); never auto-merge, approve, or bypass branch protection; pipeline
-   runs, stage approvals, and deploy reverts are human-only.
+   runs, stage approvals, and deploy reverts are human-only. The loop's own review `approve` is not an
+   approval on the host: the PR body states how many humans must approve, and branch protection
+   enforces it.
 5. **Source only.** Never commit pipeline artifacts; never `git add -A`.
 6. **Threads are earned.** The description explains the change; a thread is only for what the reviewer
    must act on before merge and would miss otherwise. Zero is the usual count, two is the cap, and every

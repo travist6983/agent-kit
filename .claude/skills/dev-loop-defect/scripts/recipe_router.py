@@ -17,7 +17,8 @@ Usage:
                    --attempt N --max 3 [--confidence C] [--min-confidence 80]
                    [--budget-spent X] [--budget-cap Y] [--paused true|false] [--sensitive true|false]
                    [--review-rounds <evid>/<KEY>/review-rounds.json]
-Prints {"action": ..., "reason": ...} (plus failure_class + stagnant on a review-stagnation escalate).
+Prints {"action": ..., "reason": ...} (plus failure_class + stagnant on a review-stagnation escalate,
+and failure_class on a ship stale-readiness / readiness-unbound escalate).
 action ∈ {halt-paused, stop-budget, escalate, re-fix, re-repro, reject, rollback, advance}
 """
 import argparse
@@ -204,6 +205,16 @@ def main():
     if s == "ship":
         if r == "ok": return out("advance", "shipped")
         if r in ("global-pause", "pause-check-failed"): return out("halt-paused", f"ship preflight {r} (R9)")
+        # commit_binding.py check: the commit is not the content dev-pre-pr judged, or there is no
+        # usable readiness verdict. Deterministic — re-shipping the same commit cannot change it, and
+        # there is no fix to make — so it escalates; it is never retried or re-fixed.
+        if r == "stale-readiness":
+            return out("escalate", "ship abort=stale-readiness — the commit is not the content the readiness "
+                                   "verdict judged; a deterministic failure, never re-shipped on the old verdict",
+                       failure_class=r)
+        if r == "readiness-unbound":
+            return out("escalate", "ship abort=readiness-unbound — no usable readiness verdict bound to this "
+                                   "commit; a deterministic failure, never re-shipped", failure_class=r)
         return out("escalate", f"ship abort={r}")
 
     return out("escalate", f"unknown stage {s}")

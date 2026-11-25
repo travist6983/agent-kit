@@ -146,7 +146,37 @@ def validate(schema, doc):
         _check_collateral_proof(doc, errors)
     if str(schema.get("$id", "")).endswith("/dev-code-review.eval-case.json"):
         _check_reviewer_eval_case(doc, errors)
+    if str(schema.get("$id", "")).endswith("/dev-pre-pr.json"):
+        _check_pre_pr_risk(doc, errors)
     return errors
+
+
+_TIER_RANK = {"T0": 0, "T1": 1, "T2": 2}
+
+
+def _check_pre_pr_risk(doc, errors):
+    """DEV-PRE-PR-T1/T2/R1, the rules the schema keywords can't express for the v1.3.0 `risk` block.
+    T1 never de-escalate: the final tier is never below the triage tier or the diff tier.
+    T2 `escalated` means exactly tier > triage tier (T1 when the run was untiered).
+    R1 a verdict whose tier rose on the diff, or whose human gate fired, is `warnings`, never `ready`:
+    the reader of the PR must see why more humans are asked for."""
+    risk = doc.get("risk")
+    if not isinstance(risk, dict):
+        return
+    tier, triage, diff = risk.get("tier"), risk.get("triage_tier"), risk.get("diff_tier")
+    if tier in _TIER_RANK:
+        if triage in _TIER_RANK and _TIER_RANK[tier] < _TIER_RANK[triage]:
+            errors.append(f"DEV-PRE-PR-T1: risk.tier {tier} is below triage_tier {triage} — never de-escalate")
+        if diff in _TIER_RANK and _TIER_RANK[tier] < _TIER_RANK[diff]:
+            errors.append(f"DEV-PRE-PR-T1: risk.tier {tier} is below diff_tier {diff} — never de-escalate")
+        want = _TIER_RANK[tier] > _TIER_RANK[triage if triage in _TIER_RANK else "T1"]
+        if isinstance(risk.get("escalated"), bool) and risk["escalated"] != want:
+            errors.append(f"DEV-PRE-PR-T2: risk.escalated={risk['escalated']} but tier {tier} vs triage "
+                          f"{triage or 'untiered (T1)'} says {want}")
+    gate = risk.get("human_gate") if isinstance(risk.get("human_gate"), dict) else {}
+    if doc.get("status") == "ready" and (risk.get("escalated") is True or gate.get("demanded") is True):
+        errors.append("DEV-PRE-PR-R1: status=ready while risk.escalated or risk.human_gate.demanded is true "
+                      "— such a verdict is `warnings`")
 
 
 def _check_reviewer_eval_case(doc, errors):
