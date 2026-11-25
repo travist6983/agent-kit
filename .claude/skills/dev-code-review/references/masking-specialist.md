@@ -44,8 +44,12 @@ plus it drives the overall **verdict**: any confirmed `SYMPTOM_MASKING` forces o
 `request-changes` and lowers the fix's confidence — even if every other specialist is clean and the
 replay is green. "Confirmed" means confirmed at quorum by the independent validators
 (`references/specialists.md`, loop-limits `review_validation`): `finding_votes.py tally` sets
-`masking: true` from a kept symptom-masking finding, and a masking candidate that misses quorum
-leaves `masking` false. The reviewer never sets `masking` by hand.
+`masking: true` from a masking finding every returned ballot confirmed. A masking finding is never
+voted down by the quorum (contract v1.8.0): it goes on the ballot whatever this judge's
+confidence, only a unanimous reject drops it, and any split keeps it with `human_gate: true` while
+`masking` stays false (the call is undecided) and the verdict becomes `needs-human`: the recipe
+escalates to a human, it does not re-fix. The reviewer never sets `masking` or `human_gate` by
+hand.
 
 ## False positives: measured, not suppressed
 No false-positive suppression store exists — not in `qa-kb`, not in a flat file — so a finding this

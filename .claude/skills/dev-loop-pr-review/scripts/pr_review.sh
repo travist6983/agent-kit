@@ -2175,10 +2175,14 @@ if fpath and CAP > 0:
             postable = [f for f in items if isinstance(f, dict) and not f.get("withheld")]
             if len(postable) > CAP:
                 rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+                # a human-gated finding (dev-code-review v1.8.0) is never withheld for volume
                 order = sorted(range(len(postable)),
-                               key=lambda i: (rank.get(str(postable[i].get("severity", "")).lower(), 4), i))
+                               key=lambda i: (0 if postable[i].get("human_gate") is True else 1,
+                                              rank.get(str(postable[i].get("severity", "")).lower(), 4), i))
                 for i in order[CAP:]:
                     f = postable[i]
+                    if f.get("human_gate") is True:
+                        continue
                     f["withheld"] = True
                     f["withheld_reason"] = (
                         "runner volume cap (max_threads_per_pr=%d): this PR produced %d postable "

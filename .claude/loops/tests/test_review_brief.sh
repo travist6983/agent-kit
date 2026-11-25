@@ -189,6 +189,15 @@ if [ "$(jget "$ROOT/i.json" "[x for x in d['findings'] if x['severity']=='high']
 if [ "$(jget "$ROOT/i.json" "(d['verdict'], d['critical'], d['high'], d['masking'])")" = "('request-changes', 0, 1, False)" ]; then ok; else bad "cap changed the verdict/counts"; fi
 if [ "$(jget "$ROOT/i.json" "d['brief']['nits_withheld']")" = "2" ]; then ok; else bad "cap: brief.nits_withheld"; fi
 if jget "$ROOT/i.json" "[x['withheld_reason'] for x in d['findings'] if x.get('withheld')][0]" | grep -q 'nit cap (review_brief max_nits=2)'; then ok; else bad "cap: withheld_reason"; fi
+# a human-gated low masking finding (dev-code-review v1.8.0) is never withheld by the nit cap and does
+# not take a nit slot: the cap withholds the same two ordinary lows
+GLOW='{"dimension":"masking","severity":"low","confidence":40,"file":"api/invoices/total.py","line":9,"issue":"rounding error swallowed","bug_class":"symptom-masking","human_gate":true,"human_gate_reason":"validators split"}'
+mkrepo; put api/invoices/total.py
+draft "$ROOT/ig.json" "[$GLOW,$(low 95 1),$(low 81 2),$(low 90 3),$(low 82 4)]"
+run finalize --review "$ROOT/ig.json" --repo "$R"
+want "gated low: cap" nits_withheld 2
+if [ "$(jget "$ROOT/ig.json" "[x.get('withheld') for x in d['findings'] if x.get('human_gate')]")" = "[None]" ]; then ok; else bad "nit cap withheld a human-gated finding"; fi
+if [ "$(jget "$ROOT/ig.json" "sorted(x['line'] for x in d['findings'] if x.get('withheld'))")" = "[2, 4]" ]; then ok; else bad "gated low took a nit slot"; fi
 # brief omits max_nits → default from the fixture limits; the number is READ
 B2=$(printf '%s' "$BRIEF" | python3 -c "import json,sys; d=json.load(sys.stdin); d.pop('max_nits'); print(json.dumps(d))")
 conv "$ROOT/conv-nomax.json" "$B2"

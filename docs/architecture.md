@@ -213,7 +213,9 @@ model at least as strong as the producer; a weaker judge produces an *invalid* v
 weaker one. See [`graph-engineering.md`](graph-engineering.md) for the mechanics. Inside the
 reviewer the same rule holds: specialists propose findings, fresh validator agents vote on each, and
 a finding is reported only at a quorum counted by `finding_votes.py` (`loop-limits.json
-review_validation`).
+review_validation`). The quorum never votes down the R3 masking finding or a critical one: only a
+unanimous reject drops it, and a split keeps it as `human_gate` with the verdict `needs-human`,
+which the recipe escalates to a human instead of re-fixing.
 
 **The reviewer is evaluated too.** `dev-code-review` has a tracked eval set: bad cases (a diff with a
 confirmed bug location and class, from past incidents) measure its recall, and clean cases (diffs a

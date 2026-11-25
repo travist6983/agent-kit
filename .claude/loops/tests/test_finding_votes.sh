@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Regression: dev-code-review's independent finding validation (finding_votes.py ballot / tally /
-# check) + loop-limits review_validation + contract v1.6.0 (DEV-REVIEW-V1).
+# check) + loop-limits review_validation + contract v1.6.0 (DEV-REVIEW-V1) + v1.8.0 protected
+# findings (DEV-REVIEW-G1): a masking or critical finding is dropped only by a unanimous reject; any
+# split keeps it human-gated and the verdict needs-human.
 #
 # The rules under test: a producer never grades its own work, so the specialists only PROPOSE
 # candidates and N fresh validators vote. A finding is reported only when the specialist confidence
@@ -217,29 +219,98 @@ python3 "$FV" ballot --dir "$D" --limits "$L" >/dev/null; ids "$D"
 for v in v1 v2 v3; do vote "$D" $v $v "$I0:confirm:90" "$I1:confirm:90" "$I2:confirm:90"; done
 run tally --dir "$D" --review "$ROOT/g1.json" --limits "$L"
 want "kept masking finding sets masking" masking true
+want "unanimous confirms gate nothing" human_gate false
 want "critical count" critical 2
 want "high count" high 0
+# (g2) owner decision: a masking or critical finding is never voted down by the quorum. A 1-of-3
+# confirm on the mask used to drop it; now it is kept, human-gated, and does not set masking.
 D="$ROOT/g2"; cands "$D" "[$FMASK, $FA]"
 python3 "$FV" ballot --dir "$D" --limits "$L" >/dev/null; ids "$D"
 vote "$D" v1 v1 "$I0:confirm:90" "$I1:confirm:90"
 vote "$D" v2 v2 "$I0:reject:90" "$I1:confirm:90"
 vote "$D" v3 v3 "$I0:reject:90" "$I1:confirm:90"
 run tally --dir "$D" --review "$ROOT/g2.json" --limits "$L"
-want "masking candidate under quorum: masking false" masking false
+want "masking split 1-of-3: kept" kept 2
+want "masking split: human_gated 1" human_gated 1
+want "masking split: review human_gate" human_gate true
+want "masking split: masking stays false (undecided)" masking false
+want "masking split: critical counted" critical 1
 want "high counted" high 1
+jwant "the mask carries human_gate + a reason" "$ROOT/g2.json" '[d["findings"][0]["human_gate"], "1 confirm, 2 reject" in d["findings"][0]["human_gate_reason"]]' '[true, true]'
+jwant "the plain high carries no gate" "$ROOT/g2.json" '"human_gate" in d["findings"][1]' false
+jwant "draft human_gate" "$ROOT/g2.json" '[d["human_gate"], d["validation"]["human_gated"]]' '[true, 1]'
+python3 "$FV" tally --dir "$D" --review "$ROOT/g2d.json" --limits "$L" --derive-verdict >/dev/null
+jwant "derive: a split mask is needs-human, not request-changes" "$ROOT/g2d.json" 'd["verdict"]' needs-human
+python3 "$V" "$C" "$ROOT/g2d.json" >/dev/null 2>&1 && ok || bad "a derived needs-human review does not validate: $(python3 "$V" "$C" "$ROOT/g2d.json" 2>&1 | tail -3)"
+# (g3) a unanimous reject is the only way a protected finding leaves
+D="$ROOT/g3"; cands "$D" "[$FMASK, $FA]"
+python3 "$FV" ballot --dir "$D" --limits "$L" >/dev/null; ids "$D"
+for v in v1 v2 v3; do vote "$D" $v $v "$I0:reject:90" "$I1:confirm:90"; done
+run tally --dir "$D" --review "$ROOT/g3.json" --limits "$L"
+want "unanimous reject drops the mask" kept 1
+want "unanimous reject: no gate" human_gate false
+want "unanimous reject: masking false" masking false
 want "critical 0" critical 0
+# (g4) a unanimous confirm keeps the mask as today: masking true, no gate, request-changes
+D="$ROOT/g4"; cands "$D" "[$FMASK]"
+python3 "$FV" ballot --dir "$D" --limits "$L" >/dev/null; ids "$D"
+for v in v1 v2 v3; do vote "$D" $v $v "$I0:confirm:90"; done
+python3 "$FV" tally --dir "$D" --review "$ROOT/g4.json" --limits "$L" --derive-verdict >/dev/null
+jwant "unanimous confirm: masking true, no gate, request-changes" "$ROOT/g4.json" '[d["masking"], d["human_gate"], "human_gate" in d["findings"][0], d["verdict"]]' '[true, false, false, "request-changes"]'
+# (g5) a critical (not masking) split: 2-of-3 used to pass quorum as a plain finding; any split is a gate.
+# An abstain (no vote on it) and a pre-existing vote are a split too, never a reject.
+FCRIT='{"dimension":"security","severity":"critical","confidence":88,"file":"api/src/members/role.js","line":4,"bug_class":"authz-or-authn-gap","issue":"An observer can promote themselves to owner."}'
+FCRIT2='{"dimension":"data","severity":"critical","confidence":90,"file":"api/src/tasks/delete.js","line":9,"bug_class":"wrong-logic","issue":"Deleting a Task deletes every Comment in the Project."}'
+FCRIT3='{"dimension":"backend","severity":"critical","confidence":90,"file":"api/src/projects/archive.js","line":2,"bug_class":"wrong-logic","issue":"Archive drops the Project row."}'
+D="$ROOT/g5"; cands "$D" "[$FCRIT, $FCRIT2, $FCRIT3]"
+python3 "$FV" ballot --dir "$D" --limits "$L" >/dev/null; ids "$D"
+vote "$D" v1 v1 "$I0:confirm:90" "$I1:reject:90" "$I2:pre-existing:90"
+vote "$D" v2 v2 "$I0:confirm:90" "$I1:reject:90" "$I2:reject:90"
+vote "$D" v3 v3 "$I0:reject:90" "$I2:reject:90"
+run tally --dir "$D" --review "$ROOT/g5.json" --limits "$L"
+want "critical splits (2-1, reject+abstain, pre-existing+rejects) all kept" kept 3
+want "critical splits all gated" human_gated 3
+jwant "abstain named in the reason" "$ROOT/g5.json" '"1 abstain" in d["findings"][1]["human_gate_reason"]' true
+# (g6) a protected candidate goes on the ballot whatever the specialist confidence; an ordinary one does not
+LOWMASK='{"dimension":"masking","severity":"medium","confidence":40,"file":"api/src/tasks/save.js","line":5,"bug_class":"swallowed-error","issue":"Errors on save are logged and dropped."}'
+D="$ROOT/g6"; cands "$D" "[$LOWMASK, $FLOW]"
+run ballot --dir "$D" --limits "$L"
+want "low-confidence mask on the ballot" on_ballot 1
+want "protected counted" protected 1
+want "ordinary 79 still below the floor" below_floor 1
+ids "$D"
+# (g7) three below-floor confirms on a mask are not a unanimous confirm at the floor: a split
+for v in v1 v2 v3; do vote "$D" $v $v "$I0:confirm:70"; done
+run tally --dir "$D" --review "$ROOT/g7.json" --limits "$L"
+want "below-floor confirms on a mask: gated" human_gated 1
+jwant "below-floor confirms named" "$ROOT/g7.json" '"+3 below the floor" in d["findings"][0]["human_gate_reason"]' true
+# a protected split still fails closed when fewer than quorum ballots return
+D="$ROOT/g8"; cands "$D" "[$FMASK]"
+python3 "$FV" ballot --dir "$D" --limits "$L" >/dev/null; ids "$D"
+vote "$D" v1 v1 "$I0:confirm:90"
+run tally --dir "$D" --review "$ROOT/g8.json" --limits "$L"; want_rc "protected, 1 of 3 returned: validation-unavailable" 2
+want "protected under quorum: validation-unavailable" error validation-unavailable
+# replay: no quorum or floor can vote a protected finding down
+alt "$ROOT/l-gq3.json" 'b["quorum"]=3'
+run tally --dir "$ROOT/g2" --review "$ROOT/g2-q3.json" --limits "$ROOT/l-gq3.json"
+want "replay quorum 3: the split mask is still kept and gated" human_gated 1
+alt "$ROOT/l-gf99.json" 'b["confidence_floor"]=99'
+run tally --dir "$ROOT/g2" --review "$ROOT/g2-f99.json" --limits "$ROOT/l-gf99.json"
+want "replay floor 99: the split mask is still gated" human_gated 1
+run tally --dir "$ROOT/g3" --review "$ROOT/g3-q1.json" --limits "$ROOT/l-gq3.json"
+want "replay quorum 3: a unanimous reject still drops it" human_gated 0
 
 # ---------- (h) idempotent, pops headline/brief, --derive-verdict ---------------------------------------------
 R="$ROOT/h.json"
 echo '{"verdict": "approve", "summary": "mine", "headline": "0 findings: nothing needs fixing.", "brief": {"status": "unavailable"}}' > "$R"
-python3 "$FV" tally --dir "$ROOT/g2" --review "$R" --limits "$L" >/dev/null
+python3 "$FV" tally --dir "$ROOT/g3" --review "$R" --limits "$L" >/dev/null
 jwant "headline popped" "$R" '"headline" in d' false
 jwant "brief popped" "$R" '"brief" in d' false
 jwant "verdict untouched without --derive-verdict" "$R" '[d["verdict"], d["summary"]]' '["approve", "mine"]'
 cp "$R" "$ROOT/h.1"
-python3 "$FV" tally --dir "$ROOT/g2" --review "$R" --limits "$L" >/dev/null
+python3 "$FV" tally --dir "$ROOT/g3" --review "$R" --limits "$L" >/dev/null
 cmp -s "$R" "$ROOT/h.1" && ok || bad "tally is not byte-idempotent"
-python3 "$FV" tally --dir "$ROOT/g2" --review "$R" --limits "$L" --derive-verdict >/dev/null
+python3 "$FV" tally --dir "$ROOT/g3" --review "$R" --limits "$L" --derive-verdict >/dev/null
 jwant "derive: a kept high is request-changes" "$R" 'd["verdict"]' request-changes
 jwant "derive keeps an existing summary" "$R" 'd["summary"]' mine
 python3 "$FV" tally --dir "$ROOT/c" --review "$ROOT/h2.json" --limits "$L" --derive-verdict >/dev/null
@@ -247,7 +318,7 @@ jwant "derive: nothing kept is approve" "$ROOT/h2.json" 'd["verdict"]' approve
 jwant "derive sets a summary when absent" "$ROOT/h2.json" 'bool(d["summary"])' true
 # a re-review: an earlier resolved finding is carried, needs no votes, and is not counted
 echo '{"findings": [{"severity": "high", "issue": "old", "resolved": true}]}' > "$ROOT/h3.json"
-python3 "$FV" tally --dir "$ROOT/g2" --review "$ROOT/h3.json" --limits "$L" >/dev/null
+python3 "$FV" tally --dir "$ROOT/g3" --review "$ROOT/h3.json" --limits "$L" >/dev/null
 jwant "resolved finding carried" "$ROOT/h3.json" '[x.get("resolved", False) for x in d["findings"]]' '[false, true]'
 jwant "resolved not counted in high" "$ROOT/h3.json" 'd["high"]' 1
 
@@ -309,6 +380,17 @@ python3 "$FV" tally --dir "$ROOT/g" --review "$ROOT/l-g.json" --limits "$L" >/de
 jedit "$ROOT/l-g.json" 'd["verdict"]="approve"; d["summary"]="x"'
 run check --dir "$ROOT/g" --review "$ROOT/l-g.json" --limits "$L"
 if [ "$RC" = 1 ] && f violations | grep -qF '"approve-with-blocking"'; then ok; else bad "check approve with a kept critical: exit $RC"; fi
+# a human-gated review: check accepts it honest and names each way it is bent
+run check --dir "$ROOT/g2" --review "$ROOT/g2d.json" --limits "$L"; want_rc "check on an honest needs-human review" 0
+gtamper(){ cp "$ROOT/g2d.json" "$ROOT/tg.json"; jedit "$ROOT/tg.json" "$2"
+  run check --dir "$ROOT/g2" --review "$ROOT/tg.json" --limits "$L"
+  if [ "$RC" = 1 ] && f violations | grep -qF "\"$1\""; then ok; else bad "check gate tamper $1: exit $RC $(f violations)"; fi; }
+gtamper human-gate-mismatch 'd["findings"][0].pop("human_gate")'
+gtamper human-gate-mismatch 'd["human_gate"]=False'
+gtamper human-gate-not-routed 'd["verdict"]="request-changes"'
+gtamper approve-with-blocking 'd["verdict"]="approve"'
+gtamper human-gate-withheld 'd["findings"][0]["withheld"]=True'
+gtamper finding-without-quorum 'd["findings"].append(dict(d["findings"][0], finding_id="F-0000000000"))'
 run check --dir "$ROOT/nodir" --review "$R" --limits "$L"; want_rc "check uncheckable" 2
 run check --dir "$ROOT/d" --review "$ROOT/missing.json" --limits "$L"; want_rc "check on a missing review" 2
 
@@ -325,6 +407,21 @@ vfail "cast != validators_returned" 'd["findings"][0]["votes"]["cast"]=2'
 vfail "returned below quorum" 'd["validation"]["validators_returned"]=1'
 vpass "a resolved finding without votes" 'd["findings"].append({"severity":"high","issue":"old","resolved":True})'
 vpass "an old review without validation" 'd.pop("validation"); [x.pop("votes") for x in d["findings"]]'
+# DEV-REVIEW-G1 (v1.8.0) over a real needs-human tally
+gfail(){ cp "$ROOT/g2d.json" "$ROOT/vg.json"; jedit "$ROOT/vg.json" "$2"
+  if python3 "$V" "$C" "$ROOT/vg.json" 2>&1 | grep -q "DEV-REVIEW-G1"; then ok; else bad "G1 did not fire: $1"; fi; }
+gfail "split mask without human_gate" 'd["findings"][0].pop("human_gate")'
+gfail "gated finding under request-changes" 'd["verdict"]="request-changes"'
+gfail "gated finding under approve" 'd["verdict"]="approve"'
+gfail "gated finding withheld" 'd["findings"][0]["withheld"]=True; d["findings"][0]["withheld_reason"]="nit cap"'
+gfail "gate without a reason" 'd["findings"][0].pop("human_gate_reason")'
+gfail "gate on a non-protected finding" 'd["findings"][1]["human_gate"]=True; d["findings"][1]["human_gate_reason"]="x"'
+gfail "gate on a unanimous confirm" 'd["findings"][0]["votes"]["confirm"]=3; d["findings"][0]["votes"]["reject"]=0'
+gfail "review human_gate false with a gated finding" 'd["human_gate"]=False'
+gfail "needs-human with nothing gated" 'd["findings"][0].pop("human_gate"); d["findings"][0].pop("human_gate_reason"); d["findings"][0]["votes"]["confirm"]=3; d["findings"][0]["votes"]["reject"]=0; d["human_gate"]=False'
+gfail "masking true under approve" 'd["findings"].pop(0); d["human_gate"]=False; d["masking"]=True; d["verdict"]="approve"'
+python3 "$V" "$C" "$FW/contracts/samples/EXAMPLE-review-human-gate/review.json" >/dev/null 2>&1 && ok || bad "EXAMPLE-review-human-gate fails"
+python3 "$V" "$C" "$FW/contracts/samples/EXAMPLE-bad-review-human-gate/review.json" >/dev/null 2>&1 && bad "EXAMPLE-bad-review-human-gate passes" || ok
 python3 "$V" "$C" "$FW/contracts/samples/EXAMPLE-review-validated/review.json" >/dev/null 2>&1 && ok || bad "EXAMPLE-review-validated fails"
 python3 "$V" "$C" "$FW/contracts/samples/EXAMPLE-bad-review-validation/review.json" >/dev/null 2>&1 && bad "EXAMPLE-bad-review-validation passes" || ok
 

@@ -112,13 +112,22 @@ Limits of the replay, stated so nobody over-reads it:
 - It can only **raise** the floor: candidates below the run's floor were never put to a vote.
 - It cannot change `validators`: a different number of validators needs a new run with that number
   (a quorum above the run's validators is exit 2).
-- `--derive-verdict` applies the strict rule (masking or any kept critical / high is
-  `request-changes`); it does not model a recipe-accepted HIGH.
+- `--derive-verdict` applies the strict rule: a human-gated finding is `needs-human`; otherwise
+  masking or any kept critical / high is `request-changes`; it does not model a recipe-accepted
+  HIGH.
+- A replay cannot vote a protected (masking or critical) finding down: whatever quorum or floor you
+  try, only a unanimous reject drops one, so the replay moves only the ordinary findings.
 - The replay drops `harden` blocks and nit-cap stamps (`tally` rewrites the findings and pops
   `headline` / `brief`); the scorer reads neither.
 
-The R3 masking finding goes through the same quorum, so a 1-of-3 masking split drops the mask. The
-two bad-masking cases in the set are the measurement for whether that is acceptable.
+The R3 masking finding and every critical finding are NOT governed by the quorum (owner decision,
+contract v1.8.0). Only a unanimous reject drops one; a unanimous confirm keeps it as a plain block
+(`masking: true`, `request-changes`); any split keeps it with `human_gate: true` and the verdict
+`needs-human`. The scorer counts a masking bug as caught when the judge called masking, or when the
+located finding is human-gated under `needs-human` (routed to a human, never approved); a
+`needs-human` on a clean case is a false flag, because it spends a person's time on nothing. The
+two bad-masking cases in the set measure how often a split happens: every split is a human's
+time, which is the cost the owner accepted for never dropping a mask on a 1-of-3 vote.
 
 ## The bar
 

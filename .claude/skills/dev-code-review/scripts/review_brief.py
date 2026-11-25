@@ -355,7 +355,9 @@ def headline_of(doc):
 
 
 def _open_lows(doc):
-    return [f for f in _findings(doc) if _open(f) and f.get("severity") == "low"]
+    # a human-gated finding (contract v1.8.0) needs a human decision: the nit cap never withholds it
+    return [f for f in _findings(doc) if _open(f) and f.get("severity") == "low"
+            and f.get("human_gate") is not True]
 
 
 def _conf(f):

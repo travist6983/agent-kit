@@ -143,7 +143,12 @@ one. The same holds for `dev-code-review`'s validators.
 **The rule applies inside the reviewer too.** The specialists produce candidate findings; fresh
 validator `Agent` spawns (`loop-limits.json review_validation.validators`) vote on each one; the
 orchestrating reviewer only counts, through `dev-code-review/scripts/finding_votes.py`, and keeps a
-finding only at `quorum` confirms at or above the floor. The count of distinct returned ballots and
+finding only at `quorum` confirms at or above the floor, except a protected one (masking-class or
+critical): a unanimous reject drops it, a unanimous confirm keeps it as a plain block, and any split
+keeps it with `human_gate` and the verdict `needs-human`, a gate whose next step is a person
+(`recipe_router.py` escalates `review-needs-human`; `check_convergence.py` flags `needs-human`).
+A split is a disagreement between judges, and a disagreement a re-fix cannot settle is a human's.
+The count of distinct returned ballots and
 the arithmetic are mechanical (`tally`, `check`, validate.py DEV-REVIEW-V1); that each validator ran
 in a fresh context is self-reported, like `judged_blind`. `check_convergence.py` warns
 `unvalidated-findings` on a review whose open findings carry no independent validation.

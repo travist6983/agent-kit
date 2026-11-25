@@ -1198,6 +1198,12 @@ def build_comment(f):
     """ONE finding -> ONE host comment payload {path, line, body}."""
     sev = (f.get("severity") or "").upper()
     body = [f"**{sev or 'FINDING'}: {f.get('title') or f.get('summary', 'Finding')}**", ""]
+    if f.get("human_gate") is True:
+        # dev-code-review v1.8.0: a masking or critical finding the validators split on. It is
+        # posted as an open question for a person, never withheld and never stated as settled.
+        body += ["**Needs a human decision:** the independent validators disagreed on this "
+                 "masking or critical finding, and only a unanimous reject drops one. "
+                 + str(f.get("human_gate_reason") or ""), ""]
     if f.get("summary") and f.get("title"):
         body.append(f["summary"])
     if f.get("failure_scenario"):
@@ -1315,10 +1321,15 @@ def cmd_post(a):
     # severe first. Applied to previews too: a preview is byte-for-byte the live call.
     capped, cap = [], env_int("LOOP_PR_MAX_THREADS")
     if cap and len(fresh) > cap:
+        # a human-gated finding (dev-code-review v1.8.0) ranks first and is never withheld: it is a
+        # question for a person, and a capped one would be the silent drop the gate exists to stop
         order = sorted(range(len(fresh)),
-                       key=lambda i: (SEVERITY_RANK.get(str(fresh[i][0].get("severity", "")).lower(), 4), i))
-        keep = set(order[:cap])
+                       key=lambda i: (0 if fresh[i][0].get("human_gate") is True else 1,
+                                      SEVERITY_RANK.get(str(fresh[i][0].get("severity", "")).lower(), 4), i))
+        keep = set(order[:cap]) | {i for i in range(len(fresh)) if fresh[i][0].get("human_gate") is True}
         for i in order[cap:]:
+            if i in keep:
+                continue
             f = fresh[i][0]
             f["withheld"] = True
             f["withheld_reason"] = (f"volume cap (max_threads_per_pr={cap}): this PR had {len(fresh)} "
@@ -2030,7 +2041,8 @@ def apply_interdiff_scope(findings, pr_id, head, root):
         return summary
     b8 = str(sc["base"])[:8]
     for f in findings:
-        if f.get("withheld") or str(f.get("severity") or "").lower() == "critical":
+        if f.get("withheld") or str(f.get("severity") or "").lower() == "critical" \
+                or f.get("human_gate") is True:
             continue
         path_ = norm_path(f.get("file"))
         try:

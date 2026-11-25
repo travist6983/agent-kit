@@ -2,9 +2,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "loops/contracts/dev-loop-defect.review-rounds.json",
   "title": "dev-loop-defect review-rounds.json: the in-loop review history, one fingerprinted round per review",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "status": "proposed",
-  "description": "Written ONLY by .claude/skills/dev-loop-defect/scripts/review_rounds.py record (no model), through contracts/emit.py, to <evid_root>/<key>/review-rounds.json after every dev-code-review run in recipes 2 and 4. review.json is overwritten in place each fix cycle and holds no history; this file keeps one entry per distinct review.json (idempotent on its sha256) with the fingerprint of every finding still open. recipe_router.py --review-rounds reads it at the code-review stage and escalates with failure_class review-stagnation when one fingerprint is open in the last loop-limits.json review_convergence.stagnation_fix_cycles + 1 consecutive rounds. rounds_to_pass is the 1-based round of the first approve, null while none.",
+  "description": "Written ONLY by .claude/skills/dev-loop-defect/scripts/review_rounds.py record (no model), through contracts/emit.py, to <evid_root>/<key>/review-rounds.json after every dev-code-review run in recipes 2 and 4. review.json is overwritten in place each fix cycle and holds no history; this file keeps one entry per distinct review.json (idempotent on its sha256) with the fingerprint of every finding still open. recipe_router.py --review-rounds reads it at the code-review stage and escalates with failure_class review-stagnation when one fingerprint is open in the last loop-limits.json review_convergence.stagnation_fix_cycles + 1 consecutive rounds. rounds_to_pass is the 1-based round of the first approve, null while none. v1.1.0 (additive, backward compatible): a round may record verdict needs-human (dev-code-review v1.8.0: a masking or critical finding the validators split on); it is never a pass, and the router escalates it to a human before any stagnation count.",
   "type": "object",
   "additionalProperties": false,
   "required": ["rounds", "rounds_to_pass"],
@@ -18,7 +18,7 @@
         "required": ["round", "verdict", "review_sha256", "open"],
         "properties": {
           "round": { "type": "integer", "minimum": 1 },
-          "verdict": { "type": "string", "enum": ["approve", "request-changes"] },
+          "verdict": { "type": "string", "enum": ["approve", "request-changes", "needs-human"], "description": "The review's verdict. needs-human (v1.1.0) is never a pass: rounds_to_pass counts approve only." },
           "review_sha256": { "type": "string", "description": "sha256 of the review.json bytes this round was recorded from; recording the same file twice adds no round." },
           "attempt": { "type": "integer", "minimum": 1, "description": "The review.json's own `attempt`, when it carried one." },
           "open": {

@@ -25,6 +25,17 @@ t "review request-changes→re-fix"      re-fix      --stage code-review --resul
 # a review that produced no verdict is not a finding about the fix: escalate, never re-fix
 t "review validation-unavailable→esc"  escalate    --stage code-review --result validation-unavailable --attempt 1 --max 3
 t "review blocked→escalate"            escalate    --stage code-review --result blocked --attempt 1 --max 3
+# dev-code-review v1.8.0: a split on a masking or critical finding is needs-human — escalate at the
+# first attempt, never re-fix, and say so with failure_class review-needs-human (even with a
+# review-rounds file that would otherwise call stagnation, and far below the retry cap)
+t "review needs-human→escalate"        escalate    --stage code-review --result needs-human --attempt 1 --max 5
+fcj(){ python3 "$R" "$@" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('failure_class'), 'human' in d.get('reason',''))"; }
+got=$(fcj --stage code-review --result needs-human --attempt 1 --max 5)
+if [ "$got" = "review-needs-human True" ]; then pass=$((pass+1)); else echo "  [FAIL] needs-human failure_class/reason → $got"; fail=$((fail+1)); fi
+got=$(fcj --stage code-review --result needs-human --attempt 2 --max 5 --review-rounds "$SK/../../contracts/samples/EXAMPLE-review-rounds/review-rounds.json")
+if [ "$got" = "review-needs-human True" ]; then pass=$((pass+1)); else echo "  [FAIL] needs-human with review-rounds → $got (a human gate outranks stagnation)"; fail=$((fail+1)); fi
+got=$(fcj --stage code-review --result request-changes --attempt 1 --max 5)
+if [ "$got" = "None False" ]; then pass=$((pass+1)); else echo "  [FAIL] request-changes must stay a plain re-fix → $got"; fail=$((fail+1)); fi
 t "repro not_reproduced→reject"        reject      --stage repro --result not_reproduced
 t "repro inconclusive→re-repro"        re-repro    --stage repro --result inconclusive --attempt 1 --max 3
 t "repro inconclusive at cap→escalate" escalate    --stage repro --result inconclusive --attempt 3 --max 3

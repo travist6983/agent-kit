@@ -123,6 +123,18 @@ o=$(python3 "$R" --stage code-review --result request-changes --attempt 2 --max 
 k=$(echo "$o" | python3 -c "import json,sys;d=json.load(sys.stdin);print(sorted(d), d['action'])")
 [ "$k" = "['action', 'reason'] re-fix" ] && ok "no flag -> re-fix, output keys unchanged" || bad "no flag" "$o"
 
+# dev-code-review v1.8.0 / review-rounds v1.1.0: a needs-human review is recorded (contract-valid),
+# is never a pass, and the router escalates it to a human even where stagnation would also fire
+D="$TMP/nh"; mkdir -p "$D"
+review "$D/review.json" needs-human '[{"severity":"critical","file":"src/a.js","line":3,"bug_class":"symptom-masking","issue":"catch returns ok","human_gate":true,"human_gate_reason":"split"}]'
+o=$(rec "$D/review.json" "$D/rr.json")
+if python3 "$V" "$C" "$D/rr.json" >/dev/null 2>&1 && [ "$(field "$D/rr.json" "d['rounds'][0]['verdict']")" = needs-human ]; then ok "needs-human round recorded, contract-valid"
+else bad "needs-human round recorded" "$o"; fi
+[ "$(field "$D/rr.json" "d['rounds_to_pass']")" = None ] && ok "needs-human is never a pass" || bad "needs-human pass" "$(cat "$D/rr.json")"
+o=$(route "$TMP/stuck/rr.json" 2 needs-human)
+fc=$(echo "$o" | python3 -c "import json,sys;d=json.load(sys.stdin);print(d['action'], d.get('failure_class'))")
+[ "$fc" = "escalate review-needs-human" ] && ok "needs-human -> escalate review-needs-human (outranks stagnation)" || bad "needs-human route" "$o"
+
 # the number lives in loop-limits.json, nowhere else in the router or recorder
 if grep -nE "stagnation_fix_cycles *[=:] *[0-9]" "$R" "$REC" >/dev/null; then bad "threshold literal" "found in scripts"; else ok "threshold is not a literal in the router or recorder"; fi
 

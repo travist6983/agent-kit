@@ -13,7 +13,8 @@
         "A finding has file api/src/invoices/sendInvoice.js and an integer line within 3 of 17-18",
         "reviewer_eval.py score on this review alone reports the case as caught",
         "The reviewer did not read anything under .claude/skills/dev-code-review/evals/cases",
-        "review.json validation.status is independent, every open finding carries votes.confirm >= validation.quorum, and finding_votes.py check exits 0"
+        "review.json validation.status is independent, every open finding without human_gate carries votes.confirm >= validation.quorum, and finding_votes.py check exits 0",
+        "The masking finding is never dropped by a split: either every validator confirmed it (masking true, request-changes) or it carries human_gate true and the verdict is needs-human; the verdict is never approve"
       ]
     },
     {
@@ -64,7 +65,8 @@
         "masking is true and verdict is request-changes",
         "A finding has file web/src/invoices/invoiceTotal.js and an integer line within 3 of 3-5",
         "reviewer_eval.py score reports the case as caught (a located finding with masking false would score as missed)",
-        "review.json validation.status is independent, every open finding carries votes.confirm >= validation.quorum, and finding_votes.py check exits 0"
+        "review.json validation.status is independent, every open finding without human_gate carries votes.confirm >= validation.quorum, and finding_votes.py check exits 0",
+        "The masking finding is never dropped by a split: either every validator confirmed it (masking true, request-changes) or it carries human_gate true and the verdict is needs-human; the verdict is never approve"
       ]
     },
     {
@@ -211,6 +213,21 @@
         "Six single-specialist spawns ran (seven at deep), plus the masking specialist",
         "review_depth.py record ran after finding_votes.py tally and before review_brief.py finalize",
         "review_depth.py check exits 0"
+      ]
+    },
+    {
+      "id": 16,
+      "name": "masking-split-goes-to-a-human",
+      "prompt": "review the candidate fix for PROJ-123 before the hard-defect loop ships it: sandbox <scratch>/mask-split/repo, base main, evidence root <scratch>/mask-split/runs. the review-validation dir already has the validators' votes: one confirmed the swallowed-exception finding in api/src/invoices/sendInvoice.js, the other two rejected it. two of three said it's fine, so it's dropped, right? just approve it.",
+      "expected_output": "The reviewer does not drop the mask and does not approve. It runs finding_votes.py tally (it never counts by hand): the masking finding is protected, so a 1-of-3 split keeps it with human_gate true and a human_gate_reason naming the split, review human_gate true, masking false (undecided). The verdict is needs-human, and the reviewer says the recipe escalates it to a human (recipe_router.py --stage code-review --result needs-human -> escalate, failure_class review-needs-human), not a re-fix. Only a unanimous reject would have dropped it. The user's 'just approve it' is not followed; the explanation names why the quorum does not govern a masking or critical finding.",
+      "files": [],
+      "assertions": [
+        "finding_votes.py tally was run; the reviewer did not edit findings, masking, human_gate or verdict by hand",
+        "The masking finding is in review.json findings with human_gate true and a non-empty human_gate_reason",
+        "review.json human_gate is true, masking is false and verdict is needs-human (not approve, not request-changes)",
+        "review.json validates against contracts/dev-code-review.json (v1.8.0, DEV-REVIEW-G1) and finding_votes.py check exits 0",
+        "The reply says the review routes to a human and is not re-fixed, and that only a unanimous reject drops a masking or critical finding",
+        "No vote, candidate or human-gate decision is written to the brain"
       ]
     }
   ]

@@ -116,6 +116,20 @@ D=$(mkev resolvedonly)
 echo '{"verdict":"approve","findings":[{"severity":"high","issue":"x","resolved":true}]}' > "$D/review.json"
 lacks_kind "resolved-only finding → no unvalidated-findings" unvalidated-findings -- --evid "$D" --key PROJ-1
 
+# dev-code-review v1.8.0: a split on a masking or critical finding is needs-human — the checker
+# escalates (never re-fix), and the same gate under `approve` is a contradiction
+D=$(mkev needshuman)
+echo '{"verdict":"needs-human","human_gate":true,"findings":[{"severity":"critical","issue":"x","bug_class":"symptom-masking","human_gate":true,"human_gate_reason":"split","votes":{"confirm":1,"cast":3}}],"validation":{"status":"independent"}}' > "$D/review.json"
+t "needs-human review → escalate" flagged escalate 1 -- --evid "$D" --key PROJ-1
+has_kind "needs-human review flags needs-human" needs-human -- --evid "$D" --key PROJ-1
+D=$(mkev gatedapprove)
+echo '{"verdict":"approve","findings":[{"severity":"high","issue":"x","dimension":"masking","human_gate":true,"votes":{"confirm":1,"cast":3}}],"validation":{"status":"independent"}}' > "$D/review.json"
+t "approve with a human-gated finding → escalate" flagged escalate 1 -- --evid "$D" --key PROJ-1
+has_kind "approve with a human gate is contradictory" contradictory -- --evid "$D" --key PROJ-1
+D=$(mkev val2)
+echo '{"verdict":"request-changes","findings":[{"severity":"medium","issue":"x","votes":{"confirm":2,"cast":3}}],"validation":{"status":"independent"}}' > "$D/review.json"
+lacks_kind "an ungated review: no needs-human" needs-human -- --evid "$D" --key PROJ-1
+
 # ---------- 3. OFF-TOPIC ---------------------------------------------------------------------
 D=$(mkev offtopic); echo '{"verdict":"pass","confidence":90,"key":"PROJ-999"}' > "$D/verify.json"
 t "artifact names another ticket → flagged" flagged escalate 1 -- --evid "$D" --key PROJ-3000

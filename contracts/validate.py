@@ -155,6 +155,7 @@ def validate(schema, doc):
     if str(schema.get("$id", "")).endswith("/dev-code-review.json"):
         _check_review_brief(doc, errors)
         _check_review_validation(doc, errors)
+        _check_review_human_gate(doc, errors)
         _check_review_depth(doc, errors)
     return errors
 
@@ -189,7 +190,8 @@ def _check_review_brief(doc, errors):
         if isinstance(brief.get("skipped"), list) else []
     if brief.get("status") == "applied":
         cap = brief.get("max_nits")
-        lows = sum(1 for f in opened if f.get("severity") == "low")
+        # a human-gated finding is never withheld by the nit cap, so it does not count against it
+        lows = sum(1 for f in opened if f.get("severity") == "low" and f.get("human_gate") is not True)
         if isinstance(cap, int) and not isinstance(cap, bool) and lows > cap:
             errors.append(f"DEV-REVIEW-B1: {lows} open low finding(s) exceed brief.max_nits {cap} "
                           "(the over-cap nits must be withheld)")
@@ -244,7 +246,7 @@ def _check_review_validation(doc, errors):
                 errors.append(f"DEV-REVIEW-V1: {where} is open but carries no votes "
                               "(an open finding needs independent validation)")
                 continue
-            if votes["confirm"] < q:
+            if votes["confirm"] < q and f.get("human_gate") is not True:
                 errors.append(f"DEV-REVIEW-V1: {where} has {votes['confirm']} confirm(s), below "
                               f"quorum {q}")
             if votes["confirm"] > votes["cast"] or votes["cast"] != r:
@@ -258,6 +260,70 @@ def _check_review_validation(doc, errors):
             errors.append("DEV-REVIEW-V1: status no-candidates but kept is not 0")
         if opened:
             errors.append(f"DEV-REVIEW-V1: status no-candidates but {len(opened)} finding(s) are open")
+
+
+def _review_protected(f):
+    return f.get("bug_class") == "symptom-masking" or f.get("dimension") == "masking" \
+        or str(f.get("severity") or "").lower() == "critical"
+
+
+def _check_review_human_gate(doc, errors):
+    """DEV-REVIEW-G1, the v1.8.0 rule (owner decision): a masking-class or critical finding is never
+    voted down by the quorum; a split keeps it for a human. Fires on what is present, so an older
+    review.json (no human_gate anywhere, no needs-human) still validates unless it approves a mask.
+    - human_gate true only on a protected finding (masking-class or critical), with a reason, never
+      withheld; with votes, it is a split (not confirm == cast, not reject == cast).
+    - with validation independent, an open protected finding whose votes are not a unanimous
+      confirm (confirm < cast) must carry human_gate true.
+    - an open gated finding => top-level human_gate true and verdict needs-human; top-level
+      human_gate true => an open gated finding; verdict needs-human => human_gate true.
+    - masking true or human_gate true never sits under verdict approve."""
+    findings = doc.get("findings") if isinstance(doc.get("findings"), list) else []
+    opened = [f for f in findings if isinstance(f, dict) and f.get("resolved") is not True]
+    val = doc.get("validation")
+    independent = isinstance(val, dict) and val.get("status") == "independent"
+    gated = []
+    for f in opened:
+        where = f"finding {f.get('finding_id') or f.get('issue')!r}"
+        votes = f.get("votes") if isinstance(f.get("votes"), dict) else None
+        conf, cast = (votes or {}).get("confirm"), (votes or {}).get("cast")
+        rej = (votes or {}).get("reject", 0)
+        has_votes = _vint(conf) and _vint(cast)
+        if f.get("human_gate") is True:
+            gated.append(f)
+            if not _review_protected(f):
+                errors.append(f"DEV-REVIEW-G1: {where} carries human_gate but is neither masking-class "
+                              "nor critical (only a protected finding is human-gated)")
+            if not str(f.get("human_gate_reason") or "").strip():
+                errors.append(f"DEV-REVIEW-G1: {where} carries human_gate with no human_gate_reason")
+            if f.get("withheld") is True:
+                errors.append(f"DEV-REVIEW-G1: {where} needs a human decision and is withheld "
+                              "(a human-gated finding is never withheld)")
+            if has_votes and conf == cast:
+                errors.append(f"DEV-REVIEW-G1: {where} carries human_gate on a unanimous confirm "
+                              "(that is a plain block, not a split)")
+            if has_votes and _vint(rej) and rej == cast:
+                errors.append(f"DEV-REVIEW-G1: {where} carries human_gate on a unanimous reject "
+                              "(a unanimous reject drops it)")
+        elif independent and _review_protected(f) and has_votes and conf < cast:
+            errors.append(f"DEV-REVIEW-G1: {where} is masking-class or critical and the validators "
+                          f"split ({conf} confirm of {cast}) but it carries no human_gate (a split on "
+                          "a protected finding goes to a human)")
+    verdict = doc.get("verdict")
+    if gated and doc.get("human_gate") is not True:
+        errors.append(f"DEV-REVIEW-G1: {len(gated)} open finding(s) carry human_gate but the review's "
+                      "human_gate is not true")
+    if gated and verdict != "needs-human":
+        errors.append(f"DEV-REVIEW-G1: {len(gated)} open finding(s) need a human decision but verdict "
+                      f"is {verdict!r} (must be needs-human: a human decides, not a re-fix)")
+    if doc.get("human_gate") is True and not gated:
+        errors.append("DEV-REVIEW-G1: human_gate true but no open finding carries human_gate")
+    if verdict == "needs-human" and doc.get("human_gate") is not True:
+        errors.append("DEV-REVIEW-G1: verdict needs-human without human_gate true")
+    if verdict == "approve" and doc.get("masking") is True:
+        errors.append("DEV-REVIEW-G1: verdict approve with masking true (masking is a hard block)")
+    if verdict == "approve" and (doc.get("human_gate") is True or gated):
+        errors.append("DEV-REVIEW-G1: verdict approve while a finding needs a human decision")
 
 
 _DEPTH_SPECIALISTS = ("frontend", "backend", "data", "security", "tests", "perf")

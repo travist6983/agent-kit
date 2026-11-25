@@ -33,7 +33,7 @@ import sys
 ROOT = os.path.realpath(os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "..", "..", ".."))
 CONTRACT = os.path.join(ROOT, "contracts", "dev-loop-defect.review-rounds.json")
 EMIT = os.path.join(ROOT, "contracts", "emit.py")
-VERDICTS = ("approve", "request-changes")
+VERDICTS = ("approve", "request-changes", "needs-human")
 
 
 def norm_path(path):
@@ -95,7 +95,7 @@ def cmd_record(a):
         return fail("review unreadable: %s" % e)
     if not isinstance(review, dict) or review.get("verdict") not in VERDICTS \
             or not isinstance(review.get("findings"), list):
-        return fail("review is not a review.json (needs verdict approve|request-changes and a findings list)")
+        return fail("review is not a review.json (needs verdict approve|request-changes|needs-human and a findings list)")
 
     state = {"rounds": [], "rounds_to_pass": None}
     if os.path.exists(a.out):

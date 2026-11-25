@@ -22,8 +22,8 @@ URLs come from the `evidence_store` adapter, and the evidence root is `evidence.
 | `qa-verify.json` | 1.0.0 | `qa-verify` mode=`fix-verify` (default) | `<evid_root>/<key>/verify.json` | the checker node; `dev-pre-pr` fails closed on it | `verdict` |
 | `qa-verify.collateral.json` | 1.0.0 | `qa-verify` fix-verify step 2b | `<repro_dir>/collateral.json` | the `no_collateral` must-have | `status` |
 | `qa-regression.json` | 2.1.0 | `qa-regression` | `<evid_root>/<key>/regression.json` | router | `status` + `next_action` |
-| `dev-code-review.json` | 1.7.0 | `dev-code-review` | `<evid_root>/<key>/review.json` | router; `dev-harden` reads findings' `harden` blocks; `reviewer_eval.py score` locates findings by `file` + `line`; `review_rounds.py record` fingerprints findings by `file` + `bug_class`; `review_brief.py finalize` / `check` write and re-check `headline` + `brief`; `finding_votes.py tally` / `check` write and re-check `validation` + `findings[].votes`; `review_depth.py record` / `check` write and re-check `depth` | `verdict` |
-| `dev-loop-defect.review-rounds.json` | 1.0.0 | `review_rounds.py record` (proposed) | `<evid_root>/<key>/review-rounds.json` | `recipe_router.py --review-rounds` (stagnation); the recipe reads `rounds_to_pass` for the `review_rounds_to_pass` metric | none |
+| `dev-code-review.json` | 1.8.0 | `dev-code-review` | `<evid_root>/<key>/review.json` | router; `dev-harden` reads findings' `harden` blocks; `reviewer_eval.py score` locates findings by `file` + `line`; `review_rounds.py record` fingerprints findings by `file` + `bug_class`; `review_brief.py finalize` / `check` write and re-check `headline` + `brief`; `finding_votes.py tally` / `check` write and re-check `validation` + `findings[].votes`; `review_depth.py record` / `check` write and re-check `depth` | `verdict` |
+| `dev-loop-defect.review-rounds.json` | 1.1.0 | `review_rounds.py record` (proposed) | `<evid_root>/<key>/review-rounds.json` | `recipe_router.py --review-rounds` (stagnation); the recipe reads `rounds_to_pass` for the `review_rounds_to_pass` metric | none |
 | `dev-loop-defect.meta-monitor.json` | 1.0.0 | `meta_monitor.py` (proposed) | a caller-chosen path (`--out`), or stdout | a person or a runner deciding whether loops are healthy; report-only unless `r8_meta_monitor.trip_mode` is armed | `decision` |
 | `dev-code-review.eval-case.json` | 1.0.0 | a human (seed cases: the kit), checked by `reviewer_eval.py check` (proposed) | `.claude/skills/dev-code-review/evals/cases/<id>/case.json` | `reviewer_eval.py` check / score; never the reviewer | `kind` |
 | `dev-code-review.eval-score.json` | 1.0.0 | `reviewer_eval.py score` (proposed) | a caller-chosen path (`--out`), or stdout | a person or a later job comparing reviewer versions | `status` |
@@ -173,6 +173,17 @@ still recorded nowhere as a finding. `validate.py` adds **DEV-REVIEW-V1**: with 
 carries `votes.confirm >= quorum` with `cast == validators_returned`, and the open findings number
 `kept`; with `no-candidates`, nothing is kept or open. It fires only when `validation` is present,
 so every older review validates. `EXAMPLE-bad-review-validation` fails it.
+
+`review.json` v1.8.0 (owner decision) adds the verdict `needs-human`, OPTIONAL top-level
+`human_gate`, `findings[].human_gate` / `human_gate_reason` and `validation.human_gated`, all
+written by `finding_votes.py tally`. A protected finding (the R3 masking-class finding, or any finding with severity critical) is outside the quorum: it goes on the ballot whatever its specialist confidence, only a unanimous reject among the returned ballots drops it, a unanimous confirm keeps it as a plain block, and any split (one confirm, a pre-existing vote, a below-floor confirm, an abstain or an unusable vote) keeps it with `human_gate: true` and a `human_gate_reason`, sets the review's `human_gate`, and makes the verdict `needs-human`, which the router escalates (`review-needs-human`), never re-fixes. Owner decision, not a loop-limits number: nothing turns it off. `validate.py` adds **DEV-REVIEW-G1**: only a
+protected finding carries `human_gate`, with a reason, never withheld, and only on a split (not a
+unanimous confirm or reject); with `independent` validation an open protected finding whose votes
+are not a unanimous confirm must carry it; an open gated finding means `human_gate: true` and
+verdict `needs-human`, and `needs-human` means a gated finding; `masking: true` or `human_gate`
+never sits under `approve`. DEV-REVIEW-V1 accepts a gated finding below quorum.
+`EXAMPLE-review-human-gate` passes; `EXAMPLE-bad-review-human-gate` fails it.
+`dev-loop-defect.review-rounds.json` 1.1.0 accepts a `needs-human` round (never a pass).
 
 `review.json` v1.7.0 adds OPTIONAL `depth`, the risk-based review depth, written by
 `dev-code-review/scripts/review_depth.py record`, never by hand: `level` quick | standard | deep,
@@ -403,6 +414,8 @@ Every sample validates against its contract (or is a named negative that must fa
 | `EXAMPLE-bad-review-brief/` | dev-code-review | **fail** — headline says 0 with two open findings (DEV-REVIEW-H1) and two open lows over `brief.max_nits` 1 (DEV-REVIEW-B1) |
 | `EXAMPLE-review-validated/` | dev-code-review | pass — real `finding_votes.py tally` + `review_brief.py finalize` output (v1.6.0): three validators, quorum 2, two findings kept (3/3 and 2/3), one rejected (1/3) |
 | `EXAMPLE-bad-review-validation/` | dev-code-review | **fail** — an open finding with 1 confirm under quorum 2 (DEV-REVIEW-V1) |
+| `EXAMPLE-review-human-gate/` | dev-code-review | pass — real `finding_votes.py tally --derive-verdict` output (v1.8.0): the masking finding (specialist confidence 72, below the floor, on the ballot anyway) split 1 confirm / 2 reject and is kept with `human_gate`, verdict `needs-human`; a 3/3 critical and a 2/3 medium beside it |
+| `EXAMPLE-bad-review-human-gate/` | dev-code-review | **fail** — the same split mask carried as a plain finding under `request-changes` with no human gate (DEV-REVIEW-G1, DEV-REVIEW-V1) |
 | `EXAMPLE-review-depth-quick/` | dev-code-review | pass — real `review_depth.py record` + `review_brief.py finalize` output (v1.7.0): a one-line copy change, depth quick (small-diff), one combined pass naming all six specialists, approve, `no-candidates` |
 | `EXAMPLE-review-depth-deep/` | dev-code-review | pass — real `finding_votes.py tally` + `review_depth.py record` + `review_brief.py finalize` output (v1.7.0): a one-line migration, `risk_files` blast-radius, depth deep with seven passes, the migration a CRITICAL validated 3/3, request-changes |
 | `EXAMPLE-bad-review-depth/` | dev-code-review | **fail** — depth quick with a blast-radius risk file and a combined pass lacking security (DEV-REVIEW-D1) |

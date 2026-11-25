@@ -178,6 +178,16 @@ colleague's work under the runner's name. When unsure, don't flag. **An approve 
 a good outcome** — report what you checked and cleared, which is more useful to the author than a
 padded list.
 
+**A `needs-human` review is posted as a question, never withheld.** When the independent
+validators split on a masking or critical finding, `dev-code-review` keeps it with
+`human_gate: true` and the verdict is `needs-human`: only a unanimous reject drops one. On a PR
+that finding is the one thing a person must look at, so it goes through `post` like any other and
+`post` renders it with a **Needs a human decision** line carrying its `human_gate_reason`. Nothing
+withholds it: not the rebuttal rule (if the author already answered it, say so in the finding and
+let the human decide), not the interdiff scope, not the nit cap and not either volume cap
+(`pr_feed.py` and the runner both exempt it). Mark the PR with `--verdict needs-human`; that is
+never a pass, so the round cap still counts it. Dry-run previews it exactly as a live post would.
+
 ```bash
 python3 $F post --pr <ID> --findings <review.json> --reviewed-commit <head_commit> [--live]
 python3 $F mark --pr <ID> --commit <head_commit> --verdict <v> --findings-count <n> --mode dry-run|live
@@ -306,6 +316,7 @@ End every tick with:
 PR sweep — <n> candidates · <n> reviewed · <n> already current · <n> skipped (<class>)
   PR <id>  request-changes  2 findings (1 critical)  depth deep (blast-radius)  [dry-run → preview.json]
   PR <id>  approve          0 findings  depth quick (small-diff)
+  PR <id>  needs-human      1 finding (1 critical, needs a human decision)  depth deep (shared-core)
 Queued for next tick: <id>, <id>
 Round-capped: <id> (<n> rounds, step-back previewed|posted) | none
 Spend: $x.xx / $<per_loop_usd_cap>
@@ -329,6 +340,7 @@ infer a depth from the diff size or from what you remember spawning. The `PR swe
 `Spend` line keep their exact shape.
 
 Name the skipped PRs and their failure class, **and name every withheld finding with its reason**.
+Name every human-gated finding too, with its `human_gate_reason`: it is the line a person reads first.
 A sweep that silently drops a PR — or quietly swallows a finding it decided not to post — is the
 failure mode that looks identical to a healthy one. The withheld list is also where you find out a
 rule is wrong: the same finding withheld for the same reason across many PRs means the rule needs

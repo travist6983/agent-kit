@@ -3,13 +3,14 @@ name: dev-code-review
 description: >-
   The extra review gate inside a defect/feature LOOP: judge a dev-fix diff against the target repo's
   guidelines + conventions ruleset AND for R3 symptom-masking, returning a machine verdict (approve /
-  request-changes) in review.json that the recipe routes on. Trigger for "review the candidate fix",
+  request-changes / needs-human) in review.json that the recipe routes on. Trigger for "review the candidate fix",
   "code-review the loop's diff", "is this fix masking the symptom", or as the review step
   dev-loop-hard-defect runs before ship. Scope: loop-produced fix diffs needing a machine-actionable
   verdict — for a general "review this diff / review my changes", use the built-in code-review skill
   instead. Six specialist lenses (frontend, backend, data, security, tests, perf) plus the masking
   judge, the fan-out scaled by a risk-based depth from the diff; findings validated by independent
-  validators at a quorum. Does NOT fix or ship.
+  validators at a quorum, except masking and critical findings, which only a unanimous reject drops
+  and a split sends to a human. Does NOT fix or ship.
 allowed-tools: Read, Glob, Grep, Bash, Agent, ToolSearch
 ---
 
@@ -63,7 +64,7 @@ diff and returns a verdict + findings.
 **Output:** `review.json`, written to **`<EVID_ROOT>/<KEY>/review.json`** (EVID_ROOT = `evidence.root`
 from stack.config, default `runs/`, overridable with `LOOPS_CFG__EVIDENCE__ROOT`; `<KEY>` matches
 `project.ticket_key_pattern`, e.g. `PROJ-123`; contract: `contracts/dev-code-review.json`)
-`{ verdict: approve | request-changes, findings: [...], masking: bool, critical, high, confidence }`,
+`{ verdict: approve | request-changes | needs-human, findings: [...], masking: bool, human_gate, critical, high, confidence }`,
 plus the human-readable `review.md` beside it (contract v1.5.0 adds `headline`, the count lead,
 and `brief`, the record of the reviewer brief; both are written by `scripts/review_brief.py
 finalize`, never by hand; contract v1.6.0 adds `validation`, the record of independent finding
@@ -146,8 +147,10 @@ validator brief is `references/specialists.md` "The validators". The sequence is
    another validator's votes, `candidates.json`, the specialist's confidence, or fix.json's
    `design_decisions` / `notes` / `confidence`. You never write a vote file yourself.
 5. `python3 scripts/finding_votes.py tally --dir <that dir> --review <draft review.json>` — keeps a
-   finding only with at least `quorum` confirms at or above the floor, and writes `findings`,
-   `critical`, `high`, `masking` and `validation` into the draft. **Exit 2 (`validation-unavailable`:
+   an ordinary finding only with at least `quorum` confirms at or above the floor, and writes
+   `findings`, `critical`, `high`, `masking`, `human_gate` and `validation` into the draft. A
+   masking-class or critical finding is different (§3a): only a unanimous reject drops it, and a
+   split keeps it with `human_gate: true`. **Exit 2 (`validation-unavailable`:
    fewer than `quorum` usable ballots) = no review.json; report `blocked: validation-unavailable` to
    the recipe.** Re-spawn a missing validator only for a transient reason.
 6. Only then: §2b harden blocks, the §4 verdict and the `summary`, on the kept findings; §5
@@ -192,10 +195,29 @@ cover; that rule is already enforced.
 The masking specialist judges: does the green depend on a swallowed exception / suppressed log / narrow
 special-case / disabled check / symptom-surface-only edit? The discriminating question is **"is the
 underlying state actually correct now, or just less visible?"** `masking` is set by `tally`, not by
-you: a symptom-masking finding kept at quorum sets `masking: true`; one the validators did not
-confirm at quorum leaves it false.
+you: a symptom-masking finding every returned ballot confirmed sets `masking: true`.
+
+### 3a. Protected findings: a mask or a critical is never voted down
+A masking-class finding (this judge's `symptom-masking` finding) and any finding with severity
+`critical` are too costly to lose on a 2-of-3 vote: one validator who sees a swallowed failure may
+be the only one who looked hard enough. So `tally` treats them differently (owner decision; it is
+not a loop-limits number and nothing turns it off):
+- They go on the ballot whatever the specialist's confidence.
+- Every returned ballot rejects it → dropped. This is the only way one leaves.
+- Every returned ballot confirms it at or above the floor → kept as a plain finding (a mask sets
+  `masking: true`, a hard block).
+- Anything else (one confirm, a `pre-existing` vote, a confirm below the floor, an abstain or an
+  unusable vote) → kept with `human_gate: true` and a `human_gate_reason` naming the split, the
+  review's `human_gate` is true, and `masking` stays false because the call is undecided.
+A split is a disagreement between judges about the fix, and another fix cycle cannot settle it, so
+the verdict goes to a person (§4). Fewer than `quorum` usable ballots is still
+`validation-unavailable`: a protected finding never makes an unvalidated review pass through.
 
 ### 4. Verdict (machine-actionable)
+- Any finding with `human_gate: true` → **`needs-human`**, whatever else the review holds. The
+  recipe escalates it to a human (`recipe_router.py` returns `escalate`, failure class
+  `review-needs-human`) and never re-fixes on it. validate.py DEV-REVIEW-G1 refuses a gated review
+  under any other verdict, and `masking: true` or `human_gate` under `approve`.
 - Any CRITICAL finding, or `masking: true` → **`request-changes`** (the recipe sends it back to `dev-fix`
   with the findings as new context).
 - HIGH findings → `request-changes` unless the recipe's policy accepts them with a note (in
@@ -223,6 +245,7 @@ The convergence checker reads this field:
 | review.json | Checker |
 |---|---|
 | `approve` + unresolved **CRITICAL** | **blocks** — the two cannot both be true |
+| `needs-human`, or any open `human_gate` finding | **escalates** (`needs-human`; under `approve` it is `contradictory`) |
 | `approve` + unresolved **HIGH**, no `resolved` | **warns** (`unverifiable-claim`) — probably bookkeeping, but unfalsifiable |
 | `approve` + findings marked `resolved: true` | clean |
 
@@ -253,9 +276,12 @@ posted threads humans called wrong or intentional, and a confirmed one becomes a
 `evals/cases` (`origin: human-review`) that the reviewer is then scored against.
 
 ## Success criteria & failure categories (declared up front)
-**Success:** a defensible verdict — every reported finding reached quorum among independent validators
-(`validation.status: independent`, or `no-candidates`), masking is caught, and the verdict is
-machine-actionable.
+**Success:** a defensible verdict — every reported ordinary finding reached quorum among independent
+validators (`validation.status: independent`, or `no-candidates`), no masking or critical finding was
+dropped without a unanimous reject, a split on one went to a human (`needs-human`), masking is
+caught, and the verdict is machine-actionable.
+**Failure class `review-needs-human`:** the validators split on a protected finding; the next step is
+a person, never a re-fix or a retry.
 **Failure categories (spec):** constraint violation; scope creep; missing test; risky pattern; **+ masking**.
 
 ## The eval set — how this reviewer is scored
@@ -277,7 +303,8 @@ canonical. A `harden` block is a draft in review.json, not a rule: `dev-harden` 
    don't flag; and what counts as real is decided by independent validators at a quorum, never by a
    self-check in the context that writes the verdict.
 2. **Catch the mask.** A green replay + a swallowed exception is `request-changes`, not approve (R3).
-3. **Machine verdict.** `approve`/`request-changes` so the recipe can act without a human.
+3. **Machine verdict.** `approve`/`request-changes` so the recipe can act without a human, and
+   `needs-human` for the one case it must not act alone: a split on a mask or a critical.
 4. **Defense in depth.** This is the diff-time masking check; `qa-verify` is the runtime one — both run.
 5. **Constraints come from config.** The guidelines file and the conventions ruleset are the only
    sources of "this repo's rules"; the reviewer never carries a framework's rules in its head.

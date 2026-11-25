@@ -84,6 +84,13 @@ the target surface and `infra-ship` embeds it in the pull-request body. See belo
   `review_convergence.stagnation_fix_cycles` fix cycles, `loop-limits.json`) → escalate through
   `dev-escalate` with the `stagnant` list and revisit the plan; never re-fix. On `approve`, write the
   recorder's `rounds_to_pass` as the `review_rounds_to_pass` metric through `kb metric`.
+- **A review verdict of `needs-human` stops the run.** It means the independent validators split
+  on a masking or critical finding: only a unanimous reject drops one, so `dev-code-review` keeps
+  it with `human_gate: true`. Record the round as usual (a `needs-human` round is never a pass),
+  then `recipe_router.py --stage code-review --result needs-human` returns `escalate` with
+  `failure_class: review-needs-human`: escalate through `dev-escalate` with each `human_gate`
+  finding and its `human_gate_reason` as the question. A disagreement between judges is a
+  person's call, not another implementation pass, so never re-fix on it and never stage past it.
 - **Repro/verify retries are not a feature concern.** `qa-repro` never runs; `qa-verify`'s retry
   cap on a feature is **1** (pass `recipe_router.py --max 1` at that gate) — a second failure is a
   plan problem, not a flake, and belongs with a human. A human may still *order* a re-verify; a

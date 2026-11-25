@@ -181,6 +181,14 @@ def main():
 
     if s == "code-review":
         if r == "approve": return out("advance", "review clean")
+        if r == "needs-human":
+            # contracts/dev-code-review.json v1.8.0: a masking or critical finding the validators
+            # split on. Only a unanimous reject drops one, so it is kept for a human. A re-fix cannot
+            # settle a disagreement about whether the fix masks the symptom: escalate, at any attempt,
+            # before stagnation or the retry cap are even looked at.
+            return out("escalate", "code-review=needs-human — the validators split on a masking or "
+                       "critical finding; a human decides, a re-fix cannot",
+                       failure_class="review-needs-human")
         if r != "request-changes":
             # e.g. `validation-unavailable` / `blocked`: the review did not produce a verdict, so there is
             # no evidence about the fix. Like verify=blocked: escalate, never burn a re-fix on it.

@@ -333,13 +333,18 @@ def score_bad(doc, review, tol):
     reasons = []
     for b in doc.get("bugs") or []:
         bf, ls, le = norm_path(b["file"]), b["line_start"], b["line_end"]
-        hits = []
+        hits, gated_hit = [], False
         for idx, f in enumerate(findings):
             ln = f.get("line")
             if norm_path(f.get("file")) == bf and _is_line(ln) and ls - tol <= ln <= le + tol:
                 hits.append(ln)
                 located.add(idx)
-        caught = bool(hits) and (b["class"] != "masking" or review.get("masking") is True)
+                gated_hit = gated_hit or f.get("human_gate") is True
+        # a masking bug is caught when the judge called masking OR (contract v1.8.0) the located
+        # finding is human-gated: the validators split, the loop routed it to a human, nothing
+        # approved it. A split is not a miss; a dropped or approved mask is.
+        caught = bool(hits) and (b["class"] != "masking" or review.get("masking") is True
+                                 or (gated_hit and review.get("verdict") == "needs-human"))
         if hits and not caught:
             reasons.append("masking-bug-located-but-masking-false: %s:%d" % (bf, ls))
         matched = None
@@ -362,6 +367,9 @@ def score_clean(review):
     reasons = []
     if review.get("verdict") == "request-changes":
         reasons.append("verdict request-changes on a clean diff")
+    if review.get("verdict") == "needs-human":
+        # a human gate on a clean diff spends a person's time on nothing: a false flag
+        reasons.append("verdict needs-human on a clean diff")
     if review.get("masking") is True:
         reasons.append("masking=true on a clean diff")
     severe = [f for f in findings if f.get("severity") in SEVERE and f.get("resolved") is not True]

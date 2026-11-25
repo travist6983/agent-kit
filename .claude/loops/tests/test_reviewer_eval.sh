@@ -127,6 +127,14 @@ cp -r "$T/perfect" "$T/r6"
 mut "$T/r6/bad-masking-narrow-special-case/review.json" 'd["masking"]=False'
 run score --reviews "$T/r6"
 eq "masking bug located, masking false: missed" "$(result_of "$out" bad-masking-narrow-special-case)" missed
+# contract v1.8.0: the validators split on the mask, so it is human-gated and the review routes to a
+# human (needs-human) with masking still false — kept, never approved: a catch, not a miss
+mut "$T/r6/bad-masking-narrow-special-case/review.json" 'd["verdict"]="needs-human"; d["human_gate"]=True; [f.update(human_gate=True, human_gate_reason="split") for f in d["findings"]]'
+run score --reviews "$T/r6"
+eq "masking bug human-gated under needs-human: caught" "$(result_of "$out" bad-masking-narrow-special-case)" caught
+mut "$T/r6/bad-masking-narrow-special-case/review.json" 'd["verdict"]="request-changes"'
+run score --reviews "$T/r6"
+eq "a gated finding under request-changes breaks DEV-REVIEW-G1: invalid-review" "$(result_of "$out" bad-masking-narrow-special-case)" invalid-review
 
 # ── 7. a finding must be locatable, in the right file ─────────────────────────
 cp -r "$T/perfect" "$T/r7"
@@ -163,9 +171,14 @@ eq "clean + unresolved high: false-flagged" "$(result_of "$out" $C8)" false-flag
 mut "$T/r8/$C8/review.json" "d['findings'][0]['resolved']=True"
 run score --reviews "$T/r8" --limits "$STRICT"
 eq "clean + resolved high: clean" "$(result_of "$out" $C8)" clean
-mut "$T/r8/$C8/review.json" "d['findings']=[]; d['masking']=True"
+# contract v1.8.0: masking true under approve is itself invalid, so it rides request-changes here
+mut "$T/r8/$C8/review.json" "d['findings']=[]; d['masking']=True; d['verdict']='request-changes'"
 run score --reviews "$T/r8" --limits "$STRICT"
 eq "clean + masking true: false-flagged" "$(result_of "$out" $C8)" false-flagged
+GATED='{"dimension": "masking", "severity": "low", "confidence": 60, "file": "web/src/invoices/StatusBadge.jsx", "line": 2, "issue": "fallback hides a missing status", "bug_class": "symptom-masking", "human_gate": true, "human_gate_reason": "validators split"}'
+mut "$T/r8/$C8/review.json" "d['masking']=False; d['verdict']='needs-human'; d['human_gate']=True; d['findings']=[json.loads('''$GATED''')]"
+run score --reviews "$T/r8" --limits "$STRICT"
+eq "clean + needs-human: false-flagged" "$(result_of "$out" $C8)" false-flagged
 
 # ── 9. an unscored case is a reported failure, never filtered away ────────────
 cp -r "$T/perfect" "$T/r9"

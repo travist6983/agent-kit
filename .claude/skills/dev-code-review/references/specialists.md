@@ -175,9 +175,12 @@ candidate itself**: it does not drop, merge, re-rate or reword one. Then:
    `ballot.json`, the sandbox path, the base and this section, and writes `votes/v<i>.json`
    (`{"validator": "v<i>", "votes": [{finding_id, verdict, confidence, reason, serious?}]}`).
 3. `python3 scripts/finding_votes.py tally --dir <that dir> --review <draft review.json>`. It writes
-   the kept findings, `critical`, `high`, `masking` and `validation` into the draft. A finding is
-   kept only when the specialist's confidence and at least `quorum` confirms are at or above the
-   floor. Never edit those fields by hand afterwards.
+   the kept findings, `critical`, `high`, `masking`, `human_gate` and `validation` into the draft.
+   An ordinary finding is kept only when the specialist's confidence and at least `quorum` confirms
+   are at or above the floor. A protected finding (masking-class or critical) is on the ballot
+   whatever its confidence and leaves only on a unanimous reject; a unanimous confirm keeps it
+   plain, any split keeps it with `human_gate: true` (verdict `needs-human`). Never edit those
+   fields by hand afterwards.
 
 **Each validator**, for every finding on the ballot:
 1. Re-reads the code at `file:line` in the sandbox and confirms the line is in the diff's added or

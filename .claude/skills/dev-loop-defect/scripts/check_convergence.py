@@ -247,6 +247,24 @@ def check_contradictions(verify, regression, review, flags):
                       f"{len(opened)} finding(s) reported without independent validation (no "
                       "validation block or status != independent): the reviewer validated its "
                       "own findings", "warn")
+    # 2c. A review that needs a human (dev-code-review v1.8.0): the validators split on a masking or
+    # critical finding, and only a unanimous reject drops one. The review is not a finding about
+    # the fix that a re-fix can answer: escalate. Under `approve` the two claims contradict.
+    if review:
+        findings = review.get("findings") if isinstance(review.get("findings"), list) else []
+        gated = [f for f in findings if isinstance(f, dict) and f.get("resolved") is not True
+                 and f.get("human_gate") is True]
+        if gated or review.get("human_gate") is True or review.get("verdict") == "needs-human":
+            if review.get("verdict") == "approve":
+                flags.add("contradictory", "review",
+                          f"verdict=approve while {len(gated)} masking/critical finding(s) need a "
+                          "human decision (human_gate) — a split protected finding never approves",
+                          "escalate")
+            else:
+                flags.add("needs-human", "review",
+                          f"{len(gated)} masking/critical finding(s) split the validators "
+                          f"(verdict={review.get('verdict')!r}) — only a unanimous reject drops one, "
+                          "so a human decides; never re-fix on it", "escalate")
     # 3. Masking suspected but the review approved — the R3 defence-in-depth disagreeing.
     if verify and review:
         if verify.get("masking_suspected") is True and review.get("verdict") == "approve":

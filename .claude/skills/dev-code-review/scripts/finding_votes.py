@@ -30,18 +30,39 @@ Verbs (each prints ONE JSON object on stdout):
          suggestion, fingerprint and harden stripped so a validator forms its own number.
          exit 0 · exit 2 bad input / limits
   tally  --dir DIR --review DRAFT [--limits PATH] [--derive-verdict]
-         counts the returned ballots. A finding is kept iff the specialist confidence >= floor AND
-         >= quorum returned ballots vote confirm at confidence >= floor. Rewrites DRAFT atomically:
-         findings (kept, plus earlier resolved:true ones), critical, high, masking, validation; pops
-         headline + brief (review_brief.py finalize rewrites them). Fewer than quorum returned
-         ballots on a non-empty ballot: exit 2 `validation-unavailable`, DRAFT untouched.
-         --derive-verdict (eval replay only) also sets the strict verdict.
+         counts the returned ballots. An ordinary finding is kept iff the specialist confidence >=
+         floor AND >= quorum returned ballots vote confirm at confidence >= floor. A PROTECTED
+         finding (see below) is dropped only by a unanimous reject; a unanimous confirm keeps it as
+         an ordinary finding; anything else keeps it with human_gate: true. Rewrites DRAFT
+         atomically: findings (kept, plus earlier resolved:true ones), critical, high, masking,
+         human_gate, validation; pops headline + brief (review_brief.py finalize rewrites them).
+         Fewer than quorum returned ballots on a non-empty ballot: exit 2
+         `validation-unavailable`, DRAFT untouched. --derive-verdict (eval replay only) also sets
+         the strict verdict: needs-human when a finding is human-gated, else request-changes on a
+         kept masking / critical / high finding, else approve.
          exit 0 · exit 2 bad input / limits / validation-unavailable
   check  --dir DIR --review review.json [--limits PATH]
          read-only re-derivation: exit 0 consistent · 1 {"ok": false, "violations": [...]} ·
          2 uncheckable (the same conditions as tally)
 
 --limits defaults to stack.config `limits_file`, else .claude/loops/loop-limits.json.
+
+PROTECTED FINDINGS (owner decision, not a setting). A masking-class finding (the R3 judge's
+symptom-masking finding: bug_class symptom-masking or dimension masking) and any finding with
+severity critical cannot be voted down by the quorum. They go on the ballot whatever the
+specialist's confidence, and among the returned ballots:
+  every ballot rejects it                        -> dropped (the only way it leaves)
+  every ballot confirms it at >= the floor       -> kept as today (masking true = hard block)
+  anything else (one confirm, a pre-existing vote,
+  a below-floor confirm, an abstain or an
+  unusable vote on it)                           -> kept with human_gate: true + human_gate_reason,
+                                                    review human_gate: true; the verdict is
+                                                    needs-human and the recipe escalates to a
+                                                    human, never re-fixes.
+A gated masking finding does not set masking true: on a split the masking call is undecided, and
+undecided is a human's to make. There is deliberately no loop-limits key for this rule: a number
+that could be turned off would reopen the hole it closes. The quorum, validator count and floor
+still apply to every other finding and are still tunable by replay.
 
 HONEST LIMIT: the reviewer's own `tally` call is the enforcement point. `check` exists and is
 tested, but no recipe, runner, dev-pre-pr step or ship gate calls it yet; check_convergence.py only
@@ -65,7 +86,7 @@ VERDICTS = {"confirm", "reject", "pre-existing"}
 BALLOT_KEYS = ("finding_id", "dimension", "severity", "file", "line", "bug_class", "instances",
                "issue", "rule_id")
 VALIDATION_FIELDS = ("status", "validators", "validators_returned", "quorum", "confidence_floor",
-                     "candidates", "kept", "rejected", "split")
+                     "candidates", "kept", "rejected", "split", "human_gated")
 
 
 class Fatal(Exception):
@@ -167,6 +188,21 @@ def finding_id(c):
     return "F-" + hashlib.sha1(key.encode("utf-8")).hexdigest()[:10]
 
 
+def is_protected(c):
+    """Masking-class or critical: dropped only by a unanimous reject (see the module docstring)."""
+    return c.get("bug_class") == "symptom-masking" or c.get("dimension") == "masking" \
+        or str(c.get("severity") or "").lower() == "critical"
+
+
+def is_masking(c):
+    return c.get("bug_class") == "symptom-masking" or c.get("dimension") == "masking"
+
+
+def on_ballot(c, floor):
+    conf = conf_of(c)
+    return is_protected(c) or (conf is not None and conf >= floor)
+
+
 def conf_of(c):
     v = c.get("confidence")
     return v if _int(v) else None
@@ -227,7 +263,7 @@ def cmd_ballot(a):
     doc = read_candidates(a.dir)
     survivors, removed = dedup(doc["findings"])
     floor = lim["confidence_floor"]
-    on = [c for c in survivors if conf_of(c) is not None and conf_of(c) >= floor]
+    on = [c for c in survivors if on_ballot(c, floor)]
     n = lim["validators"] if on else 0
     vote_files = [f"votes/v{i}.json" for i in range(1, n + 1)]
     ballot = {"validators": n, "quorum": lim["quorum"], "confidence_floor": floor,
@@ -240,7 +276,8 @@ def cmd_ballot(a):
     atomic_write(os.path.join(a.dir, "ballot.json"), dump(ballot))
     return emit({"status": "ballot-ready" if on else "no-candidates", "validators": n,
                  "quorum": lim["quorum"], "confidence_floor": floor, "candidates": len(survivors),
-                 "on_ballot": len(on), "below_floor": len(survivors) - len(on), "deduped": removed,
+                 "on_ballot": len(on), "below_floor": len(survivors) - len(on),
+                 "protected": sum(1 for c in on if is_protected(c)), "deduped": removed,
                  "ballot": os.path.join(a.dir, "ballot.json"), "vote_files": vote_files}, 0)
 
 
@@ -258,8 +295,7 @@ def read_ballot(d, cands):
     if any(not isinstance(i, str) or i != finding_id(c) for i, c in zip(ids, cands)) \
             or len(set(ids)) != len(ids):
         raise Fatal("candidates.json carries no or stale finding_id values (run `ballot` first)")
-    want = {c["finding_id"] for c in cands
-            if conf_of(c) is not None and conf_of(c) >= b["confidence_floor"]}
+    want = {c["finding_id"] for c in cands if on_ballot(c, b["confidence_floor"])}
     have = [f.get("finding_id") for f in b["findings"]]
     if set(have) != want or len(have) != len(set(have)):
         raise Fatal("ballot.json does not match candidates.json (run `ballot` again)")
@@ -346,7 +382,27 @@ def derive(d, lim, limits_src, draft_findings):
                  "pre_existing": sum(1 for v in vs if v["verdict"] == "pre-existing"),
                  "cast": len(returned)}
         sc = conf_of(c)
-        if sc is not None and sc >= floor and confirm >= quorum:
+        if is_protected(c):
+            cast = len(returned)
+            if votes["reject"] == cast:
+                continue  # a unanimous reject: the only way a protected finding leaves
+            f = dict(c)
+            f["votes"] = votes
+            f.pop("human_gate", None)
+            f.pop("human_gate_reason", None)
+            if confirm != cast:
+                abstain = cast - len(vs)
+                low = sum(1 for v in vs if v["verdict"] == "confirm" and v["confidence"] < floor)
+                kind = "masking" if is_masking(c) else "critical"
+                f["human_gate"] = True
+                f["human_gate_reason"] = (
+                    f"validators split on a protected ({kind}) finding: {confirm} confirm"
+                    f"{f' (+{low} below the floor {floor})' if low else ''}, {votes['reject']} reject, "
+                    f"{votes['pre_existing']} pre-existing, {abstain} abstain or unusable of {cast} "
+                    "returned ballot(s). Only a unanimous reject drops a masking or critical finding "
+                    "and only a unanimous confirm makes it a plain block, so a human decides.")
+            kept.append(f)
+        elif sc is not None and sc >= floor and confirm >= quorum:
             f = dict(c)
             f["votes"] = votes
             kept.append(f)
@@ -360,14 +416,15 @@ def derive(d, lim, limits_src, draft_findings):
     kept_ids = {f["finding_id"] for f in kept}
     carried = [f for f in draft_findings if isinstance(f, dict) and f.get("resolved") is True
                and f.get("finding_id") not in kept_ids]
-    masking = any(f.get("bug_class") == "symptom-masking" or f.get("dimension") == "masking"
-                  for f in kept)
+    masking = any(is_masking(f) and f.get("human_gate") is not True for f in kept)
+    gated = sum(1 for f in kept if f.get("human_gate") is True)
     validation = {"status": "independent" if ballot["findings"] else "no-candidates",
                   "validators": n, "validators_returned": len(returned), "quorum": quorum,
                   "confidence_floor": floor, "candidates": len(cands), "kept": len(kept),
                   "rejected": len(cands) - len(kept), "split": rejected_split,
+                  "human_gated": gated,
                   "source": f"{limits_src}#review_validation"}
-    res = {"validation": validation, "masking": masking,
+    res = {"validation": validation, "masking": masking, "human_gate": gated > 0,
            "critical": sum(1 for f in kept if f.get("severity") == "critical"),
            "high": sum(1 for f in kept if f.get("severity") == "high"),
            "missing": missing, "warnings": warnings, "noticed": noticed}
@@ -395,12 +452,14 @@ def cmd_tally(a):
     draft["critical"] = res["critical"]
     draft["high"] = res["high"]
     draft["masking"] = res["masking"]
+    draft["human_gate"] = res["human_gate"]
     draft["validation"] = res["validation"]
     draft.pop("headline", None)
     draft.pop("brief", None)
     if a.derive_verdict:
         blocking = res["masking"] or res["critical"] or res["high"]
-        draft["verdict"] = "request-changes" if blocking else "approve"
+        draft["verdict"] = "needs-human" if res["human_gate"] else (
+            "request-changes" if blocking else "approve")
         if not isinstance(draft.get("summary"), str) or not draft["summary"]:
             draft["summary"] = "Verdict derived by finding_votes.py tally --derive-verdict (eval replay)."
     atomic_write(a.review, dump(draft))
@@ -409,6 +468,7 @@ def cmd_tally(a):
                  "validators_returned": v["validators_returned"], "quorum": v["quorum"],
                  "confidence_floor": v["confidence_floor"], "candidates": v["candidates"],
                  "kept": v["kept"], "rejected": v["rejected"], "split": v["split"],
+                 "human_gated": v["human_gated"], "human_gate": res["human_gate"],
                  "masking": res["masking"], "critical": res["critical"], "high": res["high"],
                  "missing_validators": res["missing"], "warnings": res["warnings"],
                  "noticed_candidates": res["noticed"]}, 0)
@@ -447,6 +507,12 @@ def cmd_check(a):
         present.add(fid)
         if f.get("votes") != kept_by_id[fid]["votes"]:
             add("votes-tampered", f"{fid}: votes {f.get('votes')!r} != {kept_by_id[fid]['votes']!r}")
+        want_gate = kept_by_id[fid].get("human_gate") is True
+        if (f.get("human_gate") is True) != want_gate:
+            add("human-gate-mismatch", f"{fid}: human_gate {f.get('human_gate')!r} but the ballots say "
+                                       f"{want_gate!r}")
+        if want_gate and f.get("withheld") is True:
+            add("human-gate-withheld", f"{fid} needs a human decision and is withheld")
     for fid in sorted(set(kept_by_id) - present):
         add("validated-finding-missing", f"{fid} reached quorum but is not in findings")
     if doc.get("masking") != res["masking"]:
@@ -455,8 +521,15 @@ def cmd_check(a):
         n = sum(1 for f in opened if f.get("severity") == sev)
         if doc.get(sev) != n:
             add("counts-wrong", f"{sev} {doc.get(sev)!r} but {n} open {sev} finding(s)")
-    if doc.get("verdict") == "approve" and (res["masking"] or res["critical"]):
-        add("approve-with-blocking", "verdict approve while a kept finding is masking or critical")
+    if doc.get("human_gate") is not res["human_gate"]:
+        add("human-gate-mismatch", f"review human_gate {doc.get('human_gate')!r} but the ballots say "
+                                   f"{res['human_gate']!r}")
+    if doc.get("verdict") == "approve" and (res["masking"] or res["critical"] or res["human_gate"]):
+        add("approve-with-blocking", "verdict approve while a kept finding is masking, critical or "
+                                     "needs a human")
+    if res["human_gate"] and doc.get("verdict") != "needs-human":
+        add("human-gate-not-routed", f"a finding needs a human decision but verdict is "
+                                     f"{doc.get('verdict')!r} (needs-human)")
     if v:
         return emit({"ok": False, "violations": v}, 1)
     return emit({"ok": True, "status": want["status"], "kept": want["kept"]}, 0)

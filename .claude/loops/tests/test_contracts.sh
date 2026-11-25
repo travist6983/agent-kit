@@ -68,6 +68,12 @@ must_fail "$C/dev-code-review.json" "$C/samples/EXAMPLE-bad-review-brief/review.
 # with fewer confirms than validation.quorum must FAIL (validate.py DEV-REVIEW-V1)
 must_pass "$C/dev-code-review.json" "$C/samples/EXAMPLE-review-validated/review.json"
 must_fail "$C/dev-code-review.json" "$C/samples/EXAMPLE-bad-review-validation/review.json"
+# dev-code-review v1.8.0 (protected findings): real finding_votes.py tally output where the masking
+# finding split 1 confirm / 2 reject (kept, human_gate, verdict needs-human), a 3/3 critical and a
+# 2/3 medium passes; the same split carried as a plain finding under request-changes, with no human
+# gate, must FAIL (validate.py DEV-REVIEW-G1)
+must_pass "$C/dev-code-review.json" "$C/samples/EXAMPLE-review-human-gate/review.json"
+must_fail "$C/dev-code-review.json" "$C/samples/EXAMPLE-bad-review-human-gate/review.json"
 # dev-code-review v1.7.0 (review depth): real review_depth.py record + review_brief.py finalize
 # output: a one-line copy change reviewed quick (one combined pass, all six lenses) and a migration
 # reviewed deep (risk_files blast-radius, six passes + security-risk-paths) pass; quick claimed on
