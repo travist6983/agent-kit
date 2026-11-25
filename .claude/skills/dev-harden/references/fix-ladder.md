@@ -85,6 +85,28 @@ code. The paragraph must include one concrete example of the failure ("Wrong: ..
 because a rule without an example is the kind of prose agents already skim past. The artifact
 carries the text; a human decides whether it goes into the guidelines.
 
+## Review misses
+
+A review miss (a prod-regressed run, or a reviewer-eval case the reviewer missed or only partly
+caught) arrives through `collect_misses.py` with a `miss` block and an empty `lacked`. Before
+placing it, answer one question: what did the reviewer not have in front of it? The answer is
+what the next review needs, and validate.py (DEV-HARDEN-M1) refuses a miss artifact that does not
+say it in `miss.lacked {kind, statement}`.
+
+| kind | the reviewer lacked | example (neutral domain) | the walk starts at |
+|---|---|---|---|
+| `check` | a rule, type or test that would have failed | an Invoices total rounded in two places; no rule bans the second rounding call | structure, then static |
+| `context` | the code it needed, outside the diff and the context pack | the fix scoped one invoice query helper; a second caller that builds the query by hand was not shown | structure; else prose aimed at the context pack or the reviewer brief |
+| `expectation` | the intended behaviour, written where it reads | nobody wrote down that an archived Project keeps its Members read-only | verification (`kb propose`) |
+| `instruction` | being told to look | the review brief for Workspaces never says to check the scope filter on new queries | prose, naming the destination file (target guidelines, conventions `review_brief`, or a skill reference) in the guideline's first line |
+| `nothing` | nothing: the file, the brief and a matching rule were all there | a narrow special case approved despite the masking rule | `declined`; suggest the run as an eval case (`reviewer_eval.py candidates`) |
+
+The kind tells you where to start, never which bands to skip: a miss walks the same ladder, with
+the same `why_not_higher` duty for every band above the one it lands on. `nothing` must end
+`declined` (no check or prose is justified when nothing was missing), and declining a miss that
+did lack something needs a `decline_reason`. A human applies every outcome, including any edit to
+a guidelines file, the review brief or a skill.
+
 ## Declining
 
 `declined` is a real answer. Decline when the evidence is thin (one occurrence, no human ask), when

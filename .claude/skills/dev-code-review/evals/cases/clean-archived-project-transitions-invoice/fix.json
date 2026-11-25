@@ -1,0 +1,13 @@
+{
+  "key": "PROJ-206",
+  "status": "fixed",
+  "root_cause": "Archiving a Project never transitioned its open Invoices, so an Invoice for an archived Project still showed as Due.",
+  "is_root_cause": true,
+  "confidence": 90,
+  "failure_class": null,
+  "files_changed": [
+    "api/src/projects/archiveProject.js",
+    "api/src/invoices/invoiceStore.js",
+    "api/src/projects/__tests__/archiveProject.test.js"
+  ]
+}

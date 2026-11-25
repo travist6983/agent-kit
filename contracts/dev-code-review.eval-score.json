@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "loops/contracts/dev-code-review.eval-score.json",
+  "title": "dev-code-review eval score.json — the reviewer scored against its eval set",
+  "version": "1.0.0",
+  "status": "proposed",
+  "description": "The output of reviewer_eval.py score: recall over the confirmed bugs in the bad cases and the harmful false-flag rate over the clean cases, from one review.json per case. Zero-LLM and a pure function of (case set, reviews, loop-limits reviewer_eval): no timestamp, no model field, keys sorted, so two scores over the same inputs are byte-identical. Not written through contracts/emit.py (emit stamps timing); the scorer validates against this contract itself before printing. Two scores are comparable only when case_set.sha256 matches.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "recall", "false_flag_rate", "bad", "clean", "thresholds", "case_set", "cases"],
+  "properties": {
+    "status": { "type": "string", "enum": ["pass", "fail", "incomplete"], "description": "The one branch field. incomplete = some case has no valid review, or a denominator is zero (exit 2); fail = below a bar (exit 1); pass = at or above both (exit 0)." },
+    "recall": { "type": ["number", "null"], "description": "Caught bugs / all confirmed bugs in bad cases. Bugs of unscored cases count as missed. Null when there are no bugs." },
+    "false_flag_rate": { "type": ["number", "null"], "description": "False-flagged clean cases / clean cases with a valid review. Null when that denominator is 0." },
+    "bad": {
+      "type": "object", "additionalProperties": false,
+      "required": ["cases", "bugs", "caught", "missed"],
+      "properties": {
+        "cases": { "type": "integer", "minimum": 0 },
+        "bugs": { "type": "integer", "minimum": 0 },
+        "caught": { "type": "integer", "minimum": 0 },
+        "missed": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "clean": {
+      "type": "object", "additionalProperties": false,
+      "required": ["cases", "false_flagged", "noise_findings"],
+      "properties": {
+        "cases": { "type": "integer", "minimum": 0 },
+        "false_flagged": { "type": "integer", "minimum": 0 },
+        "noise_findings": { "type": "integer", "minimum": 0, "description": "Findings of any severity on clean cases. Reported, not gated." }
+      }
+    },
+    "thresholds": {
+      "type": "object", "additionalProperties": false,
+      "required": ["min_recall", "max_false_flag_rate", "line_tolerance", "source"],
+      "properties": {
+        "min_recall": { "type": "number" },
+        "max_false_flag_rate": { "type": "number" },
+        "line_tolerance": { "type": "integer", "minimum": 0 },
+        "source": { "type": "string", "description": "Where the numbers came from: loop-limits.json reviewer_eval." }
+      }
+    },
+    "case_set": {
+      "type": "object", "additionalProperties": false,
+      "required": ["count", "sha256"],
+      "properties": {
+        "count": { "type": "integer", "minimum": 0 },
+        "sha256": { "type": "string", "description": "sha256 over each case in id order: id NUL case.json bytes NUL change.diff bytes." }
+      }
+    },
+    "per_class": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["class", "bugs", "caught"],
+        "properties": {
+          "class": { "type": "string" },
+          "bugs": { "type": "integer", "minimum": 0 },
+          "caught": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "kind", "result"],
+        "properties": {
+          "id": { "type": "string" },
+          "kind": { "type": "string", "enum": ["bad", "clean"] },
+          "result": { "type": "string", "enum": ["caught", "partial", "missed", "clean", "false-flagged", "no-review", "invalid-review"] },
+          "verdict": { "type": ["string", "null"] },
+          "masking": { "type": ["boolean", "null"] },
+          "bugs": {
+            "type": "array",
+            "items": {
+              "type": "object", "additionalProperties": false,
+              "required": ["file", "line_start", "line_end", "class", "caught", "matched_line"],
+              "properties": {
+                "file": { "type": "string" },
+                "line_start": { "type": "integer", "minimum": 1 },
+                "line_end": { "type": "integer", "minimum": 1 },
+                "class": { "type": "string" },
+                "caught": { "type": "boolean" },
+                "matched_line": { "type": ["integer", "null"] }
+              }
+            }
+          },
+          "unmatched_findings": { "type": "integer", "minimum": 0, "description": "Findings on a bad case that match no confirmed bug. Reported, never penalised." },
+          "unlocatable_findings": { "type": "integer", "minimum": 0, "description": "Findings with no integer line; they cannot count as a catch." },
+          "reasons": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "reasons": { "type": "array", "items": { "type": "string" }, "description": "Why the status is fail or incomplete: each breached bar, each unscored case id." }
+  }
+}

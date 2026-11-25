@@ -52,6 +52,33 @@
         "The guideline is not written to any guidelines file",
         "harden.json passes validate.py (DEV-HARDEN-L1)"
       ]
+    },
+    {
+      "id": 5,
+      "name": "prod-miss-says-what-the-reviewer-lacked",
+      "prompt": "PROJ-7 regressed in prod after the review approved it (runs/PROJ-7/prod-verify.json says prod-regressed, the invoice list leaked across workspaces through a second caller the fix never touched). run harden.",
+      "expected_output": "Runs collect_misses.py --append first: one review-miss entry, review-miss-prod-proj-7, with miss.review_verdict approve and lacked null. Then collect_candidates.py shows it ready at one occurrence. Reads miss.had, review.json, fix.json and context.json, finds the second caller was neither in the diff nor in the context pack, and fills miss.lacked {kind: context, statement}. Walks the ladder from structure (route every invoice listing through the one scoped helper) and drafts a ticket, or records why structure fails before dropping a band. Emits harden.json through emit.py with review-miss in sources. Writes nothing to conventions.json, a guidelines file or a skill.",
+      "files": [],
+      "assertions": [
+        "collect_misses.py ran before collect_candidates.py",
+        "harden.json has correction.sources containing review-miss and miss.lacked with a kind and a non-empty statement",
+        "why_not_higher has an entry for every band above the chosen one",
+        "Nothing was written to conventions.json, a guidelines file or any skill",
+        "harden.json passes validate.py (DEV-HARDEN-L1 and DEV-HARDEN-M1)"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "eval-miss-nothing-lacked-declines",
+      "prompt": "the reviewer eval score at /tmp/score.json shows one bad case missed (bad-masking-narrow-special-case) and one case with no review yet. the reviewer had the file, the brief and a matching masking rule in front of it. harden it.",
+      "expected_output": "collect_misses.py --eval-score /tmp/score.json --append queues review-miss-eval-bad-masking-narrow-special-case and reports the unreviewed case under not_scored, not as a miss. The skill finds nothing was lacking, fills miss.lacked {kind: nothing, statement}, and ends declined with a decline_reason, proposing no rule or guideline and suggesting the run stays in the eval set. A second collect_misses.py run does not re-queue the decided case; it lists it under still_missed_after_decision.",
+      "files": [],
+      "assertions": [
+        "harden.json status is declined, miss.lacked.kind is nothing and decline_reason is set",
+        "No rule, guideline or expectation is proposed",
+        "A second collect_misses.py run does not re-queue the case",
+        "The unscored (no-review) case is reported, not treated as a miss"
+      ]
     }
   ]
 }

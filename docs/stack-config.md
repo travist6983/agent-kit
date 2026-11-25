@@ -58,7 +58,7 @@ Schema version of this file, `"1.0.0"`. Bump only when keys change meaning.
 | `unit_test_command` | `null` | Same. |
 | `test_report.format` | `"junit"` | Format of the machine-readable results `qa-regression` reads after `unit_test_command`. |
 | `test_report.glob` | `"**/test-results/*.xml"` | Where to find them, relative to `app.repo_dir`. |
-| `conventions_file` | `".claude/loops/conventions.json"` | The standards ruleset `dev-pre-pr` scans added lines with (format: `examples/conventions/README.md`). |
+| `conventions_file` | `".claude/loops/conventions.json"` | The standards ruleset `dev-pre-pr` scans added lines with (format: `examples/conventions/README.md`). It also holds the optional per-area reviewer brief `dev-code-review` reads (`review_brief`, beside `rules`); that is a conventions key, not a stack.config key, and no stack.config key was added for it. |
 | `repo_guidelines_file` | `"CLAUDE.md"` | The target repo's own working agreement; `dev-fix` and `dev-code-review` read it for constraints. Relative to `app.repo_dir`. |
 
 ## `adapters` — one provider per role

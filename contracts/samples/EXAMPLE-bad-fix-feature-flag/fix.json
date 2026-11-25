@@ -1,0 +1,13 @@
+{
+  "status": "fixed",
+  "key": "PROJ-451",
+  "root_cause": "The flag-gated path recomputes the due date from the completion date.",
+  "is_root_cause": true,
+  "masking_suspected": false,
+  "confidence": 80,
+  "failure_class": null,
+  "feature_flag": {
+    "name": "   ",
+    "off_restores_previous": true
+  }
+}

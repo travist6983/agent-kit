@@ -204,6 +204,28 @@ print(any('a/c.js' in json.dumps(t) for t in d['comments']))" 2>/dev/null)
   && ok "withheld: kept in the report, never turned into a comment" \
   || bad "withheld: wrong handling" "threads=$TC withheld=$WC leaked=$ANY"
 
+# --- 5b2. a human-gated finding (dev-code-review v1.8.0) is previewed as needing a human decision
+# and the volume cap never withholds it, even when it is the least severe finding on the PR ------
+cat > "$TMP/review-gate.json" <<'JSON'
+{"verdict":"needs-human","human_gate":true,"findings":[
+  {"severity":"high","title":"H1","file":"a/h1.js","line":3,"summary":"s"},
+  {"severity":"high","title":"H2","file":"a/h2.js","line":4,"summary":"s"},
+  {"severity":"low","title":"Catch hides the failed send","file":"a/mask.js","line":5,"summary":"s",
+   "dimension":"masking","bug_class":"symptom-masking","human_gate":true,
+   "human_gate_reason":"validators split on a protected (masking) finding: 1 confirm, 2 reject"}]}
+JSON
+LOOP_PR_MAX_THREADS=1 python3 "$F" post --pr "$PR" --findings "$TMP/review-gate.json" --out "$TMP/pg.json" > "$TMP/pg-res.json" 2>&1
+GATE=$(python3 -c "
+import json;d=json.load(open('$TMP/pg.json'))
+c=[t for t in d['comments'] if t.get('path')=='a/mask.js']
+print(len(c)==1 and 'Needs a human decision' in c[0]['body'] and '1 confirm, 2 reject' in c[0]['body'])" 2>/dev/null)
+WG=$(python3 -c "
+import json;d=json.load(open('$TMP/pg-res.json'))
+print(any(w.get('file')=='a/mask.js' for w in d.get('withheld') or []))" 2>/dev/null)
+[ "$GATE" = "True" ] && [ "$WG" = "False" ] \
+  && ok "human gate: previewed as needing a human decision, never withheld by the volume cap" \
+  || bad "human gate: wrong handling" "previewed=$GATE withheld=$WG $(head -c 400 "$TMP/pg-res.json")"
+
 # --- 5c. the duplicate guard recognises our own comments by marker, via the adapter --------
 MARKER=$(python3 -c "import sys; sys.path.insert(0,'$HERE'); import pr_feed; print(pr_feed.BOT_MARKER)")
 python3 "$CLI" vcs_host post_review_comment --json "{\"id\": \"$PR\", \"path\": \"a/b.js\", \"line\": 7, \"body\": \"**HIGH: x**\n\n_${MARKER} - reply._\"}" >/dev/null

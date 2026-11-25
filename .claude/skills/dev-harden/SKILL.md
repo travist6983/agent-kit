@@ -3,12 +3,14 @@ name: dev-harden
 description: >-
   Turn a correction that keeps coming back into the cheapest check that FAILS, instead of one more
   line of prose an agent can skim past. Runs between loop runs, never inside one. Collects the
-  drafted rules dev-code-review attached to findings plus the harden queue qa-dream and humans
-  append, keeps the ones that recurred, walks the fix ladder top down (structure, static rule,
-  verification, prose), proves a conventions rule against fixtures with the real pre-PR scanner,
-  counts the copies already in the repo, and writes one harden.json per correction. Trigger for
-  "harden this", "turn that correction into a check", "make that a lint rule", "stop me
-  correcting this by hand", "run harden", or as the scheduled job after the dream. PROPOSES only:
+  drafted rules dev-code-review attached to findings, the harden queue qa-dream and humans append,
+  and review misses (prod-regressed runs and missed reviewer-eval cases), keeps what recurred or
+  was confirmed, says what the reviewer lacked for a miss, walks the fix ladder top down
+  (structure, static rule, verification, prose), proves a rule with the real pre-PR scanner,
+  counts the copies already in the repo, and writes one harden.json per correction.
+  Trigger for "harden this", "turn that correction into a check", "make that a lint rule", "the
+  review missed this", "why did the reviewer miss it", "run harden", or as the scheduled job
+  after the dream. PROPOSES only:
   a human applies a rule with rule_probe.py --apply --by. Does NOT edit the target repo, the
   conventions file, guidelines or skills, and never blesses an expectation.
 allowed-tools: Read, Write, Glob, Grep, Bash
@@ -29,10 +31,12 @@ The full loop, so each piece stays in its own skill:
    never writes a rule.
 2. **qa-dream and humans queue.** A fix lesson that recurs, or a human saying "stop making me
    correct this", becomes one line in `.claude/loops/harden-queue.jsonl`.
-3. **dev-harden places and proves** (this skill), between runs.
-4. **A human applies.** `rule_probe.py --apply --by NAME` is the only path into
+3. **A miss is queued.** A prod-regressed run, or a reviewer-eval case the reviewer missed, becomes
+   a queue line with a `miss` block through `collect_misses.py` (this skill's own collector).
+4. **dev-harden places and proves** (this skill), between runs.
+5. **A human applies.** `rule_probe.py --apply --by NAME` is the only path into
    `conventions.json`, the same way `kb bless --by` is the only path to a blessed expectation.
-5. **dev-pre-pr enforces.** From the next run the standards scan blocks the mistake, and the
+6. **dev-pre-pr enforces.** From the next run the standards scan blocks the mistake, and the
    rule's `fix` text is what the agent reads when it re-fixes.
 
 The idea of ranking fixes from structure down to prose, and of encoding lessons in structure,
@@ -43,7 +47,7 @@ comes from pstack (MIT, Lauren Tan). See `references/fix-ladder.md`.
 **Success:** every ready candidate ends with exactly one `harden.json` that validates against
 `contracts/dev-harden.json`, sits at the highest band that can really catch the mistake, and
 records why every higher band was rejected. A proposed rule passed `rule_probe.py` with its
-fixtures and carries its inventory count.
+fixtures and carries its inventory count. A miss artifact names what the reviewer lacked.
 
 **Failure classes (classify before adapting):**
 - `prose-by-default`: proposed a guideline while a rule, a structural change or a verification
@@ -55,6 +59,9 @@ fixtures and carries its inventory count.
   fixture that proves it, or drop to a lower band.
 - `broken-windows-ignored`: proposed a rule while existing copies remain and no cleanup ticket
   was drafted. The gate only reads added lines, so agents keep imitating the old copies.
+- `miss-unexplained`: placed a review miss without stating what the reviewer lacked, or wrote
+  `nothing` to skip the work. validate.py's DEV-HARDEN-M1 refuses the artifact; go back to the
+  evidence and name the gap.
 - `self-applied`: wrote to `conventions.json` or a guidelines file directly. Never; that is the
   human's step.
 
@@ -62,8 +69,9 @@ fixtures and carries its inventory count.
 
 It does not edit the target repo, `conventions.json`, any guidelines file or any skill. It does
 not file tickets (it drafts them), does not bless expectations (it may propose one through
-qa-kb), and does not apply a rule. It reads review artifacts and the queue, runs the probe, and
-writes `<evid_root>/harden/<fingerprint>/` and nothing else.
+qa-kb), and does not apply a rule. It reads review artifacts, prod-verify results, eval scores and
+the queue, runs the probe, and writes `<evid_root>/harden/<fingerprint>/`. The only other write is
+appending miss entries to its own inbox, the harden queue, and only with `collect_misses.py --append`.
 
 ## Inputs
 
@@ -71,7 +79,9 @@ writes `<evid_root>/harden/<fingerprint>/` and nothing else.
 |---|---|
 | evidence root | `evidence.root` in stack.config (default `runs/`), or `--evid-root` |
 | review harden blocks | `<evid_root>/*/review.json`, findings with a `harden` block (dev-code-review v1.2.0) |
-| the queue | `.claude/loops/harden-queue.jsonl` (fields: fingerprint, source, ref, statement, band?, candidate_rule?) |
+| prod misses | `<evid_root>/*/prod-verify.json` with verdict `prod-regressed` (infra-prod-verify) |
+| eval misses | a reviewer-eval `score.json` (`reviewer_eval.py score --out FILE`), passed as `--eval-score` |
+| the queue | `.claude/loops/harden-queue.jsonl` (fields: fingerprint, source, ref, statement, band?, candidate_rule?, miss?) |
 | the target repo | the repo the loop works on, read only, for the inventory and for structure fixes |
 | conventions file | the target's `conventions.json` if it has one, else `.claude/loops/conventions.json` |
 
@@ -83,11 +93,39 @@ write nothing. If the brain is unreachable, carry on: only the verification band
 those candidates end `blocked` with reason `brain-unreachable`.
 
 ### 1. Collect
+Queue the misses first, then collect everything:
 ```bash
+python3 .claude/skills/dev-harden/scripts/collect_misses.py [--evid-root DIR] [--eval-score FILE ...] --append
 python3 .claude/skills/dev-harden/scripts/collect_candidates.py [--evid-root DIR] [--min-occurrences 2]
 ```
-Work only the candidates with `ready: true`. The rest wait for another occurrence. Already
-decided fingerprints are listed under `decided` and are never redone (a `blocked` one is retried).
+`collect_misses.py` is idempotent by fingerprint. Report its `not_scored` (the reviewer never sat
+the case, so it is not a miss), `false_flags` and `still_missed_after_decision` to the human; never
+queue or hide them. An invalid `--eval-score` exits 2: stop and say so.
+
+Work only the candidates with `ready: true`. A review miss is ready at one occurrence, because a
+prod regression or a confirmed answer key is evidence, not a hunch. The rest wait for another
+occurrence. Already decided fingerprints are listed under `decided` and are never redone (a
+`blocked` one is retried).
+
+### 1b. For a review miss, first say what the reviewer lacked
+When the question is "why did the review miss this", the useful answer is what the reviewer did
+not have in front of it, because that is the thing a check, a context fix or an instruction can
+supply next time. Read `miss.had`, the run's `review.json`, `fix.json`, `context.json` and the
+follow-up evidence (for an eval case, its `change.diff` through the materialized tree; never more
+of the answer key than the score already exposes). Pick one kind and write one or two sentences
+into `miss.lacked {kind, statement}`:
+
+| kind | the reviewer lacked | the ladder walk starts at |
+|---|---|---|
+| `check` | a rule, type or test that would have failed | structure, then static |
+| `context` | the code it needed (a caller, a bypasser, a sibling path) | structure; else prose aimed at the context pack or the reviewer brief |
+| `expectation` | the intended behaviour, written where it reads | verification (`kb propose`) |
+| `instruction` | being told to look (guidelines, `review_brief`, its own skill) | prose, naming the destination file in the guideline's first line |
+| `nothing` | nothing: a judgment slip | `declined`; suggest it as an eval case via `reviewer_eval.py candidates` |
+
+The kind says where to start, never which bands to skip: every band above the one you choose
+still needs its `why_not_higher` reason. A human applies every outcome; dev-harden still edits no
+guidelines, conventions or skill file. `references/fix-ladder.md` has an example per kind.
 
 ### 2. Walk the ladder, top down
 Read `references/fix-ladder.md`. For each ready candidate, ask each band in order whether it can
@@ -121,7 +159,8 @@ python3 .claude/skills/dev-harden/scripts/rule_probe.py --candidate cand.json --
 ### 4. Emit
 Write `<evid_root>/harden/<fingerprint>/harden.json` through
 `contracts/emit.py --contract contracts/dev-harden.json`. Ticket drafts go beside it as
-`ticket.md`. A conventions rule ends `rule-proposed` with the probe result; nothing reaches the
+`ticket.md`. A miss artifact carries `review-miss` in `correction.sources` and the `miss` block
+with `lacked` filled (DEV-HARDEN-M1). A conventions rule ends `rule-proposed` with the probe result; nothing reaches the
 gate until a human runs:
 ```bash
 python3 .claude/skills/dev-harden/scripts/rule_probe.py --candidate cand.json --apply --by NAME \

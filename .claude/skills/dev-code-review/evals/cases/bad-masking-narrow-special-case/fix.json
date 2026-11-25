@@ -1,0 +1,11 @@
+{
+  "key": "PROJ-202",
+  "status": "fixed",
+  "root_cause": "invoiceTotal computed tax before the discount was applied.",
+  "is_root_cause": true,
+  "confidence": 90,
+  "failure_class": null,
+  "files_changed": [
+    "web/src/invoices/invoiceTotal.js"
+  ]
+}

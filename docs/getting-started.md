@@ -114,8 +114,21 @@ full example pack — and at minimum fill:
 ```jsonc
 "blast_radius_denylist_globs": ["db/migrate/**", "config/credentials*", "infra/**", ".github/workflows/**"],
 "shared_core_globs":           ["app/models/concerns/**", "web/src/shared/**"],
-"domain_glossary":             { "workspace": "your tenant noun", "project": "…" }
+"domain_glossary":             { "workspace": "your tenant noun", "project": "…" },
+// optional: the per-area reviewer brief, written by code owners
+"review_brief":                { "max_nits": 3, "skip_paths": ["web/src/generated/**"],
+                                 "areas": [{ "name": "invoices", "path_globs": ["app/services/invoices/**"],
+                                             "failure_looks_like": ["a total that disagrees with its line items"] }] }
 ```
+
+`review_brief` is optional; leave it out and the code review behaves as it always has. With it,
+code owners tell `dev-code-review` what failure looks like in their area, cap the low-severity nits
+(the rest are kept in `review.json` as `withheld`, not posted) and name paths to skip, such as
+generated code. A skip never covers a denylisted or shared-core path: those are always reviewed.
+Either way the review's summary and `review.md` lead with the finding count, and a clean review says
+`0 findings: nothing needs fixing.` Check a brief with
+`python3 .claude/skills/dev-code-review/scripts/review_brief.py plan --repo <app checkout>`; the full
+field list is the "Reviewer brief" section of the examples README.
 
 The denylist is the forced-human gate: `dev-fix` never edits a matching path, and `infra-ship`
 re-scans the full change set. Leave it empty and nothing is protected.

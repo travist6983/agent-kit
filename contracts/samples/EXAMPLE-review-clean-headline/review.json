@@ -1,0 +1,11 @@
+{
+  "key": "PROJ-124",
+  "verdict": "approve",
+  "masking": false,
+  "critical": 0,
+  "high": 0,
+  "findings": [],
+  "summary": "0 findings: nothing needs fixing. Root-cause fix: the Task due-date formatter now reads the Workspace time zone instead of the server's, at the one shared call site. No masking, no convention violation, the new unit test fails without the fix. Approve.",
+  "next_action": "ship-ok",
+  "headline": "0 findings: nothing needs fixing."
+}

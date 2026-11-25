@@ -74,6 +74,33 @@ and unfixed so it doesn't burn a pass rediscovering it. If a branch was rebased,
 author's new work from upstream code that merely arrived with the rebase — reporting the latter is
 a fast way to look like you didn't read the diff.
 
+## A re-review is an interdiff
+
+The first review of a PR judges the whole PR diff. Every later round judges what changed since the
+commit the loop last reviewed: `checkout` returns `review_scope: interdiff` and an
+`interdiff_command` (`git -C <worktree> diff <previously_reviewed_commit> <head>`); `diff_command`
+is context for reading it, not the thing being judged. The author pushed in answer to the last
+round; re-litigating unchanged lines is the noise this loop exists to avoid. The rule is enforced
+at post time too: `post` (and the runner guard, via `scope`, before its volume cap) withholds every
+non-critical finding anchored outside the interdiff, with the reason, kept in review.json and the
+report. A CRITICAL finding posts wherever it is.
+
+Flag the CLASS, not the line: a finding's `bug_class` plus its `instances` (other places in the diff
+with the same mistake) renders as one thread that asks for every instance to be fixed.
+
+Where it is lossy, said plainly:
+- **History rewritten** (rebase, force-push): the previous commit is not an ancestor of the head, so
+  the scope falls back to `full` with `interdiff_unavailable: history-rewritten`; review the full
+  diff. The same for a previous commit that cannot be fetched (`previous-commit-unavailable`).
+- **The author merged the target branch into the PR**: the interdiff then includes the merged
+  lines, which can widen it well past the author's own change.
+- **The worktree is the host's merge ref**: line numbers in files the target branch also changed
+  can differ from the head commit's, so an anchor near such a change may be judged out of scope.
+
+After `pr_review_loop.max_review_rounds_per_pr` consecutive rounds without a pass the PR is not
+reviewed again automatically (`round_capped`); one step-back comment asks the author to reconsider
+the approach, and a maintainer re-admits it with `ledger --reset-rounds`.
+
 ## Withheld findings are recorded, never deleted
 
 A finding you decline to post still goes in `review.json` with `"withheld": true` and a
@@ -117,8 +144,10 @@ wrong in a comment with the author's name on it.
   bug*. With no oracle there's nothing to have masked. `masking: true` here can only mean "this
   diff looks like it suppresses a symptom on its own terms" — say that, or say nothing.
 - **The target repo's guidelines still apply in full** — the file named by
-  `stack.repo_guidelines_file` and the ruleset in `.claude/loops/conventions.json` — and so do the
-  six specialists. Only the R3 judge loses its footing.
+  `stack.repo_guidelines_file` and the ruleset in `.claude/loops/conventions.json` — and so do all
+  six specialist lenses, at every review depth (`review_depth.py plan` without `--evid`: a small PR
+  with no risk path gets one combined spawn carrying the six, a risky one gets the six plus a
+  security pass over the risk paths). Only the R3 judge loses its footing.
 
 ## Severity, and what's worth a comment at all
 

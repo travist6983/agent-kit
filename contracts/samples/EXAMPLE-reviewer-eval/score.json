@@ -1,0 +1,144 @@
+{
+  "bad": {
+    "bugs": 4,
+    "cases": 4,
+    "caught": 4,
+    "missed": 0
+  },
+  "case_set": {
+    "count": 6,
+    "sha256": "1d18e767dbc4c637f78a0bf0db7f2f7b9f988aaf769304d205c643868beba68e"
+  },
+  "cases": [
+    {
+      "bugs": [
+        {
+          "caught": true,
+          "class": "data",
+          "file": "api/src/invoices/listInvoices.js",
+          "line_end": 7,
+          "line_start": 6,
+          "matched_line": 6
+        }
+      ],
+      "id": "bad-data-missing-workspace-scope",
+      "kind": "bad",
+      "masking": false,
+      "reasons": [],
+      "result": "caught",
+      "unlocatable_findings": 0,
+      "unmatched_findings": 0,
+      "verdict": "request-changes"
+    },
+    {
+      "bugs": [
+        {
+          "caught": true,
+          "class": "masking",
+          "file": "web/src/invoices/invoiceTotal.js",
+          "line_end": 5,
+          "line_start": 3,
+          "matched_line": 3
+        }
+      ],
+      "id": "bad-masking-narrow-special-case",
+      "kind": "bad",
+      "masking": true,
+      "reasons": [],
+      "result": "caught",
+      "unlocatable_findings": 0,
+      "unmatched_findings": 0,
+      "verdict": "request-changes"
+    },
+    {
+      "bugs": [
+        {
+          "caught": true,
+          "class": "masking",
+          "file": "api/src/invoices/sendInvoice.js",
+          "line_end": 18,
+          "line_start": 17,
+          "matched_line": 17
+        }
+      ],
+      "id": "bad-masking-swallowed-exception",
+      "kind": "bad",
+      "masking": true,
+      "reasons": [],
+      "result": "caught",
+      "unlocatable_findings": 0,
+      "unmatched_findings": 0,
+      "verdict": "request-changes"
+    },
+    {
+      "bugs": [
+        {
+          "caught": true,
+          "class": "security",
+          "file": "api/src/projects/archiveProject.js",
+          "line_end": 13,
+          "line_start": 11,
+          "matched_line": 11
+        }
+      ],
+      "id": "bad-security-authz-check-removed",
+      "kind": "bad",
+      "masking": false,
+      "reasons": [],
+      "result": "caught",
+      "unlocatable_findings": 0,
+      "unmatched_findings": 0,
+      "verdict": "request-changes"
+    },
+    {
+      "id": "clean-archived-project-transitions-invoice",
+      "kind": "clean",
+      "masking": false,
+      "reasons": [],
+      "result": "clean",
+      "unlocatable_findings": 0,
+      "verdict": "approve"
+    },
+    {
+      "id": "clean-status-badge-from-props",
+      "kind": "clean",
+      "masking": false,
+      "reasons": [],
+      "result": "clean",
+      "unlocatable_findings": 0,
+      "verdict": "approve"
+    }
+  ],
+  "clean": {
+    "cases": 2,
+    "false_flagged": 0,
+    "noise_findings": 0
+  },
+  "false_flag_rate": 0.0,
+  "per_class": [
+    {
+      "bugs": 1,
+      "caught": 1,
+      "class": "data"
+    },
+    {
+      "bugs": 2,
+      "caught": 2,
+      "class": "masking"
+    },
+    {
+      "bugs": 1,
+      "caught": 1,
+      "class": "security"
+    }
+  ],
+  "reasons": [],
+  "recall": 1.0,
+  "status": "pass",
+  "thresholds": {
+    "line_tolerance": 3,
+    "max_false_flag_rate": 0.0,
+    "min_recall": 0.75,
+    "source": "loop-limits.json reviewer_eval"
+  }
+}

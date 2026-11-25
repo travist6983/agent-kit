@@ -1,0 +1,11 @@
+{
+  "key": "PROJ-201",
+  "status": "fixed",
+  "root_cause": "sendInvoice let a mailer rejection propagate, so sending an Invoice returned a 500.",
+  "is_root_cause": true,
+  "confidence": 85,
+  "failure_class": null,
+  "files_changed": [
+    "api/src/invoices/sendInvoice.js"
+  ]
+}

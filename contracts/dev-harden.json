@@ -2,9 +2,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "loops/contracts/dev-harden.json",
   "title": "dev-harden harden.json, one recurring correction, placed as the cheapest check that can catch it",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "status": "proposed",
-  "description": "The output of the dev-harden skill, written to <evid_root>/harden/<fingerprint>/harden.json. One artifact per correction. The skill walks the fix ladder top down (structure, static, verification, prose) and records why every higher band was skipped, so a prose rule can never be written while a check that fails was possible. validate.py enforces this as DEV-HARDEN-L1 (a reason for every higher band; status tied to band and evidence). Consumers branch on `status`. A rule only reaches the gate when a human runs rule_probe.py --apply --by, which flips status to rule-applied and fills `applied`.",
+  "description": "The output of the dev-harden skill, written to <evid_root>/harden/<fingerprint>/harden.json. One artifact per correction. The skill walks the fix ladder top down (structure, static, verification, prose) and records why every higher band was skipped, so a prose rule can never be written while a check that fails was possible. validate.py enforces this as DEV-HARDEN-L1 (a reason for every higher band; status tied to band and evidence). Consumers branch on `status`. A rule only reaches the gate when a human runs rule_probe.py --apply --by, which flips status to rule-applied and fills `applied`. v1.1.0 (additive): review misses are a third input. A prod-regressed run, or a reviewer-eval case the reviewer missed or only partly caught, arrives through the harden queue with source `review-miss` and a `miss` block (origin, ref, the review verdict, the uncaught locations, the mechanical facts of what the reviewer had). validate.py enforces DEV-HARDEN-M1: `review-miss` in correction.sources and a `miss` object go together; unless status is blocked, `miss.lacked` must name a kind (check, context, expectation, instruction, nothing) and a non-blank statement of what the reviewer did not have in front of it; kind `nothing` must end declined (or blocked); and declining a miss that did lack something needs a decline_reason. Older artifacts (no `miss`, no `review-miss` source) validate unchanged.",
   "type": "object",
   "additionalProperties": false,
   "required": ["status", "fingerprint", "band", "correction", "why_not_higher", "summary"],
@@ -26,8 +26,8 @@
       "required": ["statement", "sources", "occurrences"],
       "properties": {
         "statement": { "type": "string", "description": "The mistake and the right move, in one or two sentences." },
-        "sources": { "type": "array", "items": { "type": "string", "enum": ["review", "fix_lesson", "human", "skill-followup", "queue"] } },
-        "refs": { "type": "array", "items": { "type": "string" }, "description": "Where each occurrence was seen: <ticket>/review.json#findings[i], a fix_lessons id, a session id." },
+        "sources": { "type": "array", "items": { "type": "string", "enum": ["review", "fix_lesson", "human", "skill-followup", "queue", "review-miss"] } },
+        "refs": { "type": "array", "items": { "type": "string" }, "description": "Where each occurrence was seen: <ticket>/review.json#findings[i], a fix_lessons id, a session id, <KEY>/prod-verify.json or eval:<case id>@<sha12> for a review miss." },
         "occurrences": { "type": "integer", "minimum": 1 }
       }
     },
@@ -66,6 +66,44 @@
       "properties": {
         "by": { "type": "string" },
         "at": { "type": "string" }
+      }
+    },
+    "miss": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["origin", "ref", "lacked"],
+      "description": "v1.1.0: present only when the correction is a review MISS (source `review-miss`): the review let through a bug that a prod run or the reviewer eval set later confirmed. collect_misses.py fills origin, ref, review_verdict, locations and had; dev-harden fills `lacked` before placing anything (DEV-HARDEN-M1).",
+      "properties": {
+        "origin": { "type": "string", "enum": ["prod-regressed", "eval-missed", "eval-partial", "human-reported"], "description": "prod-regressed = infra-prod-verify said prod-regressed for the run; eval-missed = a bad reviewer-eval case where no confirmed bug was located; eval-partial = some but not all were located; human-reported = a person queued the miss by hand." },
+        "ref": { "type": "string", "description": "<KEY>/prod-verify.json for a prod run; eval:<case id>@<first 12 hex of case_set.sha256> for an eval case." },
+        "review_verdict": { "type": ["string", "null"], "description": "What the reviewer answered (review.json `verdict`, or the eval case's verdict). null = no review ran, or it is unknown." },
+        "locations": {
+          "type": "array",
+          "description": "The confirmed bug ranges the reviewer did not locate. Empty for a prod run until a human confirms one.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["file", "line_start", "line_end"],
+            "properties": {
+              "file": { "type": "string" },
+              "line_start": { "type": "integer", "minimum": 1 },
+              "line_end": { "type": "integer", "minimum": 1 },
+              "class": { "type": "string" }
+            }
+          }
+        },
+        "had": { "type": "object", "additionalProperties": true, "description": "Mechanical facts of what was in front of the reviewer, copied from the queue entry: for a prod run reviewed, review_findings, masking, context_pack, brief_status, evidence; for an eval case masking, unmatched_findings, unlocatable_findings, case_set_sha256, score_status." },
+        "lacked": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["kind", "statement"],
+          "description": "What the reviewer did not have in front of it. Judgment, so the collector leaves it null; dev-harden decides it from the evidence before placing the miss (DEV-HARDEN-M1).",
+          "properties": {
+            "kind": { "type": "string", "enum": ["check", "context", "expectation", "instruction", "nothing"], "description": "check = no rule, type or test existed that would have failed on the bug; context = the code it needed (a caller, a bypasser, a sibling path) was outside the diff and the context pack; expectation = the intended behaviour was written nowhere the reviewer reads; instruction = the guidelines, the review brief or the reviewer's own skill never told it to look; nothing = it had everything, a judgment slip no artifact would have changed (must end declined)." },
+            "statement": { "type": "string", "description": "One or two sentences: what was missing and where it should have been." },
+            "evidence": { "type": "string", "description": "Optional: the file, finding or diff line that shows it." }
+          }
+        }
       }
     },
     "decline_reason": { "type": ["string", "null"] },

@@ -1,0 +1,73 @@
+{
+  "critical": 1,
+  "findings": [
+    {
+      "bug_class": "symptom-masking",
+      "confidence": 72,
+      "dimension": "masking",
+      "file": "api/src/invoices/sendInvoice.js",
+      "finding_id": "F-fcf50c12a4",
+      "issue": "The new catch returns {ok: true} when the mailer throws, so the replay goes green while the Invoice is never sent.",
+      "line": 17,
+      "severity": "high",
+      "votes": {
+        "cast": 3,
+        "confirm": 1,
+        "pre_existing": 0,
+        "reject": 2
+      }
+    },
+    {
+      "bug_class": "authz-or-authn-gap",
+      "confidence": 88,
+      "dimension": "security",
+      "file": "api/src/invoices/listInvoices.js",
+      "finding_id": "F-f7ac063f6c",
+      "issue": "The rewritten Invoices query no longer filters by workspace_id, so any Member lists every Workspace's Invoices.",
+      "line": 7,
+      "severity": "critical",
+      "votes": {
+        "cast": 3,
+        "confirm": 3,
+        "pre_existing": 0,
+        "reject": 0
+      }
+    },
+    {
+      "bug_class": "missing-or-weak-test",
+      "confidence": 85,
+      "dimension": "tests",
+      "file": "api/test/invoices/sendInvoice.test.js",
+      "finding_id": "F-0b5019f80e",
+      "issue": "No test asserts that a mailer failure surfaces to the caller.",
+      "line": 30,
+      "severity": "medium",
+      "votes": {
+        "cast": 3,
+        "confirm": 2,
+        "pre_existing": 0,
+        "reject": 1
+      }
+    }
+  ],
+  "headline": "3 findings (1 critical, 1 high, 1 medium).",
+  "high": 1,
+  "human_gate": false,
+  "key": "PROJ-123",
+  "masking": false,
+  "summary": "3 findings (1 critical, 1 high, 1 medium). request-changes: BAD on purpose: the masking finding split 1 to 2 and is treated as a plain finding with no human gate, so the loop would re-fix instead of asking a human.",
+  "validation": {
+    "candidates": 3,
+    "confidence_floor": 80,
+    "human_gated": 0,
+    "kept": 3,
+    "quorum": 2,
+    "rejected": 0,
+    "source": ".claude/loops/loop-limits.json#review_validation",
+    "split": 0,
+    "status": "independent",
+    "validators": 3,
+    "validators_returned": 3
+  },
+  "verdict": "request-changes"
+}

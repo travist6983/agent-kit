@@ -65,5 +65,42 @@
     "Untouched legacy code excluded by design — LegacyTaskPanel.js and task_filter_legacy.py carry ~11 pre-existing rule hits (console.log, print(), it.only, untracked TODOs). The scan reads ADDED LINES ONLY, so none of them are attributed to this branch."
   ],
   "report_path": "runs/PROJ-2403/pre-pr-report.md",
-  "summary": "3 files, +27/-0. Zero blockers: verify.json is fresh and `pass`; the deterministic scan found no non-heuristic violation, and the one heuristic hit was read and cleared (the TODO is tracked on the preceding line). Validations are adopted from a FRESH regression.json (green, 28/28, lint 0→0) that post-dates every changed file, so nothing was re-run. Warnings only: no review.json, an unconfirmed missing-import lead in TaskFilterBar.js, and backend build provenance (no local toolchain). Clear to open the PR."
+  "summary": "3 files, +27/-0. Zero blockers: verify.json is fresh and `pass`; the deterministic scan found no non-heuristic violation, and the one heuristic hit was read and cleared (the TODO is tracked on the preceding line). Validations are adopted from a FRESH regression.json (green, 28/28, lint 0→0) that post-dates every changed file, so nothing was re-run. Warnings only: no review.json, an unconfirmed missing-import lead in TaskFilterBar.js, and backend build provenance (no local toolchain). Clear to open the PR.",
+  "risk": {
+    "triage_tier": "T1",
+    "diff_tier": "T1",
+    "tier": "T1",
+    "escalated": false,
+    "reasons": [
+      "tier T1 held: the diff does not exceed the triage tier",
+      "diff: not T0: layer 'both' is not a single layer"
+    ],
+    "facts": {
+      "files": 3,
+      "test_files": 0,
+      "projects": [
+        "api",
+        "web"
+      ],
+      "likely_files": 2,
+      "shared_core_hits": [],
+      "denylist_hits": [],
+      "tests_weakened": [],
+      "merge_base": "9edcc3e16024a1b2c3d4e5f60718293a4b5c6d7e",
+      "diff_source": "git"
+    },
+    "human_gate": {
+      "demanded": false,
+      "triggers": []
+    },
+    "human_approvals_required": 1,
+    "agent_approval_counts_as_human": false
+  },
+  "judged": {
+    "head_commit": "9edcc3e16024a1b2c3d4e5f60718293a4b5c6d7e",
+    "merge_base": "9edcc3e16024a1b2c3d4e5f60718293a4b5c6d7e",
+    "dirty": true,
+    "change_fingerprint": "sha256:5b0c2f3a9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a",
+    "files": 3
+  }
 }

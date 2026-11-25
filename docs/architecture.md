@@ -133,8 +133,14 @@ prunes.
 paused / staging-only. A ship proceeds only on an explicit `paused: false`.
 
 **Metrics (R5 / R8).** Each stage records cost, attempt count, escalation / flake / bless
-events and time. The meta-monitor trends them — escalation rate climbing, cost-per-fix
-rising, bless-rate with no rejects — and can trip the global pause. `kb_state` holds durable
+events and time. The R8 meta-monitor (`dev-loop-defect/scripts/meta_monitor.py`, no model)
+reads them through `kb metrics --breakdown` and compares three signals — prod-regressed
+rate, escalation rate, repeat failure by area — against `loop-limits.json r8_meta_monitor`,
+returning trip / no-trip / insufficient-data. As shipped it is report-only; only when a human
+arms it in the tracked limits file does a trip turn the global pause on (`kb pause --on --by
+meta-monitor`), and it never turns it off. Nothing schedules it yet, and its inputs are
+metric writes that are skill prose, so this is a tested comparator and trip path, not an
+enforced guardrail. `kb_state` holds durable
 cross-machine key/value such as the consolidation watermark.
 
 **Concurrency (R4).** Updates to `app_map` pass `--expect-version`; a lost race is a
@@ -204,7 +210,24 @@ agents, never as instructions loaded into the context that wrote the fix. A judg
 the diff and the files changed — facts about the code — but not the producer's own
 confidence, notes or design rationale, which anchor it before it looks. The judge runs on a
 model at least as strong as the producer; a weaker judge produces an *invalid* verdict, not a
-weaker one. See [`graph-engineering.md`](graph-engineering.md) for the mechanics.
+weaker one. See [`graph-engineering.md`](graph-engineering.md) for the mechanics. Inside the
+reviewer the same rule holds: specialists propose findings, fresh validator agents vote on each, and
+a finding is reported only at a quorum counted by `finding_votes.py` (`loop-limits.json
+review_validation`). The quorum never votes down the R3 masking finding or a critical one: only a
+unanimous reject drops it, and a split keeps it as `human_gate` with the verdict `needs-human`,
+which the recipe escalates to a human instead of re-fixing.
+
+**The reviewer is evaluated too.** `dev-code-review` has a tracked eval set: bad cases (a diff with a
+confirmed bug location and class, from past incidents) measure its recall, and clean cases (diffs a
+human confirmed have nothing to flag) measure its harmful false-flag rate. `reviewer_eval.py` scores a
+set of `review.json` files against them with no model call, deterministic and offline; a case with no
+valid review makes the score incomplete rather than vanishing. The bar is declared in
+`loop-limits.json` `reviewer_eval`. Producing the reviews is a separate, model-spending step that
+nothing schedules yet, and no gate reads the score. A prod-regressed run and a missed eval case are
+also `dev-harden` inputs (`collect_misses.py` queues them). dev-harden must state what the reviewer
+lacked (a check, context, an expectation, an instruction, or nothing) before placing a fix
+(DEV-HARDEN-M1), and a human applies it. See
+[`dev-code-review/references/eval-set.md`](../.claude/skills/dev-code-review/references/eval-set.md).
 
 ---
 
@@ -268,6 +291,14 @@ is in [`graph-engineering.md`](graph-engineering.md).
 **Escalate, never de-escalate.** A run may move up a tier or up a model mid-flight — scope
 surprise, cross-layer impact, a failed fix. It never moves down. Downgrades happen only at
 triage. Escalation reuses the seam files already on disk; it never restarts from scratch.
+The diff sets the tier a second time: `dev-pre-pr/scripts/risk_reclass.py` re-runs triage's own
+`decide()` on the actual change (and the 2× scope-surprise rule), keeps the higher tier, runs an
+independent check that can demand a human anyway, and states `human_approvals_required` in
+`pre-pr.json`, `ship.json` and the PR body. An agent `approve` never counts as one, the count is
+enforced by the host's branch protection rather than the kit, and a tier-up does not re-run
+verification at the higher tier's breadth. A seam file it reads (`context.json`, `intake.json`, `fix.json`) may be absent;
+one that is present but unreadable stops the classification (exit 2) rather than being read as
+empty, because an empty one would drop the triage tier or a human-gate trigger.
 
 **Budget (R5).** The per-loop cap is a number in `.claude/loops/loop-limits.json`
 (`r5_budget.per_loop_usd_cap`, shipped default 15, in whatever unit the runner reports). The
@@ -315,7 +346,12 @@ instructions; enforce the budget cap. Staging-only until the safety gates are ve
 **② `dev-loop-hard-defect` — multi-file, shared-core, migration-adjacent, higher risk**
 
 Identical to ①, with `dev-code-review` **mandatory** in the diamond. Masking is a hard block.
-The same finding surviving two fix cycles is stagnation → escalate.
+The same finding surviving two fix cycles is stagnation → escalate, and the router decides it:
+`review_rounds.py record` keeps one fingerprinted round per review in `review-rounds.json`
+(fingerprint = file + `bug_class`, line excluded), and `recipe_router.py --review-rounds` returns
+`escalate` with `failure_class: review-stagnation` when one fingerprint is open in the last
+`review_convergence.stagnation_fix_cycles` + 1 rounds (`loop-limits.json`). Approve writes the
+`review_rounds_to_pass` metric.
 
 **③ `dev-loop-feature-prerelease` — sensitive or pre-release defects, never auto-ship**
 
@@ -348,6 +384,7 @@ was real.
 **⑤ `dev-loop-pr-review` — the scheduled review loop**
 
 ```
+   [dev-pr-feed: dispositions — read back earlier threads, read-only; runner, before the gate]
    [dev-pr-feed: list unreviewed PRs at their current head] → for each (bounded per tick):
        [dev-pr-feed: read-only checkout] → [dev-code-review] → [dev-pr-feed: post findings]
                                                                  (dry-run until authorized ·
@@ -356,8 +393,14 @@ was real.
 ```
 
 Reviews each PR once per head commit and comes back when the author pushes, so it never
-spams and never goes silent. Posting is dry-run until explicitly armed; the number of PRs per
-tick and threads per PR are numbers in `loop-limits.json`, not prose.
+spams and never goes silent — up to `pr_review_loop.max_review_rounds_per_pr` consecutive
+rounds without a pass (only an explicit approve or an explicit zero-findings `mark` is one), after which the PR is named under `round_capped`, not reviewed again
+automatically, and gets one PR-level step-back comment (dry-run until armed) until a maintainer
+runs `ledger --reset-rounds`. A re-review judges the interdiff since the previously reviewed
+commit, and `post` withholds non-critical findings outside it. Each PR's review depth comes from its diff (`dev-code-review/scripts/review_depth.py`): a small PR with no risk path gets one combined spawn carrying all six specialist lenses, a PR on a denylisted or shared-core path gets the six plus a security pass over those paths, and the tick report prints the recorded depth per PR. The runner's convergence sweep
+(`rounds --emit`, `step-back --due`) writes `pr_review_rounds_to_pass` and
+`pr_review_round_cap_hit`. Posting is dry-run until explicitly armed; the number of PRs per
+tick, threads per PR and review rounds per PR are numbers in `loop-limits.json`, not prose.
 
 **What every recipe shares.** The shared engine (`dev-loop-defect/references/recipe-engine.md`,
 `scripts/recipe_router.py`, `scripts/check_convergence.py`): the failure-class router, the
@@ -378,11 +421,11 @@ adapter layer, and is held to the loop-readiness checklist in
 | Skill | Does | Brain |
 |---|---|---|
 | `dev-intake` | The front door: fetch the ticket through `issue_tracker`, sanitize it (R6), run a sufficiency gate (needs-info rather than guess), judge risk, assign tier + models from evidence, write the context pack, route to exactly one recipe. Sensitive areas never auto-ship. | reads `app_map`, `flakiness`, `expectations`, history |
-| `dev-fix` | Produce **one** candidate change that makes an already-reproduced defect's replay pass, at the root cause — enumerate every call site, patch the deepest shared point. Runs the R6 denylist scan before emitting `fix.json`; migrations / secrets / auth / IaC / CI are never edited (`blocked-blast-radius`). Refuses without a red oracle. Also hosts plan-synthesis for features. | reads `fix_lessons` |
-| `dev-code-review` | The blind review judge: specialist fan-out over the diff against the repo's guidelines and `conventions.json`, plus the R3 symptom-masking judge. Emits a machine verdict (`approve` / `request-changes`) in `review.json`; findings validated at a confidence floor; marks findings `resolved` once a cycle closes them. | — |
-| `dev-pre-pr` | The last gate before a PR: one readiness verdict (`ready` / `warnings` / `blocked`) from the loop's evidence. **Fails closed on `verify.json`** — missing, stale, malformed or not-`pass` all block at every tier. Deterministic standards scan on added lines; reconciles `regression.json` + `review.json` by freshness; re-runs the build when that evidence is stale. Has no edit tool. | — |
+| `dev-fix` | Produce **one** candidate change that makes an already-reproduced defect's replay pass, at the root cause — enumerate every call site, patch the deepest shared point. Runs the R6 denylist scan before emitting `fix.json` (optional `feature_flag` when the change is flag-gated, read by `infra-ship` for How to revert); migrations / secrets / auth / IaC / CI are never edited (`blocked-blast-radius`). Refuses without a red oracle. Also hosts plan-synthesis for features. | reads `fix_lessons` |
+| `dev-code-review` | The blind review judge: specialist fan-out over the diff against the repo's guidelines and `conventions.json`, plus the R3 symptom-masking judge. Emits a machine verdict (`approve` / `request-changes`) in `review.json`; findings validated by independent validator agents at a quorum (`scripts/finding_votes.py`, `validation` in `review.json`), each with a `bug_class` (closed vocabulary) and its `instances`, so one finding covers the class; marks findings `resolved` once a cycle closes them. Optional per-area reviewer brief (conventions `review_brief`, via `scripts/review_brief.py`): owner-stated failure modes, a nit cap and skip paths that can never cover an R6-denylisted or shared-core file; the summary and `review.md` lead with the finding count. Review depth from the diff (`scripts/review_depth.py`, `depth` in `review.json`): quick (one combined spawn, all six lenses) for a small non-risky diff, standard (six spawns), deep (six + a security pass over the risk paths) for any R6, shared-core or sensitive path and every unknown; no level drops a dimension. | — |
+| `dev-pre-pr` | The last gate before a PR: one readiness verdict (`ready` / `warnings` / `blocked`) from the loop's evidence. **Fails closed on `verify.json`** — missing, stale, malformed or not-`pass` all block at every tier. Deterministic standards scan on added lines; reconciles `regression.json` + `review.json` by freshness; re-runs the build when that evidence is stale. Reclassifies risk from the actual diff (`risk`, escalate-only, with how many human approvals the PR needs) and stamps the judged content (`judged`) so the verdict covers one commit. Has no edit tool. | — |
 | `dev-escalate` | Hand a stuck loop to a human warm, from a configurable template: attempt log, failure class, repro + expected/actual, verdicts, decisions, every recording. Assigns per area, transitions the ticket. Posting is dry-run until the recipe authorizes. | (the ticket is the signal) |
-| `dev-pr-feed` | The VCS-host PR surface: list PRs unreviewed at their current head, pull one into a read-only worktree, post findings as review comments, remember what was reviewed. Keyed on PR id + head commit. Fails closed on the R9 pause before any live post. | — |
+| `dev-pr-feed` | The VCS-host PR surface: list PRs unreviewed at their current head, pull one into a read-only worktree, post findings as review comments, remember what was reviewed, and read back what humans did with each posted thread (`dispositions`: fixed / wrong / intentional / no-action / unclassified — the loop's noise measure). Keyed on PR id + head commit; counts review rounds per PR, stops at the round cap with one step-back comment, and scopes a re-review to the interdiff. Fails closed on the R9 pause before any live post. | `pr_review_threads_*`, `pr_review_rounds_to_pass`, `pr_review_round_cap_hit` metrics (opt-in `--emit`) |
 | `dev-onboard-survey` | The onboarding loop's first look at a codebase, with no model in it: languages, the commands the repo declares (file and line), entry points, tests, docs and decision records, churn hotspots, and areas sized for one reader each with their import edges. Same commit, same survey. See `docs/onboarding-loop.md`. | none |
 | `dev-onboard-how` | The how lens of the onboarding loop: one read-only agent per area writes a card of atomic claims about what the code does, each citing file, lines and a symbol; `check_card.py` proves every cite. Relearn modes fix only what the quiz showed was missing, wrong or vague. | none |
 | `dev-onboard-why` | The why lens: reasons from the record (commits, the pull requests they name, decision docs), quoted with a ref or marked as inference with an honest confidence; what the record does not answer is a gap, never a story. | none |
@@ -409,7 +452,7 @@ adapter layer, and is held to the loop-readiness checklist in
 | Skill | Does | Brain |
 |---|---|---|
 | `infra-worktree` | Thin wrapper on the `sandbox` adapter: an isolated branch + port offset (+ optional DB clone) per loop, a lock-protected registry, a concurrent-sandbox cap, port reclamation and stale-tree pruning, oracle-credential preflight, and crash-safe idempotent teardown — always called in a `finally`. | — |
-| `infra-ship` | Format, commit, push and open the PR through `vcs_host` — after the gates. Preflight: R9 pause (fail closed), branch is not protected, the prod-lane refusal from `protected_branch_patterns`, and the R6 denylist scan of the full change set. Embeds before/after media; posts a PR thread only for a must-read item (expected count: zero). Never auto-deploys to prod. | — |
+| `infra-ship` | Format, commit, push and open the PR through `vcs_host` — after the gates. Preflight: R9 pause (fail closed), branch is not protected, the prod-lane refusal from `protected_branch_patterns`, and the R6 denylist scan of the full change set. After its commit and before the push, `commit_binding.py check` proves the commit is the content `dev-pre-pr` judged (`stale-readiness` / `readiness-unbound` abort); the PR body states the tier and the human approvals required, and carries the Testing / Risk / How to revert blocks `pr_sections.py` renders from the seam files and the `deploy` rollback hint, checked verbatim before the create (`pr-body-incomplete`). Embeds before/after media; posts a PR thread only for a must-read item (expected count: zero). Never auto-deploys to prod. | — |
 | `infra-prod-verify` | Confirm a shipped fix worked **in prod**: post-deploy smoke plus the ticket's original error signal through `analytics` on the version `deploy` reports. Exactly two outcomes: `prod-confirmed`, or `prod-regressed` → rollback (prefer a flag flip) + escalate with prod evidence. Never retries a fix against prod. | writes metrics |
 
 ### Human-in-the-loop
@@ -458,7 +501,7 @@ system itself is healthy.
 | **R5** | **Cost is invisible until the bill arrives.** The system loops on token-hungry stages — recording, multi-attempt fix, a judge on every verify, exploration sweeps. A pathological ticket could burn enormous spend silently retrying. | pre-launch | A per-loop cap as a number in `loop-limits.json`, compared by the recipe router at every stage gate; on breach, stop and escalate. Cost-per-fix is a first-class metric. Honest status: a declared cap with a tested comparator until the runner supplies spend; a scheduled job that hands the cap to the harness is the one place it is enforced today. | recipe router (`stop-budget`) · `qa-kb` metrics · the runner |
 | **R6** | **Adversarial / poisoned input and blast radius.** A ticket is untrusted text that becomes agent instructions (prompt injection via the ticket body). The agent has deploy authority and no defined sandbox; a wrong repro step can send it down a destructive path. | pre-launch | Ticket content is data, never instructions — sanitized once at intake and carried into the context pack. A hard denylist: `dev-fix` may never touch migrations, secrets / env config, auth configuration, infra / IaC, or CI definitions without a forced human gate; `infra-ship` re-scans the full change set. Sandboxed execution; least-privilege deploy credentials. | `dev-intake` (sanitize) · `dev-fix` (denylist) · `infra-ship` (preflight scan) · `infra-worktree` · runner permissions |
 | **R7** | **A flaky suite poisons the signal.** If the regression suite is flaky the loop cannot trust its own evaluator — escalating real passes, re-fixing phantom failures. Autonomous shipping needs a trusted suite first. | high | Record a flakiness data point for every test run, pass or fail; quarantine a test at `flake_rate ≥ 0.30` over `≥ 5` runs and surface every quarantine in the report — never drop a test silently; a quarantined test cannot act as a gate until stabilized. A suite-health prerequisite on shipping is tracked as future work, not claimed. | `qa-regression` · `flakiness` store · `loop-limits.json` (`r7_flake_quarantine`) |
-| **R8** | **Nobody watches the watcher.** Auto-escalation and autonomous brain writes — if the escalation rate spikes or one area fails repeatedly, that is a meta-signal something systemic broke. We have the data, no alerting. | medium | A meta-monitor over loop-health metrics (escalation-rate trend, repeat-failure-by-area, cost-per-fix) with thresholds, able to trip the global pause; a human in the loop for the loop itself degrading. | `qa-kb` metrics · the recipe engine (trips R9) |
+| **R8** | **Nobody watches the watcher.** Auto-escalation and autonomous brain writes — if the escalation rate spikes or one area fails repeatedly, that is a meta-signal something systemic broke. A deterministic comparator now exists (`meta_monitor.py`: prod-regressed rate, escalation rate, repeat failure by area against `loop-limits.json r8_meta_monitor`) with a tested trip path through `kb pause --on`; it ships report-only, never unpauses, and is not scheduled by any runner yet; its metric writers are prose (the `escalation` write is optional), and cost-per-fix is not one of its signals. | medium | Arm the monitor (a human sets `trip_mode: armed` + `armed_by` by PR) once real data has tuned the argued numbers; wire it into a scheduled runner; make the metric writes mechanical; a human in the loop for the loop itself degrading. | `qa-kb` metrics · the recipe engine (`meta_monitor.py`, trips R9) |
 | **R9** | **No rollback or kill switch.** Everything is forward motion: fix → ship. An auto-shipped fix causes an incident at 2am and there is no defined response for the *system* failing, only for individual bugs. | pre-launch | An auto-rollback trigger tied to the prod error signal (R2's hook). A global human kill switch (`global_pause` in `kb_control`) that pauses all autonomous shipping, read fail-closed before any ship or post. Ship behind a flag where possible so revert is a flag flip, not a redeploy. A `staging_only` posture flag that forbids the prod lane until a human flips it. | `infra-ship` · `infra-prod-verify` · `dev-pr-feed` · every recipe · `qa-kb` flags |
 | **R10** | **Human QA is the scaling bottleneck.** Every sensitive fix, every escalation and every expectation-blessing funnels to humans. As volume grows this queue becomes the constraint, and blessing-fatigue means rubber-stamping, which silently defeats the propose-then-bless guard. | medium | Prioritize the human queue by risk and confidence; batch and summarize blessings; semantic dedup so the same rule is never blessed twice; track bless-rate vs reject-rate — if rejects approach zero, humans have stopped scrutinizing (alert on it). | `human-explore` · `dev-escalate` · `qa-kb` (dedup, metrics) |
 
@@ -492,7 +535,8 @@ both degrade trust slowly and invisibly. R3 is never fully closed; it is bounded
                                   required before the first autonomous prod ship
    7  qa-explore · human-explore  the learning producers
    8  the recipe engine           tiered caps, budget breaker (R5), concurrency (R4),
-                                  meta-monitor (R8), convergence checker
+                                  meta-monitor (R8: meta_monitor.py, report-only
+                                  until armed), convergence checker
    9  dev-loop-*                  the thin recipes, last
 ```
 

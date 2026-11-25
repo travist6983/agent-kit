@@ -305,6 +305,39 @@ class GitLocalVcsTests(TempRepoCase):
         with self.assertRaises(AdapterError):
             vcs.get_pr("nope")
 
+    def test_threads_replies_and_status_parse(self):
+        stack = self.write_config()
+        _git(self.app, "checkout", "-q", "-b", "fix/PROJ-2")
+        (self.app / "b.txt").write_text("b\n")
+        _git(self.app, "add", "b.txt")
+        _git(self.app, "commit", "-q", "-m", "fix: add b")
+        _git(self.app, "checkout", "-q", "main")
+        vcs = get("vcs_host", stack=stack)
+        vcs.open_pr("fix/PROJ-2", title="Fix PROJ-2")
+        vcs.post_review_comment("fix/PROJ-2", "b.txt", 1, "first finding")
+        vcs.post_review_comment("fix/PROJ-2", "b.txt", 9, "second finding")
+        before = vcs.list_review_threads("fix/PROJ-2")
+        self.assertEqual([(t["path"], t["line"], t["body"], t["status"], t["replies"]) for t in before],
+                         [("b.txt", 1, "first finding", "active", []),
+                          ("b.txt", 9, "second finding", "active", [])])
+        tp = self.root / "runs" / "prs" / "fix-PROJ-2.threads.md"
+        text = tp.read_text()
+        # A human answers the first thread and resolves it, by editing the file.
+        text = text.replace("first finding\n",
+                            "first finding\n\n### reply dev@example.com 2026-01-01T00:00:00Z\n"
+                            "wrong - guarded upstream\nsecond line\n\n### status Resolved\n", 1)
+        tp.write_text(text)
+        after = vcs.list_review_threads("fix/PROJ-2")
+        self.assertEqual(len(after), 2)
+        self.assertEqual(after[0]["body"], "first finding")
+        self.assertEqual(after[0]["status"], "resolved")
+        self.assertEqual(after[0]["replies"], [{"author": "dev@example.com", "at": "2026-01-01T00:00:00Z",
+                                                "body": "wrong - guarded upstream\nsecond line"}])
+        self.assertEqual((after[1]["path"], after[1]["line"], after[1]["body"], after[1]["status"],
+                          after[1]["replies"]), ("b.txt", 9, "second finding", "active", []))
+        # Posting again still numbers threads by thread count, not by reply lines.
+        self.assertEqual(vcs.post_review_comment("fix/PROJ-2", "b.txt", 3, "third")["thread_id"], "t3")
+
 
 # --------------------------------------------------------------------------------------
 class EnvFileAuthTests(TempRepoCase):

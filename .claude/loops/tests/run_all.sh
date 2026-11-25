@@ -43,6 +43,63 @@
 #   test_harden           dev-harden never lets a rule reach the gate unproven: weak messages,
 #                         id collisions and disproving fixtures are refused, --apply needs a
 #                         human --by and keeps conventions.json byte-identical. Scratch dirs.
+#   test_harden_misses    a review miss always reaches the harden queue with its miss block: a
+#                         prod-regressed run or a missed / partly caught eval case is queued, an
+#                         unscored case is never called a miss, an untrusted --eval-score exits 2,
+#                         appending is idempotent, and no harden.json for a miss validates without
+#                         saying what the reviewer lacked (DEV-HARDEN-M1). Scratch dirs, offline.
+#   test_reviewer_eval    dev-code-review is scored, not trusted: the eval cases stay answer keys
+#                         the reviewer never sees, a catch means file + line (+ masking for a
+#                         masking bug), a clean diff blocked is a false flag, and a case with no
+#                         valid review makes the score incomplete instead of vanishing. Zero-LLM.
+#   test_pr_dispositions  dev-pr-feed's thread read-back stays honest: every live thread is
+#                         recorded and survives mark/re-review, each class is derived from the
+#                         reply / status / anchor rules, reply text is inert (R6), each thread is
+#                         counted once and only after kb confirms, the host is never written.
+#                         git-local + a fake kb — offline, never the shared brain.
+#   test_review_rounds    in-loop review convergence: review_rounds.py records one fingerprinted
+#                         round per review (file + bug_class, line excluded) and recipe_router.py
+#                         --review-rounds escalates review-stagnation before the retry cap.
+#   test_meta_monitor     the R8 guardrail: meta_monitor.py trips at exactly its thresholds (>=),
+#                         excludes inconclusive verdicts and unattributed escalations, fails
+#                         closed on bad limits (exit 2) and unreadable metrics (exit 3), stays
+#                         report-only as shipped, and when armed turns the R9 pause ON once via
+#                         `kb pause --on --by meta-monitor` — never off. Fake kb, offline.
+#   test_pr_review_rounds the PR-review loop converges: rounds per head, the round cap and
+#                         round_capped, one step-back comment (dry-run, R9, write-ahead), the
+#                         interdiff re-review scope, rounds-to-pass metrics counted once.
+#                         git-local + a fake kb — offline, never the shared brain.
+#   test_risk_reclass     the diff sets the tier, escalate-only: dev-pre-pr's risk_reclass.py
+#                         re-runs assign_tier.py's decide() on the actual diff, fires the scope
+#                         surprise and the independent human gate, reads every number from
+#                         loop-limits.json risk_reclass (exit 2 on a bad one), and never counts an
+#                         agent approval as a human one. Throwaway git repos — offline.
+#   test_review_brief     dev-code-review's optional per-area reviewer brief: review_brief.py never
+#                         skips an R6-denylisted (adopter list or framework floor) or shared-core
+#                         file, degrades every failure to `unavailable` (review everything, no cap),
+#                         withholds only over-cap lows, writes the count-first headline, finalize is
+#                         idempotent and check names each tampering. Throwaway git repos — offline.
+#   test_finding_votes    dev-code-review never grades its own findings: finding_votes.py reports a
+#                         finding only at quorum (fresh validators confirming at the floor), has no
+#                         default numbers, writes no review when fewer than quorum ballots return,
+#                         never counts a missing or malformed ballot as a confirm, replays a quorum
+#                         or floor with no model call, and check names each tampering. Offline.
+#   test_review_depth     dev-code-review's review depth: review_depth.py picks quick (one combined
+#                         spawn, all six lenses) only for a small diff with no risk path, no unknown
+#                         and no --evid; a denylisted (adopter list or floor, both sides of a rename)
+#                         or shared-core path, intake sensitive or a conventions edit is deep; every
+#                         unknown is deep + unavailable; no level drops a specialist; record never
+#                         lowers a level and check names each tampering. Throwaway git repos — offline.
+#   test_commit_binding   a readiness verdict covers one commit: commit_binding.py stamp/check
+#                         bind pre-pr.json to the exact content that ships; any later edit, a
+#                         missing or extra file is stale-readiness, no usable verdict is
+#                         readiness-unbound. Throwaway git repos — offline.
+#   test_pr_sections      the PR body's Testing / Risk / How to revert come from the seam files
+#                         (pr_sections.py render): an absent source is said to be absent, never
+#                         a pass; a malformed one or a cross-wired key exits 2; a deploy adapter
+#                         at none is reported, not fatal; artifact text cannot forge a heading;
+#                         check refuses a body missing, editing or doubling a block, or stale.
+#                         Throwaway git repos + a fake deploy provider — offline.
 #   test_assign_tier · test_check_convergence · test_descriptions · test_escalation_render ·
 #   test_fix_lessons · test_oracle_preflight · test_personas · test_pr_review_runner ·
 #   test_pr_thread_bar · test_prod_signal · test_prune · test_r6_denylist ·

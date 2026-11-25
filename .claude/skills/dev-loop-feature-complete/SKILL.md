@@ -76,7 +76,21 @@ the target surface and `infra-ship` embeds it in the pull-request body. See belo
   what the surface looked like before in one line.
 - **Stagnation check**: a review finding surviving **2** re-fix cycles → stop + escalate. This is the
   cap that actually binds on features: the review→fix cycle is the stage that iterates, and a
-  finding that two fixes could not clear is a plan problem, not a patch problem.
+  finding that two fixes could not clear is a plan problem, not a patch problem. Mechanical, not
+  remembered: after every review run `../dev-loop-defect/scripts/review_rounds.py record --review
+  <evid>/<KEY>/review.json --out <evid>/<KEY>/review-rounds.json --key <KEY>`, and pass
+  `--review-rounds <evid>/<KEY>/review-rounds.json` to `recipe_router.py` at the code-review gate.
+  `failure_class: review-stagnation` (same file + `bug_class` open across
+  `review_convergence.stagnation_fix_cycles` fix cycles, `loop-limits.json`) → escalate through
+  `dev-escalate` with the `stagnant` list and revisit the plan; never re-fix. On `approve`, write the
+  recorder's `rounds_to_pass` as the `review_rounds_to_pass` metric through `kb metric`.
+- **A review verdict of `needs-human` stops the run.** It means the independent validators split
+  on a masking or critical finding: only a unanimous reject drops one, so `dev-code-review` keeps
+  it with `human_gate: true`. Record the round as usual (a `needs-human` round is never a pass),
+  then `recipe_router.py --stage code-review --result needs-human` returns `escalate` with
+  `failure_class: review-needs-human`: escalate through `dev-escalate` with each `human_gate`
+  finding and its `human_gate_reason` as the question. A disagreement between judges is a
+  person's call, not another implementation pass, so never re-fix on it and never stage past it.
 - **Repro/verify retries are not a feature concern.** `qa-repro` never runs; `qa-verify`'s retry
   cap on a feature is **1** (pass `recipe_router.py --max 1` at that gate) — a second failure is a
   plan problem, not a flake, and belongs with a human. A human may still *order* a re-verify; a
@@ -111,7 +125,7 @@ cap (`--max`), the spend (`--budget-spent`, compared against `loop-limits.json` 
 `global_pause` flag read through `qa-kb`, and act on its verdict.
 
 ## The pre-PR gate
-- **`dev-pre-pr` before ship.** The readiness gate: it reconciles this loop's `regression.json` (and
+- **`dev-pre-pr` before ship**, with `review_gate.py --require-review` (this recipe has a review stage, so a missing or unchecked review.json blocks). The readiness gate: it reconciles this loop's `regression.json` (and
   `review.json`, where the recipe ran one) **by freshness**, runs the deterministic conventions scan
   (`.claude/loops/conventions.json`, the ruleset the target repo supplies) on the added lines, rolls
   up the blockers, and emits one verdict. Router: `ready`/`warnings` → advance; `blocked` → back to

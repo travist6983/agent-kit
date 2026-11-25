@@ -1,0 +1,15 @@
+diff --git a/api/src/invoices/listInvoices.js b/api/src/invoices/listInvoices.js
+index 7173820..bc62fdd 100644
+--- a/api/src/invoices/listInvoices.js
++++ b/api/src/invoices/listInvoices.js
+@@ -3,8 +3,8 @@ const db = require("../lib/db");
+ // Lists a Workspace's Invoices, newest first.
+ async function listInvoices(workspaceId, { limit = 50 } = {}) {
+   return db.query(
+-    "SELECT id, number, status, issued_at FROM invoices WHERE workspace_id = $1 ORDER BY id DESC LIMIT $2",
+-    [workspaceId, limit]
++    "SELECT id, number, status, issued_at FROM invoices ORDER BY issued_at DESC, id DESC LIMIT $1",
++    [limit]
+   );
+ }
+ 

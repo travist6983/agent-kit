@@ -1,0 +1,38 @@
+{
+  "key": "PROJ-125",
+  "verdict": "approve",
+  "masking": false,
+  "critical": 0,
+  "high": 0,
+  "findings": [
+    {
+      "dimension": "backend",
+      "severity": "low",
+      "confidence": 90,
+      "file": "app/services/invoices/send.rb",
+      "line": 14,
+      "issue": "The retry guard re-reads the Invoice twice; one read is enough.",
+      "bug_class": "performance"
+    },
+    {
+      "dimension": "backend",
+      "severity": "low",
+      "confidence": 84,
+      "file": "app/services/invoices/send.rb",
+      "line": 22,
+      "issue": "The log line names the Invoice by id only.",
+      "bug_class": "other"
+    }
+  ],
+  "summary": "0 findings: nothing needs fixing. Approve.",
+  "headline": "0 findings: nothing needs fixing.",
+  "brief": {
+    "status": "applied",
+    "source": "examples/conventions/example-pack.json#review_brief",
+    "max_nits": 1,
+    "nits_withheld": 0,
+    "skipped": [],
+    "skip_refused": [],
+    "areas": []
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "key": "PROJ-203",
+  "status": "fixed",
+  "root_cause": "listInvoices ordered by id instead of issued_at, so back-dated Invoices sorted out of order.",
+  "is_root_cause": true,
+  "confidence": 88,
+  "failure_class": null,
+  "files_changed": [
+    "api/src/invoices/listInvoices.js"
+  ]
+}

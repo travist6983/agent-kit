@@ -471,6 +471,17 @@ def main(want_mode="auto"):
     s = r["summary"][0] if r.get("summary") else {}
     check("metrics summary", s.get("n") == 2 and abs(float(s.get("sum", 0)) - 1.0) < 1e-6,
           "n={} sum={}".format(s.get("n"), s.get("sum")))
+    # 12b) metrics --breakdown: what the R8 meta-monitor reads (per metric x area x metadata.outcome)
+    for oc in ("prod-confirmed", "prod-regressed"):
+        kb("metric", "--name", "prod_outcome", "--value", "1", "--area", "Harness Breakdown",
+           "--loop-id", MARK, "--source", MARK, "--metadata", json.dumps({"outcome": oc}))
+    r = kb("metrics", "--breakdown", "--metric", "prod_outcome", "--loop-id", MARK)
+    rows = r.get("breakdown") or []
+    check("metrics --breakdown: one row per metadata.outcome, same area, n == 1 each",
+          r.get("ok") is True and len(rows) == 2 and all(x.get("n") == 1 for x in rows)
+          and sorted(x.get("outcome") for x in rows) == ["prod-confirmed", "prod-regressed"]
+          and len({x.get("area") for x in rows}) == 1,
+          "rows={}".format(rows))
 
     # 13) forget (soft) + 14) decay audit (R1)
     kb("forget", "expectations", "--id", e2, "--soft", "--source", MARK)

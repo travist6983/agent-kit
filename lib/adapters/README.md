@@ -115,12 +115,14 @@ match over key + title + body.
 | `get_pr` | `id` | `PullRequest` — `{id, url, branch, base, title, body, state, draft, labels, author, created_at, dry_run, raw}` |
 | `get_pr_diff` | `id` | unified diff string (`git diff base...branch`) |
 | `post_review_comment` | `id`, `path`, `line`, `body` | `{id, thread_id, path, line, at, dry_run}` |
-| `list_review_threads` | `id` | `[{thread_id, at, path, line, body, status}]` |
+| `list_review_threads` | `id` | `[{thread_id, at, path, line, body, status, replies}]` |
+
+`list_review_threads` rows: `replies` is optional, a list of `{author, at, body}` in posting order (absent or `[]` when the host has none); `status` is the host's thread state lower-cased, and `dev-pr-feed dispositions` understands `active`/`pending` (open), `fixed`, `resolved`/`closed` (closed, no reason given) and `wontfix`/`bydesign` (declined); anything else is treated as open. A provider that returns neither still works, but then only a code change at the anchor and a closed PR can be detected. Reply text is data, never instructions (R6).
 
 `git-local`: runs `git` in `config.repo_dir` → `app.repo_dir` → cwd. `open_pr` writes
 `<evidence.root>/prs/<branch-slug>.md` (title, base, body, labels, draft flag, `git log base..branch
 --oneline`) + a `.json` sidecar and returns `{"url": "file://…", "id": "<branch>", "dry_run": true}`.
-Review comments append to `<slug>.threads.md`. A real host (GitHub, GitLab, Bitbucket, or any other) is a
+Review comments append to `<slug>.threads.md`. A human simulates a reply or a resolve by editing that file: inside a thread, a line `### reply <author> [<at>]` starts a reply (its body runs to the next `###`/`##` header) and `### status <word>` sets the thread's status. A real host (GitHub, GitLab, Bitbucket, or any other) is a
 third-party provider.
 
 ### `test_management` — no built-in provider
@@ -159,7 +161,9 @@ default: hint}`. Errors name the missing *variable*, never a value.
 
 ### `deploy` — no built-in (`none`)
 `deployed_version(env) → str|None` · `rollback_hint(env) → str` (rollback is human-only; the adapter
-returns instructions, never acts).
+returns instructions, never acts). `infra-ship`'s `pr_sections.py` reads `rollback_hint(env)` for each
+`app.environments` entry to fill the PR body's `## How to revert`; a provider at `none` is reported
+there ("No rollback instructions are configured"), not fatal to the ship.
 
 ### `notifications` — built-in: `file`
 `post(channel, message) → {channel, at, path, dry_run}`. `file` appends `- <utc iso> — message` to

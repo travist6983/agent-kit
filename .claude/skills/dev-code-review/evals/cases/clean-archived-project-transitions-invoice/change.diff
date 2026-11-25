@@ -1,0 +1,66 @@
+diff --git a/api/src/invoices/invoiceStore.js b/api/src/invoices/invoiceStore.js
+index 9b7930e..7e36428 100644
+--- a/api/src/invoices/invoiceStore.js
++++ b/api/src/invoices/invoiceStore.js
+@@ -8,4 +8,12 @@ async function findInvoice(workspaceId, invoiceId) {
+   return rows[0] || null;
+ }
+ 
+-module.exports = { findInvoice };
++// Moves a Project's Due and Draft Invoices to archived, within the Workspace.
++async function archiveOpenInvoices(workspaceId, projectId) {
++  return db.query(
++    "UPDATE invoices SET status = 'archived' WHERE workspace_id = $1 AND project_id = $2 AND status IN ('due', 'draft')",
++    [workspaceId, projectId]
++  );
++}
++
++module.exports = { findInvoice, archiveOpenInvoices };
+diff --git a/api/src/projects/__tests__/archiveProject.test.js b/api/src/projects/__tests__/archiveProject.test.js
+new file mode 100644
+index 0000000..5c2629f
+--- /dev/null
++++ b/api/src/projects/__tests__/archiveProject.test.js
+@@ -0,0 +1,20 @@
++jest.mock("../projectStore");
++jest.mock("../../invoices/invoiceStore");
++const { findProject, saveProject } = require("../projectStore");
++const { archiveOpenInvoices } = require("../../invoices/invoiceStore");
++const { archiveProject } = require("../archiveProject");
++
++const admin = { id: 7, role: "admin", workspaceId: 3 };
++
++test("archiving a project archives its open invoices in the same workspace", async () => {
++  findProject.mockResolvedValue({ id: 11, archived: false });
++  saveProject.mockResolvedValue();
++  await archiveProject(admin, 11);
++  expect(archiveOpenInvoices).toHaveBeenCalledWith(3, 11);
++});
++
++test("a non-admin cannot archive, and no invoice changes", async () => {
++  findProject.mockResolvedValue({ id: 11, archived: false });
++  await expect(archiveProject({ ...admin, role: "member" }, 11)).rejects.toThrow("only an admin");
++  expect(archiveOpenInvoices).not.toHaveBeenCalled();
++});
+diff --git a/api/src/projects/archiveProject.js b/api/src/projects/archiveProject.js
+index 019b074..1b346ed 100644
+--- a/api/src/projects/archiveProject.js
++++ b/api/src/projects/archiveProject.js
+@@ -1,7 +1,9 @@
+ const { findProject, saveProject } = require("./projectStore");
++const { archiveOpenInvoices } = require("../invoices/invoiceStore");
+ const { HttpError } = require("../lib/errors");
+ 
+ // Archives a Project. Only a Workspace admin may archive.
++// Its open Invoices leave Due in the same step, so none is left billing an archived Project.
+ async function archiveProject(member, projectId) {
+   const project = await findProject(member.workspaceId, projectId);
+   if (!project) {
+@@ -12,6 +14,7 @@ async function archiveProject(member, projectId) {
+   }
+   project.archived = true;
+   await saveProject(project);
++  await archiveOpenInvoices(member.workspaceId, project.id);
+   return project;
+ }
+ 

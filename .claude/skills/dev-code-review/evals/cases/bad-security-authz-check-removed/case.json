@@ -1,0 +1,21 @@
+{
+  "id": "bad-security-authz-check-removed",
+  "kind": "bad",
+  "title": "Archive project: the admin guard is replaced by a sign-in check",
+  "ticket": "PROJ-204",
+  "bugs": [
+    {
+      "file": "api/src/projects/archiveProject.js",
+      "line_start": 11,
+      "line_end": 13,
+      "class": "security",
+      "pattern": "authz-check-removed",
+      "note": "The admin-only guard is replaced by a check every signed-in Member passes: any Member can now archive any Project in the Workspace. The ticket (project owners get a 403) needed the guard widened to the owner, not removed."
+    }
+  ],
+  "source": {
+    "origin": "seed",
+    "added": "2026-11-25",
+    "confirmed_by": "kit-seed"
+  }
+}

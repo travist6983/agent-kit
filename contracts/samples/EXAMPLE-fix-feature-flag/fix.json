@@ -1,0 +1,33 @@
+{
+  "status": "fixed",
+  "key": "PROJ-450",
+  "root_cause": "computeNextDueDate() added the recurrence interval to the completion date instead of the previous due date, so every completed recurring task drifted by the days it was late.",
+  "is_root_cause": true,
+  "masking_suspected": false,
+  "confidence": 86,
+  "failure_class": null,
+  "files_changed": [
+    "web/src/areas/tasks/recurrence.js",
+    "web/src/areas/tasks/__tests__/recurrence.test.js"
+  ],
+  "feature_flag": {
+    "name": "tasks-recurring-due-dates",
+    "off_restores_previous": true,
+    "how_to_turn_off": "Set tasks-recurring-due-dates to off for every workspace in the feature-flag store."
+  },
+  "design_decisions": [
+    {
+      "kind": "known-gap",
+      "title": "Create the tasks-recurring-due-dates key in the feature-flag store (default off)",
+      "decision": "computeNextDueDate() reads the flag; off keeps the old completion-date rule on every path.",
+      "files": [
+        "web/src/areas/tasks/recurrence.js:27"
+      ],
+      "must_read": true,
+      "must_read_reason": "human-action-required",
+      "reviewer_must_confirm": "Create the tasks-recurring-due-dates key in the feature-flag store (default off) before merging."
+    }
+  ],
+  "noticed_not_changed": [],
+  "pending_fix_lesson": null
+}

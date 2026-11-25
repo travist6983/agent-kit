@@ -1,0 +1,22 @@
+{
+  "id": "bad-refix-invoice-currency",
+  "kind": "bad",
+  "title": "Invoice currency: the re-fix formats the symptom and leaves the stored amount wrong",
+  "ticket": "PROJ-123",
+  "bugs": [
+    {
+      "file": "web/src/invoices/InvoiceRow.jsx",
+      "line_start": 14,
+      "line_end": 16,
+      "class": "masking",
+      "pattern": "symptom-surface-only",
+      "note": "The row reformats the displayed amount; the Invoice is still stored in the wrong currency."
+    }
+  ],
+  "source": {
+    "origin": "re-fix",
+    "ref": "PROJ-123",
+    "added": "2026-11-25",
+    "confirmed_by": "reviewer@example.com"
+  }
+}

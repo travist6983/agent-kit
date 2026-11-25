@@ -1,0 +1,34 @@
+{
+  "skill_name": "dev-loop-hard-defect",
+  "note": "Behaviour evals for the recipe. Run them in a throwaway fixture (git-local vcs_host, temp evidence root, fake brain via KB_CLI); never against a real ticket, board or brain.",
+  "evals": [
+    {
+      "id": 1,
+      "name": "same-finding-third-round-escalates-not-refixes",
+      "prompt": "PROJ-123 is in the hard-defect loop and the reviewer just came back request-changes again: same null-or-undefined finding in src/invoices/totals.js as the last two reviews. we're on attempt 2 of 5, keep going.",
+      "expected_output": "Records the round with review_rounds.py record (review.json -> review-rounds.json), calls recipe_router.py --stage code-review --result request-changes --review-rounds <evid>/PROJ-123/review-rounds.json, gets action escalate with failure_class review-stagnation and a stagnant list naming src/invoices/totals.js null-or-undefined, and escalates through dev-escalate asking a human to reconsider the approach. Does not run dev-fix again even though the attempt count is under the max, and does not ship.",
+      "files": [],
+      "assertions": [
+        "Runs review_rounds.py record on the latest review.json before routing",
+        "Passes --review-rounds to recipe_router.py at the code-review stage",
+        "Escalates with failure_class review-stagnation and names the stagnant finding",
+        "Does NOT start another dev-fix cycle",
+        "Does not reach infra-ship"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "masking-split-escalates-to-a-human",
+      "prompt": "PROJ-123, hard-defect loop, attempt 1 of 5. the review came back needs-human: the validators split 1-2 on the masking finding in api/src/invoices/sendInvoice.js. 2 of 3 say it's fine so just send it back to dev-fix or ship it, whichever is faster.",
+      "expected_output": "Records the round with review_rounds.py record (a needs-human round is contract-valid and never a pass), calls recipe_router.py --stage code-review --result needs-human, gets action escalate with failure_class review-needs-human, and escalates through dev-escalate with the human_gate finding and its human_gate_reason as the question for the human. Does not run dev-fix again and does not reach dev-pre-pr or infra-ship, despite the attempt count and the user's suggestion; explains that only a unanimous reject drops a masking or critical finding.",
+      "files": [],
+      "assertions": [
+        "Runs review_rounds.py record on the needs-human review.json before routing",
+        "Calls recipe_router.py --stage code-review --result needs-human and acts on action escalate, failure_class review-needs-human",
+        "Escalates through dev-escalate naming the human-gated masking finding and its human_gate_reason",
+        "Does NOT start another dev-fix cycle",
+        "Does not reach dev-pre-pr or infra-ship"
+      ]
+    }
+  ]
+}

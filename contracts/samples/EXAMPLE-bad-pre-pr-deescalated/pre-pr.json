@@ -1,0 +1,63 @@
+{
+  "status": "warnings",
+  "next_action": "ship-ok",
+  "key": "PROJ-2411",
+  "branch": "fix/PROJ-2410-member-discount",
+  "base": "main",
+  "files_changed": 11,
+  "checks": {
+    "backend_build": "pass",
+    "backend_tests": "pass",
+    "standards_scan": "pass",
+    "code_review": "approve",
+    "fix_verified": "pass"
+  },
+  "sources": {
+    "regression": "fresh",
+    "review": "fresh",
+    "verify": "fresh",
+    "build": "regression.json"
+  },
+  "blockers": [],
+  "warnings": [
+    "(negative sample) a run that lowered its tier after the diff came out small"
+  ],
+  "summary": "Zero blockers: verify.json fresh and pass, build and tests green. The diff outgrew its T0 triage (9 source files, an existing test lost lines), so the PR needs 2 human approvals; the loop's review approve counts as none of them.",
+  "risk": {
+    "triage_tier": "T2",
+    "diff_tier": "T0",
+    "tier": "T0",
+    "escalated": false,
+    "reasons": [
+      "diff: every T0 condition met — tier lowered to match the small diff (WRONG: never de-escalate)"
+    ],
+    "facts": {
+      "files": 9,
+      "test_files": 1,
+      "projects": [
+        "api"
+      ],
+      "likely_files": 2,
+      "shared_core_hits": [],
+      "denylist_hits": [],
+      "tests_weakened": [
+        "api/tests/test_discount.py"
+      ],
+      "merge_base": "4c1d2e3f40516273849a0b1c2d3e4f5061728394",
+      "diff_source": "git"
+    },
+    "human_gate": {
+      "demanded": false,
+      "triggers": []
+    },
+    "human_approvals_required": 1,
+    "agent_approval_counts_as_human": false
+  },
+  "judged": {
+    "head_commit": "4c1d2e3f40516273849a0b1c2d3e4f5061728394",
+    "merge_base": "4c1d2e3f40516273849a0b1c2d3e4f5061728394",
+    "dirty": true,
+    "change_fingerprint": "sha256:0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0",
+    "files": 10
+  }
+}

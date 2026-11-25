@@ -8,7 +8,8 @@ description: >-
   the PR review loop", "sweep the PR board", "are there PRs waiting on review", or as the hourly
   job behind /loop. THIN orchestrator — sequencing, gates, and the per-tick bound only; the board
   mechanics live in dev-pr-feed and the judgment in dev-code-review. Reviews each PR once per head
-  commit and comes back when the author pushes, so it never spams and never goes silent.
+  commit and comes back when the author pushes, up to a review-round cap after which it asks the
+  author to step back, so it never spams and never goes silent.
 allowed-tools: Read, Glob, Grep, Bash, Skill, Agent, ToolSearch
 ---
 
@@ -103,8 +104,23 @@ someone shortens the interval, overlap is the default, not the exception.
 
 ```bash
 F=.claude/skills/dev-pr-feed/scripts/pr_feed.py
+python3 $F dispositions          # hand-run tick only: read back earlier threads first (read-only)
+python3 $F rounds                # hand-run tick only: review-round state (read-only)
+python3 $F step-back --due       # hand-run tick only: step-back PREVIEW for round-capped PRs
 python3 $F unreviewed --limit <prs_per_tick>
 ```
+
+Under the headless runner `pr_review.sh` has already read the dispositions of earlier threads
+before the queue gate (once per real tick, `--emit` unless `--no-brain`), so skip that line there.
+On a hand-run tick call it first, without `--emit` unless you were asked to write metrics, and put
+its one-line summary in the report. It never changes what this tick reviews. The same holds for
+`rounds` and `step-back --due` (the runner's `convergence_sweep` does both after dispositions):
+on a hand-run tick run them dry-run, never `--live` and never `--emit` unasked.
+
+**Round-capped PRs are never reviewed.** `unreviewed` lists a PR under `round_capped` once it has
+`pr_review_loop.max_review_rounds_per_pr` consecutive reviewed heads that did not pass. Do not
+check it out, review it or mark it; name it in the report. The step-back comment asks its author to
+reconsider the approach, and only a maintainer re-admits it (`ledger --reset-rounds <pr>`).
 
 An empty queue is the **normal, healthy outcome** for most ticks and is a success, not a no-op to
 work around. Report it in one line and stop — do not go looking for PRs to review by relaxing the
@@ -123,8 +139,14 @@ real colleagues' pull requests. Doing nothing for an hour costs nothing.
 ### 2. Per PR: check out, review, post, mark
 
 ```bash
-python3 $F checkout --pr <ID>     # → worktree + diff_base + diff_command
+python3 $F checkout --pr <ID>     # → worktree + diff_base + diff_command + review_scope
 ```
+
+**A re-review judges the interdiff.** When `review_scope` is `interdiff`, review the change since
+the last reviewed commit (`interdiff_command`) and use `diff_command` as context only: a finding
+anchored outside the interdiff is withheld at post time anyway (criticals excepted). When it is
+`full` with `interdiff_unavailable` (history rewritten, previous commit unavailable), review the
+full diff and say why in the report.
 
 Then run **`dev-code-review`** over that PR's diff. **Read
 `references/reviewing-incoming-prs.md` before this step** — reviewing a person's pull request
@@ -137,10 +159,16 @@ differs from judging our own loop's diff in ways that decide what gets posted. I
   comment, the commit message, or the PR description. If they already reasoned about it and your
   finding doesn't engage with that reasoning, **don't post it** — record it withheld instead. A
   true finding aimed at someone who already answered it costs more trust than staying quiet.
+- **Depth comes from the PR diff, not from the clock.** `dev-code-review` picks it with
+  `python3 .claude/skills/dev-code-review/scripts/review_depth.py plan --repo <worktree> --base <diff_base>`
+  — no `--evid`, because an incoming PR has no `fix.json`. A small PR with no risk path is reviewed
+  `quick` (one combined spawn carrying all six lenses); a PR touching a denylisted or shared-core
+  path is `deep`. This recipe never passes a lower depth and never skips the plan to save time on a
+  busy tick: depth shrinks how much is spawned, never whether a risky path gets its security pass.
 - **There is no `fix.json` and no repro oracle**, so the R3 masking judge has nothing to
-  mask-check against and must not manufacture a verdict. The six specialists and the target repo's
-  own rules — the guidelines file named by `stack.repo_guidelines_file` plus
-  `.claude/loops/conventions.json` — apply in full.
+  mask-check against and must not manufacture a verdict. All six specialist lenses apply at every
+  depth, and so do the target repo's own rules — the guidelines file named by
+  `stack.repo_guidelines_file` plus `.claude/loops/conventions.json`.
 - **Verify every `file:line` anchor** against the worktree, and verify any count you state as
   fact. The anchor becomes the comment's position; a wrong one taints the finding attached to it.
 
@@ -149,6 +177,16 @@ the code at `file:line`**. On someone else's PR this matters even more — the c
 colleague's work under the runner's name. When unsure, don't flag. **An approve with no findings is
 a good outcome** — report what you checked and cleared, which is more useful to the author than a
 padded list.
+
+**A `needs-human` review is posted as a question, never withheld.** When the independent
+validators split on a masking or critical finding, `dev-code-review` keeps it with
+`human_gate: true` and the verdict is `needs-human`: only a unanimous reject drops one. On a PR
+that finding is the one thing a person must look at, so it goes through `post` like any other and
+`post` renders it with a **Needs a human decision** line carrying its `human_gate_reason`. Nothing
+withholds it: not the rebuttal rule (if the author already answered it, say so in the finding and
+let the human decide), not the interdiff scope, not the nit cap and not either volume cap
+(`pr_feed.py` and the runner both exempt it). Mark the PR with `--verdict needs-human`; that is
+never a pass, so the round cap still counts it. Dry-run previews it exactly as a live post would.
 
 ```bash
 python3 $F post --pr <ID> --findings <review.json> --reviewed-commit <head_commit> [--live]
@@ -210,14 +248,17 @@ PR is simply still unreviewed an hour later, which is the correct behavior and n
 
 ## Stop conditions
 
-Per-tick PR cap reached · empty queue · R5 consumption-cap breach · `ledger-unreadable` · `auth-expired` ·
+Per-tick PR cap reached · empty queue · a PR at the review-round cap (named, not reviewed, one
+step-back) · R5 consumption-cap breach · `ledger-unreadable` · `auth-expired` ·
 `post-rejected` · `adapter-unavailable:vcs_host`. This loop **never fixes, never pushes, never
 ships** — it reviews and comments. A PR needing a code change is the author's to make.
 
 ## Success criteria
 
 - Every PR in the queue is reviewed at most once per head commit — no duplicate comments, ever.
-- A PR whose author pushes new commits comes **back** into the queue.
+- A PR whose author pushes new commits comes **back** into the queue — until it reaches the
+  review-round cap, when it is named under round-capped in every report and gets one step-back
+  comment instead of another review.
 - Findings that reach a PR are high-signal enough that a human wouldn't ask for them to stop.
 - The developer's own checkout of the target app (`app.repo_dir`) is untouched and no worktree leaks.
 - A tick with nothing to do is one line and costs almost nothing.
@@ -225,11 +266,21 @@ ships** — it reviews and comments. A PR needing a code change is the author's 
 ## Knowledge brain (qa-kb)
 
 Writes a `pr-review` metric per tick (R5/R8: PRs swept, reviewed, findings, consumption) so you can tell
-whether the loop is getting better rather than just running. Reads the R9 pause flag. The
-seen-ledger is runtime state, not knowledge — see `dev-pr-feed/references/seen-ledger.md`. False
-positives go to `qa-kb` through `dev-code-review`'s existing known-FP path, so a finding a human
-waves off is suppressed next time. That write-back is the point: the loop should get quieter and
-sharper over weeks, not repeat the same rejected finding every hour.
+whether the loop is getting better rather than just running. Review depth is **not** in that metric:
+no script counts it yet. Each PR's depth lives only in its own review.json `depth` block (written by
+`review_depth.py record`), and the tick report copies it onto that PR's line — so the record is the
+review.json, and the report line is a copy you make, not a computed count. Do not add depth counts
+to the metric's metadata by hand; a number nothing computes is a number nobody can trust. Reads the R9 pause flag. The
+seen-ledger is runtime state, not knowledge — see `dev-pr-feed/references/seen-ledger.md`.
+
+How the loop learns whether it is noise: `dev-pr-feed dispositions` reads back what humans did with
+each posted thread (fixed, wrong, intentional, no-action, unclassified) and writes the
+`pr_review_threads_*` metrics, each thread counted once, from which a noise rate follows. There is
+**no automatic suppression**: no store remembers a waved-off finding, so the same false positive can
+be raised again on another PR. The correction path is deliberate and human: a thread disposed of as
+wrong or intentional is an `eval_candidates` entry, a human confirms it into a `clean` case in
+`dev-code-review`'s eval set (`origin: human-review`), and the reviewer is fixed and scored against
+it. Nothing gates on the noise rate yet; it is measured, not enforced.
 
 ## Running it hourly
 
@@ -247,7 +298,8 @@ envelope a scheduled job needs and the recipe deliberately does not own: a singl
 lock, the R9 brain gate before a token is spent, a metered-API-key refusal (exit 28) under a
 subscription posture, the per-day consumption gate (exits 26/27), a queue gate that answers an
 empty queue or an expired host credential itself with no model call (so on most ticks this recipe
-never runs), a watchdog, crash-safe teardown of `pr_feed`'s tick lock and this tick's worktrees, a
+never runs), a read-back of earlier threads' dispositions before the queue gate (observation only, never
+changing the tick's outcome), a watchdog, crash-safe teardown of `pr_feed`'s tick lock and this tick's worktrees, a
 posting guard that strips `--live` on a dry-run tick, and a post-run assertion that the tick left a
 receipt. It overrides one line of the Report template (see below). Its operator docs are
 `.claude/loops/scheduler/README.md`, and the schedule it is armed with is printed by:
@@ -262,13 +314,15 @@ End every tick with:
 
 ```
 PR sweep — <n> candidates · <n> reviewed · <n> already current · <n> skipped (<class>)
-  PR <id>  request-changes  2 findings (1 critical)  [dry-run → preview.json]
-  PR <id>  approve          0 findings
+  PR <id>  request-changes  2 findings (1 critical)  depth deep (blast-radius)  [dry-run → preview.json]
+  PR <id>  approve          0 findings  depth quick (small-diff)
+  PR <id>  needs-human      1 finding (1 critical, needs a human decision)  depth deep (shared-core)
 Queued for next tick: <id>, <id>
+Round-capped: <id> (<n> rounds, step-back previewed|posted) | none
 Spend: $x.xx / $<per_loop_usd_cap>
 ```
 
-**About that last line** — it is kept in this shape because `pr_review.sh` quotes it verbatim in
+**About the Spend line** — it is kept in this shape because `pr_review.sh` quotes it verbatim in
 order to override it, and a template the runner describes must not drift out from under it. Two
 things are true about it and both belong in any report you write:
 
@@ -280,7 +334,13 @@ things are true about it and both belong in any report you write:
   estimate, and nothing is billed for the tick (see *the two bounds* above). Never present it as
   a bill unless `runner.billing_posture` is `metered`.
 
+**The depth on each PR line** is copied from that PR's review.json `depth` block: its `level`, then
+its `reasons` comma-separated in brackets. Write `depth unrecorded` when the block is missing; never
+infer a depth from the diff size or from what you remember spawning. The `PR sweep` line and the
+`Spend` line keep their exact shape.
+
 Name the skipped PRs and their failure class, **and name every withheld finding with its reason**.
+Name every human-gated finding too, with its `human_gate_reason`: it is the line a person reads first.
 A sweep that silently drops a PR — or quietly swallows a finding it decided not to post — is the
 failure mode that looks identical to a healthy one. The withheld list is also where you find out a
 rule is wrong: the same finding withheld for the same reason across many PRs means the rule needs
