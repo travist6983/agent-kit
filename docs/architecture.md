@@ -206,6 +206,15 @@ confidence, notes or design rationale, which anchor it before it looks. The judg
 model at least as strong as the producer; a weaker judge produces an *invalid* verdict, not a
 weaker one. See [`graph-engineering.md`](graph-engineering.md) for the mechanics.
 
+**The reviewer is evaluated too.** `dev-code-review` has a tracked eval set: bad cases (a diff with a
+confirmed bug location and class, from past incidents) measure its recall, and clean cases (diffs a
+human confirmed have nothing to flag) measure its harmful false-flag rate. `reviewer_eval.py` scores a
+set of `review.json` files against them with no model call, deterministic and offline; a case with no
+valid review makes the score incomplete rather than vanishing. The bar is declared in
+`loop-limits.json` `reviewer_eval`. Producing the reviews is a separate, model-spending step that
+nothing schedules yet, and no gate reads the score. See
+[`dev-code-review/references/eval-set.md`](../.claude/skills/dev-code-review/references/eval-set.md).
+
 ---
 
 ## 4. The retry engine

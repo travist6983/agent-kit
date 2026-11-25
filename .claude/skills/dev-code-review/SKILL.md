@@ -51,7 +51,11 @@ diff and returns a verdict + findings.
 from stack.config, default `runs/`, overridable with `LOOPS_CFG__EVIDENCE__ROOT`; `<KEY>` matches
 `project.ticket_key_pattern`, e.g. `PROJ-123`; contract: `contracts/dev-code-review.json`)
 `{ verdict: approve | request-changes, findings: [...], masking: bool, critical, high, confidence }`,
-plus the human-readable `review.md` beside it. Write it through `contracts/emit.py` so the artifact is
+plus the human-readable `review.md` beside it. **Every finding carries `file` (repo-relative, forward
+slashes, no leading `./`) and an integer `line`: the new-file line number of the added or changed
+line it is about** (contract v1.3.0). That pair is how a human, the validator pass and the eval
+scorer find what you meant; a range or a string is unlocatable, so a real catch written that way
+scores as a miss. Write it through `contracts/emit.py` so the artifact is
 validated before it lands. Record `judged_blind`, `attempt`, `retry_reason`, `timing` and `model`
 (the reviewer runs on `models.verifier` from stack.config unless the recipe says otherwise) so
 retries and judge strength are auditable after the fact.
@@ -145,6 +149,13 @@ brain.
 **Success:** a defensible verdict — every reported finding is real (validated ≥ 80), masking is caught,
 and the verdict is machine-actionable.
 **Failure categories (spec):** constraint violation; scope creep; missing test; risky pattern; **+ masking**.
+
+## The eval set — how this reviewer is scored
+`evals/cases/` holds past-incident diffs with a confirmed bug location (recall) and known-clean
+diffs (harmful false flags); `scripts/reviewer_eval.py` checks, materializes and scores them with
+no model call. Read `references/eval-set.md` for the run procedure and how to grow the set. Rescore
+after any change to this file, `references/`, the tool list or `models.verifier`. The cases are
+answer keys: when you review, never read `evals/cases` — review only the diff you were given.
 
 ## Knowledge brain (qa-kb)
 Reads `app_map`/`expectations` for context; **records false positives** (so they're suppressed next time);

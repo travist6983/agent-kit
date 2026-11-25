@@ -22,7 +22,9 @@ URLs come from the `evidence_store` adapter, and the evidence root is `evidence.
 | `qa-verify.json` | 1.0.0 | `qa-verify` mode=`fix-verify` (default) | `<evid_root>/<key>/verify.json` | the checker node; `dev-pre-pr` fails closed on it | `verdict` |
 | `qa-verify.collateral.json` | 1.0.0 | `qa-verify` fix-verify step 2b | `<repro_dir>/collateral.json` | the `no_collateral` must-have | `status` |
 | `qa-regression.json` | 2.1.0 | `qa-regression` | `<evid_root>/<key>/regression.json` | router | `status` + `next_action` |
-| `dev-code-review.json` | 1.2.0 | `dev-code-review` | `<evid_root>/<key>/review.json` | router; `dev-harden` reads findings' `harden` blocks | `verdict` |
+| `dev-code-review.json` | 1.3.0 | `dev-code-review` | `<evid_root>/<key>/review.json` | router; `dev-harden` reads findings' `harden` blocks; `reviewer_eval.py score` locates findings by `file` + `line` | `verdict` |
+| `dev-code-review.eval-case.json` | 1.0.0 | a human (seed cases: the kit), checked by `reviewer_eval.py check` (proposed) | `.claude/skills/dev-code-review/evals/cases/<id>/case.json` | `reviewer_eval.py` check / score; never the reviewer | `kind` |
+| `dev-code-review.eval-score.json` | 1.0.0 | `reviewer_eval.py score` (proposed) | a caller-chosen path (`--out`), or stdout | a person or a later job comparing reviewer versions | `status` |
 | `dev-harden.json` | 1.0.0 | `dev-harden` | `<evid_root>/harden/<fingerprint>/harden.json` | `collect_candidates.py` (decided skip); a human `--apply` | `status` |
 | `dev-pre-pr.json` | 1.2.0 | `dev-pre-pr` | `<evid_root>/<key>/pre-pr.json` | router | `status` |
 | `qa-run-case.json` | 1.0.0 | `qa-run-case` (`DRIVER=cli` default · `chrome`) | `<evid_root>/<key>/case-run.json` | grade + drift (stored verbatim); `steps` → per-step rows | `status` |
@@ -119,6 +121,23 @@ Required `{status, area, results, next_action}`. **QA-REGRESSION-C1:** `green` /
 `results.total >= 1` and a non-empty `area_slice_run` — a cross-field rule in `validate.py`, not only prose,
 because a zero-test green once shipped. Counts are integers; `'n/a'` fails by construction. The gate drives
 no browser and runs no spec files.
+
+### `dev-code-review.json` and the reviewer eval set
+
+`review.json` v1.3.0 adds an OPTIONAL integer `findings[].line`: the new-file line of the added or
+changed line the finding is about. It stays optional so every older artifact validates, but a finding
+without an integer line (or with a range string, `EXAMPLE-bad-review-line`, which fails) is
+unlocatable and can never count as a catch when the reviewer is scored.
+
+`dev-code-review.eval-case.json` is the answer key of one eval case (diff + base tree + optional
+fix.json beside it). **DEV-REVIEW-EVAL-K1** (`validate.py`): `kind: bad` needs at least one bug with
+`line_end >= line_start`, `kind: clean` names none, and any case whose `source.origin` is not `seed`
+carries `source.ref` and `source.confirmed_by`, a person's signature on the location or on "clean".
+`dev-code-review.eval-score.json` is the scorer's output: recall, false-flag rate, per-case results.
+It is a pure function of the case set, the reviews and `loop-limits.json reviewer_eval`: no timing
+stamp, no model field, sorted keys, so it is not written through `emit.py`; the scorer validates it
+itself before printing. Compare two scores only at equal `case_set.sha256`. See
+`.claude/skills/dev-code-review/references/eval-set.md`.
 
 ### `dev-pre-pr.json` — the readiness verdict
 
@@ -296,6 +315,11 @@ Every sample validates against its contract (or is a named negative that must fa
 | `EXAMPLE-bad-enum/` | qa-run-case | **fail** — off-enum grade and step status |
 | `diag-app-bug/`, `diag-inconclusive/` | qa-diagnose | pass — a proposed diff, and the empty-diff give-up path |
 | `EXAMPLE-bad-layer/` | qa-diagnose | **fail** — off-enum `failure_layer` |
+| `EXAMPLE-review-harden/` | dev-code-review | pass — a drafted `harden` block and an integer `line` (v1.3.0) |
+| `EXAMPLE-bad-review-line/` | dev-code-review | **fail** — `line` written as a range string |
+| `EXAMPLE-reviewer-eval-bad/`, `EXAMPLE-reviewer-eval-clean/` | dev-code-review.eval-case | pass — a signed re-fix bad case and a signed clean case |
+| `EXAMPLE-bad-reviewer-eval-case/` | dev-code-review.eval-case | **fail** — a bad case naming no bug (DEV-REVIEW-EVAL-K1) |
+| `EXAMPLE-reviewer-eval/` | dev-code-review.eval-score | pass — real `reviewer_eval.py score` output over the seed set |
 | `EXAMPLE-chatbot/` | qa-run-chatbot | pass |
 
 ## Versioning

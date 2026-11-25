@@ -1,0 +1,13 @@
+{
+  "id": "clean-member-invite-dedup",
+  "kind": "clean",
+  "title": "Member invite: duplicate invitations are filtered at the source",
+  "ticket": "PROJ-124",
+  "bugs": [],
+  "source": {
+    "origin": "human-review",
+    "ref": "PROJ-124",
+    "added": "2026-11-25",
+    "confirmed_by": "reviewer@example.com"
+  }
+}

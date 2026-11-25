@@ -131,7 +131,8 @@ never a silent skip and never an unclassified retry.
 **`dev-code-review`**
 - Purpose: the blind review judge: six stack-agnostic specialists over the diff against the repo's guidelines + `conventions.json`, plus the R3 symptom-masking judge; findings validated at a confidence floor, deduplicated by fingerprint.
 - Inputs: the candidate diff against `project.default_branch`, `fix.json`; never `verify.json` or `regression.json`.
-- Outputs: `review.json` — `verdict ∈ {approve, request-changes}`, findings with confidence, masking flag, `resolved` marks once a cycle closes a finding.
+- Outputs: `review.json` (contract v1.3.0) — `verdict ∈ {approve, request-changes}`, findings with confidence, each carrying `file` (repo-relative) and an integer `line` (the new-file line of the added or changed line), masking flag, `resolved` marks once a cycle closes a finding.
+- Eval set: `evals/cases/` holds bad cases (a diff + a confirmed bug location and class, scored for recall) and clean cases (scored for harmful false flags); `scripts/reviewer_eval.py` checks, materializes and scores them with no model call (`references/eval-set.md`). The bar is `loop-limits.json` `reviewer_eval`: declared, argued not measured, and not enforced by any runner or ship gate yet.
 - Brain: —
 - Stops: masking detected → `request-changes`, a hard block in the hard-defect recipe; the same finding surviving two fix cycles → stagnation → escalate.
 

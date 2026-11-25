@@ -1,0 +1,21 @@
+{
+  "id": "bad-masking-narrow-special-case",
+  "kind": "bad",
+  "title": "Invoice total: a guard keyed to the repro's invoice id",
+  "ticket": "PROJ-202",
+  "bugs": [
+    {
+      "file": "web/src/invoices/invoiceTotal.js",
+      "line_start": 3,
+      "line_end": 5,
+      "class": "masking",
+      "pattern": "narrow-special-case",
+      "note": "Hard-codes the repro invoice's expected total. Tax is still computed on the pre-discount subtotal for every other Invoice."
+    }
+  ],
+  "source": {
+    "origin": "seed",
+    "added": "2026-11-25",
+    "confirmed_by": "kit-seed"
+  }
+}

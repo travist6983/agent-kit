@@ -144,7 +144,37 @@ def validate(schema, doc):
         _check_fix_root_cause(doc, errors)
     if str(schema.get("$id", "")).endswith("/qa-verify.collateral.json"):
         _check_collateral_proof(doc, errors)
+    if str(schema.get("$id", "")).endswith("/dev-code-review.eval-case.json"):
+        _check_reviewer_eval_case(doc, errors)
     return errors
+
+
+def _check_reviewer_eval_case(doc, errors):
+    """DEV-REVIEW-EVAL-K1: an answer key must be able to score something, and a real-world case must
+    carry a person's signature. A bad case with no confirmed bug scores nothing and silently shrinks
+    the recall denominator; a clean case that names bugs contradicts itself; a case that came from a
+    real run (anything but seed) is only an answer key once a human confirmed the location, or
+    confirmed the diff clean, and said where it came from."""
+    kind = doc.get("kind")
+    bugs = doc.get("bugs")
+    bugs = bugs if isinstance(bugs, list) else []
+    if kind == "bad":
+        if not bugs:
+            errors.append("DEV-REVIEW-EVAL-K1: kind=bad needs at least one confirmed bug in `bugs`")
+        for i, b in enumerate(bugs):
+            if not isinstance(b, dict):
+                continue
+            ls, le = b.get("line_start"), b.get("line_end")
+            if isinstance(ls, int) and isinstance(le, int) and not isinstance(ls, bool) \
+                    and not isinstance(le, bool) and le < ls:
+                errors.append(f"DEV-REVIEW-EVAL-K1: bugs[{i}] line_end {le} < line_start {ls}")
+    elif kind == "clean" and bugs:
+        errors.append("DEV-REVIEW-EVAL-K1: kind=clean must not name bugs (a clean case has nothing to flag)")
+    src = doc.get("source") if isinstance(doc.get("source"), dict) else {}
+    if src.get("origin") and src.get("origin") != "seed":
+        for k in ("ref", "confirmed_by"):
+            if not str(src.get(k) or "").strip():
+                errors.append(f"DEV-REVIEW-EVAL-K1: origin={src.get('origin')} needs a non-empty source.{k}")
 
 
 

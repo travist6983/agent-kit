@@ -1,0 +1,12 @@
+{
+  "id": "bad-without-a-bug",
+  "kind": "bad",
+  "title": "A bad case that names no confirmed bug: it can score nothing",
+  "ticket": "PROJ-125",
+  "bugs": [],
+  "source": {
+    "origin": "seed",
+    "added": "2026-11-25",
+    "confirmed_by": "kit-seed"
+  }
+}

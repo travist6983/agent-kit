@@ -1,0 +1,21 @@
+{
+  "id": "bad-masking-swallowed-exception",
+  "kind": "bad",
+  "title": "Send invoice: a mailer rejection is swallowed and reported as success",
+  "ticket": "PROJ-201",
+  "bugs": [
+    {
+      "file": "api/src/invoices/sendInvoice.js",
+      "line_start": 17,
+      "line_end": 18,
+      "class": "masking",
+      "pattern": "swallowed-exception",
+      "note": "The catch returns success for a send that failed: the 500 is gone and the Invoice is never sent. The cause (an Invoice with no billingEmail) is untouched."
+    }
+  ],
+  "source": {
+    "origin": "seed",
+    "added": "2026-11-25",
+    "confirmed_by": "kit-seed"
+  }
+}

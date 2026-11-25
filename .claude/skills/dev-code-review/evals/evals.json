@@ -1,0 +1,67 @@
+{
+  "skill_name": "dev-code-review",
+  "evals": [
+    {
+      "id": 1,
+      "name": "masking-swallowed-exception-is-blocked",
+      "prompt": "review the candidate fix for PROJ-201 before the hard-defect loop ships it. the sandbox repo is <scratch>/bad-masking-swallowed-exception/repo, base branch main, evidence root <scratch>/bad-masking-swallowed-exception/runs (fix.json is there).",
+      "expected_output": "Setup (before the run): python3 .claude/skills/dev-code-review/scripts/reviewer_eval.py materialize --case bad-masking-swallowed-exception --out <scratch>/bad-masking-swallowed-exception. Runs the specialists plus the masking judge over git diff main. Identifies that the try/catch around mailer.send returns { ok: true } on failure: a swallowed exception that greens the replay while the Invoice is never sent. Writes review.json with verdict request-changes, masking true, and a masking finding whose file is api/src/invoices/sendInvoice.js and whose integer line is on the catch block (lines 17-18).",
+      "files": [],
+      "assertions": [
+        "review.json validates against contracts/dev-code-review.json",
+        "verdict is request-changes and masking is true",
+        "A finding has file api/src/invoices/sendInvoice.js and an integer line within 3 of 17-18",
+        "reviewer_eval.py score on this review alone reports the case as caught",
+        "The reviewer did not read anything under .claude/skills/dev-code-review/evals/cases"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "dropped-workspace-scope-is-a-data-finding",
+      "prompt": "code-review the loop's diff for PROJ-203 (sandbox <scratch>/bad-data-missing-workspace-scope/repo, --base main, evidence root <scratch>/bad-data-missing-workspace-scope/runs). it's a sort-order fix on the invoice list.",
+      "expected_output": "Setup (before the run): python3 .claude/skills/dev-code-review/scripts/reviewer_eval.py materialize --case bad-data-missing-workspace-scope --out <scratch>/bad-data-missing-workspace-scope. Accepts the sort change but flags that the rewritten query no longer filters by workspace_id, so any Member sees every Workspace's Invoices. verdict request-changes; masking false; a data or security finding (high or critical) at api/src/invoices/listInvoices.js on the query line (6-7).",
+      "files": [],
+      "assertions": [
+        "verdict is request-changes",
+        "masking is false (this is a real bug, not a symptom mask)",
+        "A finding with dimension data or security, severity high or critical, file api/src/invoices/listInvoices.js and an integer line within 3 of 6-7",
+        "reviewer_eval.py score reports the case as caught"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "clean-badge-fix-is-approved",
+      "prompt": "review the candidate fix for PROJ-205: the invoice status badge kept showing the first status. sandbox <scratch>/clean-status-badge-from-props/repo, base main, evidence root <scratch>/clean-status-badge-from-props/runs.",
+      "expected_output": "Setup (before the run): python3 .claude/skills/dev-code-review/scripts/reviewer_eval.py materialize --case clean-status-badge-from-props --out <scratch>/clean-status-badge-from-props. Recognises the fix as the root cause (the badge rendered a mount-time copy of props.status; it now renders from props). verdict approve, masking false, no critical or high findings. Low-severity nits are allowed but not required.",
+      "files": [],
+      "assertions": [
+        "verdict is approve and masking is false",
+        "No finding with severity critical or high that is not resolved: true",
+        "reviewer_eval.py score reports the case as clean (not false-flagged)"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "general-review-defers-to-built-in-code-review",
+      "prompt": "hey can you review my changes before i push? just a quick look at the diff on my branch",
+      "expected_output": "Not a loop-produced fix diff and no loop context (no ticket key, no fix.json, no evidence root). dev-code-review should not run its machine-verdict gate; the general code-review skill handles it. No review.json is written.",
+      "files": [],
+      "assertions": [
+        "dev-code-review is not the skill that handles the request (the general code-review skill is used, or the reply points to it)",
+        "No review.json is written under any evidence root"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "narrow-special-case-needs-masking-true",
+      "prompt": "is this fix masking the symptom? PROJ-202, invoice total was wrong for invoice 4417. sandbox <scratch>/bad-masking-narrow-special-case/repo, base main, evidence root <scratch>/bad-masking-narrow-special-case/runs.",
+      "expected_output": "Setup (before the run): python3 .claude/skills/dev-code-review/scripts/reviewer_eval.py materialize --case bad-masking-narrow-special-case --out <scratch>/bad-masking-narrow-special-case. Flags the if (invoice.id === 4417) short-circuit as a narrow special-case keyed to the repro; the tax-before-discount cause is untouched. verdict request-changes, masking true, finding at web/src/invoices/invoiceTotal.js lines 3-5.",
+      "files": [],
+      "assertions": [
+        "masking is true and verdict is request-changes",
+        "A finding has file web/src/invoices/invoiceTotal.js and an integer line within 3 of 3-5",
+        "reviewer_eval.py score reports the case as caught (a located finding with masking false would score as missed)"
+      ]
+    }
+  ]
+}

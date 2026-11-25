@@ -45,6 +45,17 @@ must_pass "$C/dev-code-review.json" "$C/samples/EXAMPLE-defect-loop/review.json"
 # must_trip, must_pass); an off-enum band must FAIL
 must_pass "$C/dev-code-review.json" "$C/samples/EXAMPLE-review-harden/review.json"
 must_fail "$C/dev-code-review.json" "$C/samples/EXAMPLE-bad-review-harden-band/review.json"
+# dev-code-review v1.3.0: a finding may carry an integer `line` (EXAMPLE-review-harden has one, above);
+# a line written as a range string must FAIL (the eval scorer locates a catch by file + integer line)
+must_fail "$C/dev-code-review.json" "$C/samples/EXAMPLE-bad-review-line/review.json"
+
+# dev-code-review eval case (v1.0.0, proposed): a signed re-fix bad case and a signed clean case pass;
+# a bad case naming no bug must FAIL (validate.py DEV-REVIEW-EVAL-K1)
+must_pass "$C/dev-code-review.eval-case.json" "$C/samples/EXAMPLE-reviewer-eval-bad/case.json"
+must_pass "$C/dev-code-review.eval-case.json" "$C/samples/EXAMPLE-reviewer-eval-clean/case.json"
+must_fail "$C/dev-code-review.eval-case.json" "$C/samples/EXAMPLE-bad-reviewer-eval-case/case.json"
+# dev-code-review eval score (v1.0.0, proposed): real reviewer_eval.py output over the seed set
+must_pass "$C/dev-code-review.eval-score.json" "$C/samples/EXAMPLE-reviewer-eval/score.json"
 
 # dev-harden (v1.0.0, proposed): a proposed rule and a proposed guideline pass; an off-enum band
 # fails, and a guideline that skips the static/verification bands without a reason must FAIL
