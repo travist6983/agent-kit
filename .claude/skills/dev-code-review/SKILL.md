@@ -7,8 +7,9 @@ description: >-
   "code-review the loop's diff", "is this fix masking the symptom", or as the review step
   dev-loop-hard-defect runs before ship. Scope: loop-produced fix diffs needing a machine-actionable
   verdict — for a general "review this diff / review my changes", use the built-in code-review skill
-  instead. Runs the 6-specialist split (frontend, backend, data, security, tests, perf) plus the
-  masking judge; findings validated by independent validators at a quorum. Does NOT fix or ship.
+  instead. Six specialist lenses (frontend, backend, data, security, tests, perf) plus the masking
+  judge, the fan-out scaled by a risk-based depth from the diff; findings validated by independent
+  validators at a quorum. Does NOT fix or ship.
 allowed-tools: Read, Glob, Grep, Bash, Agent, ToolSearch
 ---
 
@@ -47,6 +48,11 @@ diff and returns a verdict + findings.
      review, never by reading the key yourself: the script is what refuses a skip that would cover a
      denylisted or shared-core file. No key (status `absent`) = review as you always have. Exit 2 /
      status `unavailable` = review everything, no cap, and write `brief: unavailable` in `summary`.
+  4. the **review depth**, read ONLY through
+     `python3 scripts/review_depth.py plan --repo <sandbox> --base <base> [--evid <EVID_ROOT>/<KEY>]`.
+     Pass `--evid` whenever a loop fix is being reviewed (`fix.json` exists); omit it for an incoming
+     PR. Exit 2, or no plan at all, = run at `deep` with every pass. A caller may raise the depth with
+     `--min-depth`; nothing may lower it, and you never pick a level by eye.
 
   A missing guidelines file is not an error — note `guidelines: none` in `summary` and judge on
   the conventions rules + the universal rules in `references/specialists.md`. A missing or
@@ -62,7 +68,8 @@ plus the human-readable `review.md` beside it (contract v1.5.0 adds `headline`, 
 and `brief`, the record of the reviewer brief; both are written by `scripts/review_brief.py
 finalize`, never by hand; contract v1.6.0 adds `validation`, the record of independent finding
 validation, and `findings[].finding_id` / `votes`, all written by `scripts/finding_votes.py tally`,
-never by hand). **Every finding carries `file` (repo-relative, forward
+never by hand; contract v1.7.0 adds `depth`, the review depth and the passes it ran, written by
+`scripts/review_depth.py record`, never by hand). **Every finding carries `file` (repo-relative, forward
 slashes, no leading `./`) and an integer `line`: the new-file line number of the added or changed
 line it is about** (contract v1.3.0). That pair is how a human, the validators and the eval
 scorer find what you meant; a range or a string is unlocatable, so a real catch written that way
@@ -96,15 +103,35 @@ Every finding still needs `file` + an integer `line` as evidence. The masking ju
 whole diff whatever the brief skips, because a mask can hide in a "generated" file. Report every
 validated low finding; the nit cap is applied mechanically in §5, not by trimming.
 
+### 1c. Pick the depth
+Most small diffs come back clean, so spawning six specialists over a one-line copy change buys
+nothing; a two-line change to an auth config deserves more than the usual pass. `review_depth.py
+plan` (Inputs, item 4) decides from the diff, deterministically, and its `passes` are what §2 spawns:
+
+| Level | When (the script decides) | Specialist spawns |
+|---|---|---|
+| `quick` | ≤ `quick_max_files` files and ≤ `quick_max_changed_lines` lines (loop-limits `review_depth`), no risk path, no unknown, not an in-loop review | ONE `Agent` spawn handed all six specialist briefs; every finding still carries the `dimension` of the lens that found it |
+| `standard` | over the size limit, an unknown line count, an empty diff, or any in-loop review (`--evid`) | the six, one spawn each |
+| `deep` | a risk path (R6 denylist via the adopter list or the framework floor, `shared_core_globs`, intake `sensitive`, a change to the conventions file) or any unknown | the six + `security-risk-paths`: one more security spawn reading the risk files whole, plus their callers |
+
+Why the invariants hold at every depth: depth shrinks how much is spawned, never which dimensions
+are looked at, so **security is never off** (quick carries the security lens; deep adds a second
+security pass where the risk is). The masking judge, the validators and their quorum, the brief's
+skip rules, the §4 verdict rule and the evidence rule (`file` + integer `line`) are the same at
+every level; a denylisted file is CRITICAL on sight whether the review is quick or deep. The pass
+briefs are in `references/specialists.md` "Review depth".
+
 ### 2. Specialists propose, independent validators decide (parallel, counted by a script)
 A producer never grades its own work, and that holds inside this skill: the context that writes the
 verdict does not decide which findings are real. Numbers: `loop-limits.json` `review_validation`
 (`validators`, `quorum`, `confidence_floor`; 3 / 2 / 80 as shipped, argued not measured). The full
 validator brief is `references/specialists.md` "The validators". The sequence is mechanical:
 
-1. **Specialists** (fresh `Agent` spawns, parallel). Run the six in `references/specialists.md` —
-   **frontend, backend, data, security, tests, perf** — over the diff (chunk at 50 files), **plus**
-   the **R3 symptom-masking specialist** (`references/masking-specialist.md`). A specialist whose
+1. **Specialists** (fresh `Agent` spawns, parallel). Spawn the depth plan's `passes` (§1c) — the six
+   lenses in `references/specialists.md`, **frontend, backend, data, security, tests, perf**, as one
+   combined spawn at quick, six at standard, six + `security-risk-paths` at deep — over the diff
+   (chunk at 50 files), **plus** the **R3 symptom-masking specialist**
+   (`references/masking-specialist.md`), at every depth. A specialist whose
    surface the diff doesn't touch returns an empty list, not a guess. Each returns strict JSON
    findings at or above the floor, `dimension` set to its name.
 2. **Merge without judging.** Put every specialist finding into
@@ -124,7 +151,7 @@ validator brief is `references/specialists.md` "The validators". The sequence is
    fewer than `quorum` usable ballots) = no review.json; report `blocked: validation-unavailable` to
    the recipe.** Re-spawn a missing validator only for a transient reason.
 6. Only then: §2b harden blocks, the §4 verdict and the `summary`, on the kept findings; §5
-   `review_brief.py finalize`; `contracts/emit.py`. `finding_votes.py check` re-derives the tally
+   `review_depth.py record`, then `review_brief.py finalize`; `contracts/emit.py`. `finding_votes.py check` re-derives the tally
    (exit 0 / 1 / 2).
 
 A candidate the validators marked pre-existing and serious (`tally`'s `noticed_candidates`) still
@@ -206,11 +233,16 @@ in this diff*, and it is the difference between a claim and a receipt.
 ### 5. Record + route
 Write the draft `review.json` + the markdown report (`review.md`, beside it). When the plan skipped
 or refused anything, list those paths in `review.md` under a `## Not reviewed (brief skip_paths)`
-heading (refused ones marked as reviewed anyway). Then run
+heading (refused ones marked as reviewed anyway), and put a `Depth: <level> (<reasons>)` line
+right under the headline. Then run
+`python3 scripts/review_depth.py record --review <draft> --repo <sandbox> --base <base> [--evid <EVID_ROOT>/<KEY>]`
+(the same flags as the plan; it recomputes the plan, never lowers a level already recorded, and
+writes `depth`), then
 `python3 scripts/review_brief.py finalize --review <draft> --repo <sandbox> --base <base> --report <EVID_ROOT>/<KEY>/review.md`
 and land the result through `contracts/emit.py --from-json`. `finalize` withholds the low findings
 over the cap, writes `brief`, and puts the `headline` first in `summary` and on the first line of
-`review.md`; it is idempotent. Never hand-write `headline`, `brief`, or a nit-cap `withheld`. A
+`review.md`; it is idempotent. Never hand-write `headline`, `brief`, `depth`, or a nit-cap
+`withheld`; `review_depth.py check` re-derives the depth (exit 0 / 1 / 2). A
 clean review reads `0 findings: nothing needs fixing.` and says so plainly; do not add filler nits
 to look thorough. `scripts/review_brief.py check` re-derives all of it (exit 0 / 1 / 2). A candidate the
 validators reject is simply not reported; `validation` counts it and nothing records it as a finding
@@ -231,7 +263,7 @@ machine-actionable.
 diffs (harmful false flags); `scripts/reviewer_eval.py` checks, materializes and scores them with
 no model call. Read `references/eval-set.md` for the run procedure and how to grow the set. Rescore
 after any change to this file, `references/`, the tool list, `models.verifier` or
-`review_validation` in `loop-limits.json`; tune the quorum and the floor by replay, not by argument
+`review_validation` / `review_depth` in `loop-limits.json`; tune the quorum and the floor by replay, not by argument
 (`references/eval-set.md`, "Tuning the quorum and the floor"). The cases are
 answer keys: when you review, never read `evals/cases` — review only the diff you were given.
 
@@ -250,5 +282,7 @@ canonical. A `harden` block is a draft in review.json, not a rule: `dev-harden` 
 5. **Constraints come from config.** The guidelines file and the conventions ruleset are the only
    sources of "this repo's rules"; the reviewer never carries a framework's rules in its head.
 6. **Atomic.** Review + verdict. No fixing, no shipping.
-7. **The count comes first.** The summary and `review.md` lead with how many findings are open, and
+7. **Depth scales the fan-out, not the scrutiny of risky paths.** A small clean diff gets one
+   combined pass; a risky path always gets the full six plus a security pass over it.
+8. **The count comes first.** The summary and `review.md` lead with how many findings are open, and
    when nothing needs fixing the review says so in those words.

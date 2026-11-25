@@ -2,9 +2,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "loops/contracts/dev-code-review.json",
   "title": "dev-code-review review.json — machine review verdict (incl. R3 masking judge)",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "status": "ratified",
-  "description": "The ratified output of the dev-code-review skill, written to <evid_root>/<key>/review.json. The recipe branches on `verdict` (approve advances, request-changes routes back to dev-fix); `masking` carries the R3 symptom-masking judge's call. Ratified against samples/EXAMPLE-defect-loop/review.json. v1.3.0 (additive, backward compatible): findings may carry an integer `line`, the new-file line of the added or changed line; the reviewer eval scorer (dev-code-review/scripts/reviewer_eval.py) locates a catch by file + line. v1.4.0 (additive, backward compatible): findings may carry `bug_class`, the CLASS of the bug from a closed vocabulary, and `instances`, the other places in the same diff where that class occurs, so one finding covers the class and every instance gets fixed; file + bug_class is the fingerprint review_rounds.py records and recipe_router.py --review-rounds uses to detect a finding that survives fix cycles (stagnation). v1.5.0 (additive, backward compatible): optional `headline`, the count lead `review_brief.py finalize` writes (summary starts with it; a clean review reads exactly `0 findings: nothing needs fixing.`), and optional `brief`, the record of the per-area reviewer brief (conventions `review_brief`): which changed files were skipped, which skips were refused because the file is R6-denylisted or shared core, and how many low findings the nit cap withheld; findings[].withheld / withheld_reason are now documented. validate.py DEV-REVIEW-H1 (the headline count equals the open findings and leads the summary) and DEV-REVIEW-B1 (open lows within brief.max_nits; no file both skipped and refused; an unavailable brief skips and withholds nothing) fire only when those fields are present. v1.6.0 (additive, backward compatible): optional `validation`, the record of independent finding validation written by dev-code-review/scripts/finding_votes.py tally (never by hand): `validators` fresh Agent validators voted on every candidate finding and a finding is reported only with at least `quorum` confirms at or above `confidence_floor` (loop-limits review_validation); findings[].finding_id and findings[].votes are now documented. validate.py DEV-REVIEW-V1 (every open finding carries votes.confirm >= quorum, the open findings number `kept`, the counts add up) fires only when `validation` is present.",
+  "description": "The ratified output of the dev-code-review skill, written to <evid_root>/<key>/review.json. The recipe branches on `verdict` (approve advances, request-changes routes back to dev-fix); `masking` carries the R3 symptom-masking judge's call. Ratified against samples/EXAMPLE-defect-loop/review.json. v1.3.0 (additive, backward compatible): findings may carry an integer `line`, the new-file line of the added or changed line; the reviewer eval scorer (dev-code-review/scripts/reviewer_eval.py) locates a catch by file + line. v1.4.0 (additive, backward compatible): findings may carry `bug_class`, the CLASS of the bug from a closed vocabulary, and `instances`, the other places in the same diff where that class occurs, so one finding covers the class and every instance gets fixed; file + bug_class is the fingerprint review_rounds.py records and recipe_router.py --review-rounds uses to detect a finding that survives fix cycles (stagnation). v1.5.0 (additive, backward compatible): optional `headline`, the count lead `review_brief.py finalize` writes (summary starts with it; a clean review reads exactly `0 findings: nothing needs fixing.`), and optional `brief`, the record of the per-area reviewer brief (conventions `review_brief`): which changed files were skipped, which skips were refused because the file is R6-denylisted or shared core, and how many low findings the nit cap withheld; findings[].withheld / withheld_reason are now documented. validate.py DEV-REVIEW-H1 (the headline count equals the open findings and leads the summary) and DEV-REVIEW-B1 (open lows within brief.max_nits; no file both skipped and refused; an unavailable brief skips and withholds nothing) fire only when those fields are present. v1.6.0 (additive, backward compatible): optional `validation`, the record of independent finding validation written by dev-code-review/scripts/finding_votes.py tally (never by hand): `validators` fresh Agent validators voted on every candidate finding and a finding is reported only with at least `quorum` confirms at or above `confidence_floor` (loop-limits review_validation); findings[].finding_id and findings[].votes are now documented. validate.py DEV-REVIEW-V1 (every open finding carries votes.confirm >= quorum, the open findings number `kept`, the counts add up) fires only when `validation` is present. v1.7.0 (additive, backward compatible): optional `depth`, the risk-based review depth written by dev-code-review/scripts/review_depth.py record (never by hand): quick (one combined spawn carrying all six specialist lenses), standard (six spawns) or deep (six plus a `security-risk-paths` pass over the risk files), with the closed `reasons` that decided it. validate.py DEV-REVIEW-D1 (the passes cover all six specialists at every level; quick only for a decided small diff with no risk file; any risk path or unknown is deep; deep carries a security pass over the risk files) fires only when `depth` is present.",
   "type": "object",
   "additionalProperties": false,
   "required": ["verdict", "masking", "findings", "summary"],
@@ -137,6 +137,50 @@
         "rejected": { "type": "integer", "minimum": 0, "description": "candidates - kept, below-floor candidates included." },
         "split": { "type": "integer", "minimum": 0, "description": "Rejected candidates that at least one validator confirmed." },
         "source": { "type": "string", "description": "The limits file the numbers came from, `<path>#review_validation`." }
+      }
+    },
+    "depth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level", "status", "reasons", "passes"],
+      "description": "OPTIONAL (v1.7.0). The review depth, written by dev-code-review/scripts/review_depth.py record, never by hand. Depth scales how many specialist spawns run, never which dimensions are looked at: at every level the passes cover frontend, backend, data, security, tests and perf. Risk paths (the R6 denylist through the adopter list and the framework floor, shared_core_globs, intake sensitive, a change to the conventions file) and every unknown force deep; the size numbers are loop-limits review_depth. That the spawns ran as recorded is self-reported, like judged_blind. DEV-REVIEW-D1.",
+      "properties": {
+        "level": { "type": "string", "enum": ["quick", "standard", "deep"] },
+        "status": { "type": "string", "enum": ["decided", "unavailable"], "description": "unavailable = an unknown forced deep (see error)." },
+        "reasons": {
+          "type": "array",
+          "description": "Sorted and de-duplicated; the level is the highest any reason demands. quick only when reasons is exactly [small-diff].",
+          "items": { "type": "string", "enum": ["small-diff", "size-over-quick", "changed-lines-unknown", "empty-diff", "in-loop-review", "min-depth", "prior-record", "blast-radius", "shared-core", "sensitive-area", "conventions-changed", "r6-scan-unavailable", "conventions-unreadable", "limits-invalid", "seam-unreadable", "diff-unavailable"] }
+        },
+        "files": { "type": ["integer", "null"], "minimum": 0, "description": "Changed files counted (every one, files the reviewer brief skips included); null when the diff could not be read." },
+        "changed_lines": { "type": ["integer", "null"], "minimum": 0, "description": "Added + removed lines; null when unknown (a binary or unreadable file, a --changed-file override, no diff)." },
+        "risk_files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["file", "reason"],
+            "properties": {
+              "file": { "type": "string" },
+              "reason": { "type": "string", "enum": ["blast-radius", "shared-core"] }
+            }
+          }
+        },
+        "passes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "specialists", "files"],
+            "properties": {
+              "name": { "type": "string" },
+              "specialists": { "type": "array", "items": { "type": "string", "enum": ["frontend", "backend", "data", "security", "tests", "perf"] } },
+              "files": { "type": "string", "enum": ["review", "risk"], "description": "review = the reviewer brief's review_files; risk = risk_files, or every changed file when risk_files is empty." }
+            }
+          }
+        },
+        "source": { "type": "string", "description": "The limits file the numbers came from, `<path>#review_depth`." },
+        "error": { "type": "string", "description": "Set when status is unavailable: what could not be known." }
       }
     },
     "next_action": {

@@ -64,6 +64,13 @@ must_fail "$C/dev-code-review.json" "$C/samples/EXAMPLE-bad-review-brief/review.
 # with fewer confirms than validation.quorum must FAIL (validate.py DEV-REVIEW-V1)
 must_pass "$C/dev-code-review.json" "$C/samples/EXAMPLE-review-validated/review.json"
 must_fail "$C/dev-code-review.json" "$C/samples/EXAMPLE-bad-review-validation/review.json"
+# dev-code-review v1.7.0 (review depth): real review_depth.py record + review_brief.py finalize
+# output: a one-line copy change reviewed quick (one combined pass, all six lenses) and a migration
+# reviewed deep (risk_files blast-radius, six passes + security-risk-paths) pass; quick claimed on
+# a risk path with a combined pass lacking security must FAIL (validate.py DEV-REVIEW-D1)
+must_pass "$C/dev-code-review.json" "$C/samples/EXAMPLE-review-depth-quick/review.json"
+must_pass "$C/dev-code-review.json" "$C/samples/EXAMPLE-review-depth-deep/review.json"
+must_fail "$C/dev-code-review.json" "$C/samples/EXAMPLE-bad-review-depth/review.json"
 # dev-loop-defect.review-rounds v1.0.0 (proposed): review_rounds.py's per-round history;
 # a verdict off the enum must FAIL
 must_pass "$C/dev-loop-defect.review-rounds.json" "$C/samples/EXAMPLE-review-rounds/review-rounds.json"

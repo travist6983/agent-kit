@@ -9,7 +9,15 @@ flag, so they measure the **harmful false-flag rate** (did the reviewer block a 
 flag costs a wasted loop cycle and erodes trust as surely as a miss ships a bug, so both are counted.
 
 Rescore after any change to `SKILL.md`, anything under `references/`, the reviewer's tool list,
-`models.verifier` in stack.config, or `review_validation` in `.claude/loops/loop-limits.json`. Compare a score with the previous one before and after the change.
+`models.verifier` in stack.config, or `review_validation` / `review_depth` in `.claude/loops/loop-limits.json`. Compare a score with the previous one before and after the change.
+
+**What depth the set scores.** Every seed case is reviewed in-loop (an evidence root with a
+`fix.json`), so `review_depth.py` floors it at `standard` (`in-loop-review`), or `deep` on a risk
+path: the set scores the standard and deep fan-outs, and the quick path (one combined spawn, PR
+review only) is unscored by it. Each case's review.json `depth` block says which fan-out was
+scored. The review-depth change (`review_depth.py`, `review_depth` in loop-limits) is a change to
+`SKILL.md` and `references/`, so a rescore is due under the rule above; that rescore spends model
+calls and has not been run as part of adding the selector.
 
 ## The case format
 

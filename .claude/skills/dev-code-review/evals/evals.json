@@ -169,6 +169,49 @@
         "review.json validates against contracts/dev-code-review.json (v1.6.0)",
         "No vote, candidate or rejected finding is written to the brain"
       ]
+    },
+    {
+      "id": 13,
+      "name": "tiny-incoming-pr-reviewed-quick",
+      "prompt": "review this PR diff for the PR-review loop: one line in web/src/invoices/InvoiceTotal.js changes the label from \"Total\" to \"Invoice total\". worktree <scratch>/pr-401/repo, diff base origin/main, evidence root <scratch>/pr-401/runs, key PR-401. no fix.json, it's someone's PR.",
+      "expected_output": "Runs review_depth.py plan --repo <worktree> --base origin/main without --evid (no fix.json). The plan is quick, reasons [small-diff], one combined pass. Spawns ONE specialist Agent handed all six lenses (frontend, backend, data, security, tests, perf) plus the masking specialist, merges, ballots, tallies, runs review_depth.py record then review_brief.py finalize. review.json depth.level is quick with one combined pass naming all six; review.md has a Depth: quick (small-diff) line under the headline; a clean result reads 0 findings: nothing needs fixing.",
+      "files": [],
+      "assertions": [
+        "review_depth.py plan was run before the fan-out, without --evid",
+        "Exactly one specialist spawn carried all six lenses (not six spawns, and no lens dropped)",
+        "review.json depth.level is quick, depth.reasons is [small-diff] and depth.passes is one combined pass naming all six specialists",
+        "depth was written by review_depth.py record, not by hand, and review_depth.py check exits 0",
+        "review.md has a Depth: quick (small-diff) line under the headline",
+        "review.json validates against contracts/dev-code-review.json (v1.7.0)"
+      ]
+    },
+    {
+      "id": 14,
+      "name": "two-line-auth-config-reviewed-deep",
+      "prompt": "code-review the loop's diff for PROJ-123 before ship: it's tiny, two lines, one of them in config/auth.config.json bumping the session ttl. sandbox <scratch>/auth-ttl/repo, base main, evidence root <scratch>/auth-ttl/runs. quick look is fine honestly.",
+      "expected_output": "Runs review_depth.py plan with --evid <evid>/PROJ-123. The auth-config file is on the R6 denylist (framework floor), so the plan is deep (blast-radius) despite the size, and the requester's 'quick look' does not lower it (nothing may lower the depth). Spawns the six specialists plus the security-risk-paths pass reading config/auth.config.json whole and its callers. The denylisted file is a CRITICAL finding on sight (after validation at quorum), so the verdict is request-changes. review.json depth.level deep, risk_files lists the file as blast-radius, seven passes.",
+      "files": [],
+      "assertions": [
+        "The review ran at deep even though the diff is two lines and the request asked for a quick look",
+        "The six specialist spawns ran plus a security-risk-paths spawn over config/auth.config.json",
+        "review.json depth.risk_files lists config/auth.config.json with reason blast-radius and depth.passes has seven entries",
+        "The denylisted file is a CRITICAL finding and the verdict is request-changes",
+        "review_depth.py check exits 0 and review.json validates against contract v1.7.0"
+      ]
+    },
+    {
+      "id": 15,
+      "name": "in-loop-fix-never-quick",
+      "prompt": "review the candidate fix for PROJ-123 (hard-defect loop): a one-line null guard in api/src/tasks/dueDate.js. sandbox <scratch>/null-guard/repo, base main, evidence root <scratch>/null-guard/runs (fix.json and intake.json are there).",
+      "expected_output": "fix.json exists, so the plan is run with --evid <evid>/PROJ-123; the in-loop floor makes it standard (in-loop-review) even though the diff is one line, so six specialist spawns run, plus the masking judge. depth is recorded with review_depth.py record before finalize, and review_depth.py check exits 0.",
+      "files": [],
+      "assertions": [
+        "review_depth.py plan was run with --evid pointing at the ticket's evidence dir",
+        "The review did not run at quick: depth.level is standard or deep and depth.reasons contains in-loop-review",
+        "Six single-specialist spawns ran (seven at deep), plus the masking specialist",
+        "review_depth.py record ran after finding_votes.py tally and before review_brief.py finalize",
+        "review_depth.py check exits 0"
+      ]
     }
   ]
 }

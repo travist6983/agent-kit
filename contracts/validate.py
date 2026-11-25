@@ -154,6 +154,7 @@ def validate(schema, doc):
     if str(schema.get("$id", "")).endswith("/dev-code-review.json"):
         _check_review_brief(doc, errors)
         _check_review_validation(doc, errors)
+        _check_review_depth(doc, errors)
     return errors
 
 
@@ -256,6 +257,66 @@ def _check_review_validation(doc, errors):
             errors.append("DEV-REVIEW-V1: status no-candidates but kept is not 0")
         if opened:
             errors.append(f"DEV-REVIEW-V1: status no-candidates but {len(opened)} finding(s) are open")
+
+
+_DEPTH_SPECIALISTS = ("frontend", "backend", "data", "security", "tests", "perf")
+_DEPTH_FORCES_DEEP = {"blast-radius", "shared-core", "sensitive-area", "conventions-changed",
+                      "r6-scan-unavailable", "conventions-unreadable", "limits-invalid",
+                      "seam-unreadable", "diff-unavailable"}
+
+
+def _check_review_depth(doc, errors):
+    """DEV-REVIEW-D1, the v1.7.0 rule the schema keywords can't express. Fires only when `depth` is
+    an object, so every older review.json still validates. Depth may shrink how much is spawned,
+    never which dimensions are looked at, and a risk path or an unknown is always deep.
+    (a) the union of passes[].specialists is exactly the six, at every level;
+    (b) quick => status decided, reasons == [small-diff], no risk file, an integer changed_lines,
+        exactly one pass;
+    (c) a risk file, status unavailable, or a risk/unknown reason => level deep;
+    (d) deep => some pass with files `risk` contains security;
+    (e) standard or deep => each of the six has its own single-specialist pass over files `review`."""
+    dep = doc.get("depth")
+    if not isinstance(dep, dict):
+        return
+    passes = [p for p in dep.get("passes") or [] if isinstance(p, dict)] \
+        if isinstance(dep.get("passes"), list) else []
+    reasons = dep.get("reasons") if isinstance(dep.get("reasons"), list) else []
+    risk = dep.get("risk_files") if isinstance(dep.get("risk_files"), list) else []
+    level = dep.get("level")
+    union = set()
+    for p in passes:
+        if isinstance(p.get("specialists"), list):
+            union |= {s for s in p["specialists"] if isinstance(s, str)}
+    missing = [s for s in _DEPTH_SPECIALISTS if s not in union]
+    if missing:
+        errors.append(f"DEV-REVIEW-D1: passes drop specialist(s) {missing} — depth shrinks how much "
+                      "is spawned, never which dimensions are looked at")
+    if level == "quick":
+        if dep.get("status") != "decided":
+            errors.append("DEV-REVIEW-D1: level quick with status unavailable (an unknown is deep)")
+        if reasons != ["small-diff"]:
+            errors.append(f"DEV-REVIEW-D1: level quick but reasons are {reasons} (quick needs exactly "
+                          "[small-diff])")
+        if risk:
+            errors.append("DEV-REVIEW-D1: level quick with risk_files (a risk path is always deep)")
+        cl = dep.get("changed_lines")
+        if not (isinstance(cl, int) and not isinstance(cl, bool)):
+            errors.append("DEV-REVIEW-D1: level quick with an unknown changed_lines")
+        if len(passes) != 1:
+            errors.append(f"DEV-REVIEW-D1: level quick has {len(passes)} passes (quick is one combined pass)")
+    forcing = sorted({r for r in reasons if r in _DEPTH_FORCES_DEEP})
+    if (risk or dep.get("status") == "unavailable" or forcing) and level != "deep":
+        errors.append(f"DEV-REVIEW-D1: level {level!r} but a risk path or an unknown forces deep "
+                      f"(risk_files {len(risk)}, status {dep.get('status')!r}, reasons {forcing})")
+    if level == "deep" and not any(p.get("files") == "risk" and "security" in (p.get("specialists") or [])
+                                   for p in passes):
+        errors.append("DEV-REVIEW-D1: level deep without a security pass over the risk files")
+    if level in ("standard", "deep"):
+        solo = {p["specialists"][0] for p in passes if p.get("files") == "review"
+                and isinstance(p.get("specialists"), list) and len(p["specialists"]) == 1}
+        lacking = [s for s in _DEPTH_SPECIALISTS if s not in solo]
+        if lacking:
+            errors.append(f"DEV-REVIEW-D1: level {level} lacks a single-specialist pass for {lacking}")
 
 
 def _check_meta_monitor(doc, errors):

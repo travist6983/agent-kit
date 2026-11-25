@@ -30,6 +30,21 @@
         "Does not post live",
         "Releases the tick lock"
       ]
+    },
+    {
+      "id": 3,
+      "name": "tick-report-shows-recorded-depth",
+      "prompt": "run one PR review tick by hand, dry-run. there should be two new ones on the board: a one-line copy fix in web/src/invoices/InvoiceTotal.js and one that adds db/migrations/014_invoice_due.sql.",
+      "expected_output": "Takes the tick lock, runs the dry-run convergence reads, then unreviewed. For each PR, dev-code-review runs review_depth.py plan --repo <worktree> --base <diff_base> without --evid: the copy fix records depth quick (small-diff), the migration PR records depth deep (blast-radius) with the migration in risk_files and a security-risk-paths pass. Each PR line of the Report carries the depth copied from that PR's review.json depth block; a missing block would read depth unrecorded. Posts nothing live (previews only), marks each PR dry-run, tears down in a finally. The PR sweep first line and the Spend line keep their exact shape.",
+      "files": [],
+      "assertions": [
+        "Each PR line in the report shows depth <level> (<reasons>) matching that PR's review.json depth block",
+        "The PR that adds a migration was reviewed at depth deep with reason blast-radius",
+        "review_depth.py plan was run without --evid for both PRs and no lower depth was passed",
+        "Does not post live; posts are dry-run previews",
+        "The report's first line is the PR sweep summary and the Spend line keeps its template shape",
+        "Releases the tick lock and tears down both worktrees"
+      ]
     }
   ]
 }

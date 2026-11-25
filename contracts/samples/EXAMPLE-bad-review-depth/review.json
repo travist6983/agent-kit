@@ -1,0 +1,52 @@
+{
+  "critical": 0,
+  "findings": [],
+  "high": 0,
+  "key": "PROJ-127",
+  "masking": false,
+  "next_action": "ship-ok",
+  "summary": "0 findings: nothing needs fixing. Hand-made BAD sample: it claims a quick review of a diff that adds a DB migration (an R6 risk path), and its one combined pass lacks security. DEV-REVIEW-D1 must refuse it.",
+  "validation": {
+    "candidates": 0,
+    "confidence_floor": 80,
+    "kept": 0,
+    "quorum": 2,
+    "rejected": 0,
+    "source": ".claude/loops/loop-limits.json#review_validation",
+    "split": 0,
+    "status": "no-candidates",
+    "validators": 0,
+    "validators_returned": 0
+  },
+  "verdict": "approve",
+  "depth": {
+    "level": "quick",
+    "status": "decided",
+    "reasons": [
+      "small-diff"
+    ],
+    "files": 1,
+    "changed_lines": 1,
+    "risk_files": [
+      {
+        "file": "api/db/migrations/002_add_due_on.sql",
+        "reason": "blast-radius"
+      }
+    ],
+    "passes": [
+      {
+        "name": "combined",
+        "specialists": [
+          "frontend",
+          "backend",
+          "data",
+          "tests",
+          "perf"
+        ],
+        "files": "review"
+      }
+    ],
+    "source": ".claude/loops/loop-limits.json#review_depth"
+  },
+  "headline": "0 findings: nothing needs fixing."
+}

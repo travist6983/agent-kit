@@ -152,6 +152,14 @@ in a fresh context is self-reported, like `judged_blind`. `check_convergence.py`
 is bounded by review's width. Do not expect the diamond to save more on features than on
 defects; the structural win is the same, the proportion is smaller.
 
+**Review depth follows the tier rule.** `dev-code-review/scripts/review_depth.py` scales the
+specialist fan-out by risk, read from the diff: quick (one combined spawn), standard (six), deep
+(six + a security pass over the risk paths). Like a verification tier, a level may shrink *how
+much* is reviewed, never *whether*: every level covers all six dimensions and security is never off
+(validate.py DEV-REVIEW-D1). Unknowns move up (an unreadable conventions file, an R6 scan that cannot
+run, missing limits or a malformed seam file are deep), a level is only ever raised, and an in-loop
+review floors at standard, so quick shortens only the PR-review loop's long pole.
+
 **Only `dev-fix` writes.** The diamond needs no extra worktrees because the three judges are
 readers. If a future node writes inside the parallel layer, it needs its own worktree (§10).
 

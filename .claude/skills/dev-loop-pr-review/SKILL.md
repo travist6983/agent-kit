@@ -159,10 +159,16 @@ differs from judging our own loop's diff in ways that decide what gets posted. I
   comment, the commit message, or the PR description. If they already reasoned about it and your
   finding doesn't engage with that reasoning, **don't post it** — record it withheld instead. A
   true finding aimed at someone who already answered it costs more trust than staying quiet.
+- **Depth comes from the PR diff, not from the clock.** `dev-code-review` picks it with
+  `python3 .claude/skills/dev-code-review/scripts/review_depth.py plan --repo <worktree> --base <diff_base>`
+  — no `--evid`, because an incoming PR has no `fix.json`. A small PR with no risk path is reviewed
+  `quick` (one combined spawn carrying all six lenses); a PR touching a denylisted or shared-core
+  path is `deep`. This recipe never passes a lower depth and never skips the plan to save time on a
+  busy tick: depth shrinks how much is spawned, never whether a risky path gets its security pass.
 - **There is no `fix.json` and no repro oracle**, so the R3 masking judge has nothing to
-  mask-check against and must not manufacture a verdict. The six specialists and the target repo's
-  own rules — the guidelines file named by `stack.repo_guidelines_file` plus
-  `.claude/loops/conventions.json` — apply in full.
+  mask-check against and must not manufacture a verdict. All six specialist lenses apply at every
+  depth, and so do the target repo's own rules — the guidelines file named by
+  `stack.repo_guidelines_file` plus `.claude/loops/conventions.json`.
 - **Verify every `file:line` anchor** against the worktree, and verify any count you state as
   fact. The anchor becomes the comment's position; a wrong one taints the finding attached to it.
 
@@ -249,7 +255,9 @@ ships** — it reviews and comments. A PR needing a code change is the author's 
 
 ## Knowledge brain (qa-kb)
 
-Writes a `pr-review` metric per tick (R5/R8: PRs swept, reviewed, findings, consumption) so you can tell
+Writes a `pr-review` metric per tick (R5/R8: PRs swept, reviewed, findings, consumption, and how many
+reviews ran at each depth — `depth_quick`, `depth_standard`, `depth_deep`, `depth_unrecorded` in
+its metadata, counted from each PR's review.json `depth`) so you can tell
 whether the loop is getting better rather than just running. Reads the R9 pause flag. The
 seen-ledger is runtime state, not knowledge — see `dev-pr-feed/references/seen-ledger.md`.
 
@@ -294,8 +302,8 @@ End every tick with:
 
 ```
 PR sweep — <n> candidates · <n> reviewed · <n> already current · <n> skipped (<class>)
-  PR <id>  request-changes  2 findings (1 critical)  [dry-run → preview.json]
-  PR <id>  approve          0 findings
+  PR <id>  request-changes  2 findings (1 critical)  depth deep (blast-radius)  [dry-run → preview.json]
+  PR <id>  approve          0 findings  depth quick (small-diff)
 Queued for next tick: <id>, <id>
 Round-capped: <id> (<n> rounds, step-back previewed|posted) | none
 Spend: $x.xx / $<per_loop_usd_cap>
@@ -312,6 +320,11 @@ things are true about it and both belong in any report you write:
 - **It is not money** under a subscription posture. The number is a client-side list-price
   estimate, and nothing is billed for the tick (see *the two bounds* above). Never present it as
   a bill unless `runner.billing_posture` is `metered`.
+
+**The depth on each PR line** is copied from that PR's review.json `depth` block: its `level`, then
+its `reasons` comma-separated in brackets. Write `depth unrecorded` when the block is missing; never
+infer a depth from the diff size or from what you remember spawning. The `PR sweep` line and the
+`Spend` line keep their exact shape.
 
 Name the skipped PRs and their failure class, **and name every withheld finding with its reason**.
 A sweep that silently drops a PR — or quietly swallows a finding it decided not to post — is the

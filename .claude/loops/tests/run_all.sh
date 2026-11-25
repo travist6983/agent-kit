@@ -84,6 +84,12 @@
 #                         default numbers, writes no review when fewer than quorum ballots return,
 #                         never counts a missing or malformed ballot as a confirm, replays a quorum
 #                         or floor with no model call, and check names each tampering. Offline.
+#   test_review_depth     dev-code-review's review depth: review_depth.py picks quick (one combined
+#                         spawn, all six lenses) only for a small diff with no risk path, no unknown
+#                         and no --evid; a denylisted (adopter list or floor, both sides of a rename)
+#                         or shared-core path, intake sensitive or a conventions edit is deep; every
+#                         unknown is deep + unavailable; no level drops a specialist; record never
+#                         lowers a level and check names each tampering. Throwaway git repos — offline.
 #   test_commit_binding   a readiness verdict covers one commit: commit_binding.py stamp/check
 #                         bind pre-pr.json to the exact content that ships; any later edit, a
 #                         missing or extra file is stale-readiness, no usable verdict is

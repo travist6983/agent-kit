@@ -144,8 +144,10 @@ wrong in a comment with the author's name on it.
   bug*. With no oracle there's nothing to have masked. `masking: true` here can only mean "this
   diff looks like it suppresses a symptom on its own terms" — say that, or say nothing.
 - **The target repo's guidelines still apply in full** — the file named by
-  `stack.repo_guidelines_file` and the ruleset in `.claude/loops/conventions.json` — and so do the
-  six specialists. Only the R3 judge loses its footing.
+  `stack.repo_guidelines_file` and the ruleset in `.claude/loops/conventions.json` — and so do all
+  six specialist lenses, at every review depth (`review_depth.py plan` without `--evid`: a small PR
+  with no risk path gets one combined spawn carrying the six, a risky one gets the six plus a
+  security pass over the risk paths). Only the R3 judge loses its footing.
 
 ## Severity, and what's worth a comment at all
 

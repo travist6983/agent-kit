@@ -33,6 +33,53 @@ When the conventions file has a `review_brief`, `scripts/review_brief.py plan --
 - **`unavailable`** (plan exit 2): review everything, no cap, and say `brief: unavailable` in
   `summary`.
 
+## Review depth
+
+`scripts/review_depth.py plan --repo <sandbox> --base <base> [--evid <EVID_ROOT>/<KEY>]` runs before
+the fan-out and decides, without a model, how many specialist spawns run. It never decides which
+dimensions are looked at: every level covers all six lenses, and security is never off.
+
+| Level | Passes the plan returns |
+|---|---|
+| `quick` | `combined` (all six specialists, `files: review`) |
+| `standard` | `frontend`, `backend`, `data`, `security`, `tests`, `perf` (one each, `files: review`) |
+| `deep` | the six + `security-risk-paths` (`security`, `files: risk`) |
+
+`files: review` is the reviewer brief's `review_files`; `files: risk` is the plan's `risk_files`, or
+every changed file when the risk is not path-attributed (an unknown, intake `sensitive`, a
+conventions edit, `--min-depth`).
+
+The `reasons` vocabulary is closed; the level is the highest any reason demands and is only ever
+raised:
+
+| Reason | Level | Meaning |
+|---|---|---|
+| `small-diff` | quick | the only reason: within loop-limits `review_depth`, no risk, no unknown |
+| `size-over-quick` | standard | more files or changed lines than the quick limits |
+| `changed-lines-unknown` | standard | a binary or unreadable file, or a `--changed-file` override |
+| `empty-diff` | standard | nothing changed |
+| `in-loop-review` | standard | `--evid` given: a loop fix behind a review gate is never quick |
+| `min-depth` / `prior-record` | raised | the caller's `--min-depth`, or a deeper level already recorded |
+| `blast-radius` | deep | the R6 denylist, adopter list or framework floor, either side of a rename |
+| `shared-core` | deep | a `shared_core_globs` match |
+| `sensitive-area` | deep | intake.json `sensitive: true` |
+| `conventions-changed` | deep | the diff edits the conventions file (it may not strip its own denylist) |
+| `r6-scan-unavailable`, `conventions-unreadable`, `limits-invalid`, `seam-unreadable`, `diff-unavailable` | deep, `unavailable` | an unknown: plan exit 2, the deep plan still printed |
+
+**The combined pass (quick).** ONE fresh `Agent` gets all six specialist briefs below, the shared
+rules, the files and the brief's area lines, exactly as six spawns would. It reviews through each
+lens in turn and returns one strict JSON list in the same finding shape; every finding carries the
+`dimension` of the lens that found it (never `combined`), so the ballot, the validators and the
+quorum treat it like any other candidate. A lens with nothing to say returns nothing; it is not
+skipped.
+
+**The `security-risk-paths` pass (deep).** One more fresh `Agent` with the security brief only. It
+reads each risk file WHOLE, not just its hunks, plus the callers of anything the diff changes in it,
+because a two-line change to an auth config or a shared module is dangerous for what it reaches, not
+for its size. Findings still anchor on a changed line (`file` + integer `line` in the diff) with
+`dimension: security`; a hazard it sees only outside the diff is a `## Noticed, not changed` bullet,
+not a finding. A denylisted file is CRITICAL on sight here as everywhere.
+
 ## Shared rules for every specialist
 
 - **High signal only.** Flag what is clearly real: won't compile, wrong result, an unambiguous

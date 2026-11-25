@@ -1,0 +1,108 @@
+{
+  "critical": 1,
+  "findings": [
+    {
+      "bug_class": "convention-violation",
+      "confidence": 95,
+      "dimension": "security",
+      "file": "api/db/migrations/002_add_due_on.sql",
+      "finding_id": "F-e9b9daadda",
+      "issue": "The fix diff adds a DB migration, a path on the R6 blast-radius denylist: a loop fix may never touch it without a forced human gate.",
+      "line": 1,
+      "severity": "critical",
+      "suggestion": "Drop the migration from the fix and escalate the schema change to a human.",
+      "votes": {
+        "cast": 3,
+        "confirm": 3,
+        "pre_existing": 0,
+        "reject": 0
+      }
+    }
+  ],
+  "high": 0,
+  "key": "PROJ-126",
+  "masking": false,
+  "next_action": "escalate",
+  "summary": "1 finding (1 critical). request-changes: the fix diff adds a DB migration, a path on the R6 blast-radius denylist that a loop fix may never touch without a forced human gate. The migration put the diff on the risk path, so the review ran deep: the six specialists plus a security pass over the migration file.",
+  "validation": {
+    "candidates": 1,
+    "confidence_floor": 80,
+    "kept": 1,
+    "quorum": 2,
+    "rejected": 0,
+    "source": ".claude/loops/loop-limits.json#review_validation",
+    "split": 0,
+    "status": "independent",
+    "validators": 3,
+    "validators_returned": 3
+  },
+  "verdict": "request-changes",
+  "depth": {
+    "level": "deep",
+    "status": "decided",
+    "reasons": [
+      "blast-radius"
+    ],
+    "files": 1,
+    "changed_lines": 1,
+    "risk_files": [
+      {
+        "file": "api/db/migrations/002_add_due_on.sql",
+        "reason": "blast-radius"
+      }
+    ],
+    "passes": [
+      {
+        "name": "frontend",
+        "specialists": [
+          "frontend"
+        ],
+        "files": "review"
+      },
+      {
+        "name": "backend",
+        "specialists": [
+          "backend"
+        ],
+        "files": "review"
+      },
+      {
+        "name": "data",
+        "specialists": [
+          "data"
+        ],
+        "files": "review"
+      },
+      {
+        "name": "security",
+        "specialists": [
+          "security"
+        ],
+        "files": "review"
+      },
+      {
+        "name": "tests",
+        "specialists": [
+          "tests"
+        ],
+        "files": "review"
+      },
+      {
+        "name": "perf",
+        "specialists": [
+          "perf"
+        ],
+        "files": "review"
+      },
+      {
+        "name": "security-risk-paths",
+        "specialists": [
+          "security"
+        ],
+        "files": "risk"
+      }
+    ],
+    "source": ".claude/loops/loop-limits.json#review_depth"
+  },
+  "headline": "1 finding (1 critical)."
+}

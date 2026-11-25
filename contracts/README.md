@@ -22,7 +22,7 @@ URLs come from the `evidence_store` adapter, and the evidence root is `evidence.
 | `qa-verify.json` | 1.0.0 | `qa-verify` mode=`fix-verify` (default) | `<evid_root>/<key>/verify.json` | the checker node; `dev-pre-pr` fails closed on it | `verdict` |
 | `qa-verify.collateral.json` | 1.0.0 | `qa-verify` fix-verify step 2b | `<repro_dir>/collateral.json` | the `no_collateral` must-have | `status` |
 | `qa-regression.json` | 2.1.0 | `qa-regression` | `<evid_root>/<key>/regression.json` | router | `status` + `next_action` |
-| `dev-code-review.json` | 1.6.0 | `dev-code-review` | `<evid_root>/<key>/review.json` | router; `dev-harden` reads findings' `harden` blocks; `reviewer_eval.py score` locates findings by `file` + `line`; `review_rounds.py record` fingerprints findings by `file` + `bug_class`; `review_brief.py finalize` / `check` write and re-check `headline` + `brief`; `finding_votes.py tally` / `check` write and re-check `validation` + `findings[].votes` | `verdict` |
+| `dev-code-review.json` | 1.7.0 | `dev-code-review` | `<evid_root>/<key>/review.json` | router; `dev-harden` reads findings' `harden` blocks; `reviewer_eval.py score` locates findings by `file` + `line`; `review_rounds.py record` fingerprints findings by `file` + `bug_class`; `review_brief.py finalize` / `check` write and re-check `headline` + `brief`; `finding_votes.py tally` / `check` write and re-check `validation` + `findings[].votes`; `review_depth.py record` / `check` write and re-check `depth` | `verdict` |
 | `dev-loop-defect.review-rounds.json` | 1.0.0 | `review_rounds.py record` (proposed) | `<evid_root>/<key>/review-rounds.json` | `recipe_router.py --review-rounds` (stagnation); the recipe reads `rounds_to_pass` for the `review_rounds_to_pass` metric | none |
 | `dev-loop-defect.meta-monitor.json` | 1.0.0 | `meta_monitor.py` (proposed) | a caller-chosen path (`--out`), or stdout | a person or a runner deciding whether loops are healthy; report-only unless `r8_meta_monitor.trip_mode` is armed | `decision` |
 | `dev-code-review.eval-case.json` | 1.0.0 | a human (seed cases: the kit), checked by `reviewer_eval.py check` (proposed) | `.claude/skills/dev-code-review/evals/cases/<id>/case.json` | `reviewer_eval.py` check / score; never the reviewer | `kind` |
@@ -166,6 +166,19 @@ still recorded nowhere as a finding. `validate.py` adds **DEV-REVIEW-V1**: with 
 carries `votes.confirm >= quorum` with `cast == validators_returned`, and the open findings number
 `kept`; with `no-candidates`, nothing is kept or open. It fires only when `validation` is present,
 so every older review validates. `EXAMPLE-bad-review-validation` fails it.
+
+`review.json` v1.7.0 adds OPTIONAL `depth`, the risk-based review depth, written by
+`dev-code-review/scripts/review_depth.py record`, never by hand: `level` quick | standard | deep,
+`status` decided | unavailable, the closed `reasons` that decided it, `files`, `changed_lines`,
+`risk_files` (`{file, reason: blast-radius | shared-core}`), the `passes` spawned
+(`{name, specialists, files: review | risk}`), `source` and, when unavailable, `error`. quick is one
+combined pass carrying all six specialist lenses, standard six passes, deep six plus a
+`security-risk-paths` pass over the risk files. `validate.py` adds **DEV-REVIEW-D1**: at every level
+the passes cover frontend, backend, data, security, tests and perf; quick only with status decided,
+reasons exactly `[small-diff]`, no risk file, an integer `changed_lines` and one pass; a risk file,
+status unavailable or a risk/unknown reason means deep; deep has a security pass over the risk
+files; standard and deep give each specialist its own pass. It fires only when `depth` is present,
+so every older review validates. `EXAMPLE-bad-review-depth` fails it.
 
 `dev-code-review.eval-case.json` is the answer key of one eval case (diff + base tree + optional
 fix.json beside it). **DEV-REVIEW-EVAL-K1** (`validate.py`): `kind: bad` needs at least one bug with
@@ -381,6 +394,9 @@ Every sample validates against its contract (or is a named negative that must fa
 | `EXAMPLE-bad-review-brief/` | dev-code-review | **fail** — headline says 0 with two open findings (DEV-REVIEW-H1) and two open lows over `brief.max_nits` 1 (DEV-REVIEW-B1) |
 | `EXAMPLE-review-validated/` | dev-code-review | pass — real `finding_votes.py tally` + `review_brief.py finalize` output (v1.6.0): three validators, quorum 2, two findings kept (3/3 and 2/3), one rejected (1/3) |
 | `EXAMPLE-bad-review-validation/` | dev-code-review | **fail** — an open finding with 1 confirm under quorum 2 (DEV-REVIEW-V1) |
+| `EXAMPLE-review-depth-quick/` | dev-code-review | pass — real `review_depth.py record` + `review_brief.py finalize` output (v1.7.0): a one-line copy change, depth quick (small-diff), one combined pass naming all six specialists, approve, `no-candidates` |
+| `EXAMPLE-review-depth-deep/` | dev-code-review | pass — real `finding_votes.py tally` + `review_depth.py record` + `review_brief.py finalize` output (v1.7.0): a one-line migration, `risk_files` blast-radius, depth deep with seven passes, the migration a CRITICAL validated 3/3, request-changes |
+| `EXAMPLE-bad-review-depth/` | dev-code-review | **fail** — depth quick with a blast-radius risk file and a combined pass lacking security (DEV-REVIEW-D1) |
 | `EXAMPLE-review-rounds/` | dev-loop-defect.review-rounds | pass — three request-changes rounds sharing one fingerprint (stagnation) |
 | `EXAMPLE-bad-review-rounds/` | dev-loop-defect.review-rounds | **fail** — a round verdict off the enum |
 | `EXAMPLE-reviewer-eval-bad/`, `EXAMPLE-reviewer-eval-clean/` | dev-code-review.eval-case | pass — a signed re-fix bad case and a signed clean case |
