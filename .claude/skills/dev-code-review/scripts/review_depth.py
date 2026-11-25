@@ -20,7 +20,7 @@ THE RULE (closed `reasons` vocabulary; level = the highest any reason demands, n
                            · conventions-changed (a change may not strip its own denylist)
   deep, status unavailable r6-scan-unavailable (scan cannot run, a changed path holds a newline or
                            control character, or a hit maps to no changed file) · conventions-
-                           unreadable · limits-invalid · seam-unreadable (--evid not a directory, or
+                           unreadable · limits-invalid · seam-unreadable (--evid empty, blank or not a directory, or
                            intake.json malformed / `sensitive` not a boolean) · diff-unavailable
   standard floor           size-over-quick · changed-lines-unknown (binary / unreadable file, a
                            change with zero changed lines such as a mode-only change or an empty
@@ -57,6 +57,10 @@ on the full diff against the base, not the interdiff: both err upward. The scrip
 the record, not that the spawns ran as planned (self-reported, like judged_blind); no recipe, runner,
 dev-pre-pr step or ship gate calls `check` yet. prs_per_tick was measured at the full fan-out and is
 not re-derived. The reviewer eval set is reviewed in-loop (floor standard), so it does not score quick.
+Sensitive areas reach the selector ONLY through intake.json `sensitive` under --evid. An incoming PR
+has no intake and there is no path-based sensitive-area config (loops.sensitive_areas is requested,
+not built), so a small PR in a sensitive area outside the R6 denylist and shared_core_globs plans
+quick: the one combined spawn still carries the security lens, but there is no risk pass.
 """
 import argparse
 import json
@@ -224,10 +228,12 @@ def compute_depth(repo, base, limits_arg, evid, min_depth, changed_override):
     for r in risk.values():
         reasons.add(r)
 
-    if evid:
+    if evid is not None:
+        # Any --evid, even an empty or blank one (an unset "$EVID"), is an in-loop review: an
+        # empty value is not "no evidence", it is evidence that cannot be read — deep, unavailable.
         reasons.add("in-loop-review")
         ipath = os.path.join(evid, "intake.json")
-        if not os.path.isdir(evid):
+        if not evid.strip() or not os.path.isdir(evid):
             reasons.add("seam-unreadable")
             errors.append(f"--evid {evid} is not a directory: the run's seams cannot be read")
         elif os.path.exists(ipath):
@@ -344,14 +350,18 @@ def cmd_check(a):
         if lv not in RANK or RANK[lv] < RANK[plan["level"]]:
             add("depth-below-plan", f"recorded level {lv!r} is below the recomputed {plan['level']!r} "
                                     f"({', '.join(plan['reasons'])})")
-        recorded = {r.get("file") for r in dep.get("risk_files") or [] if isinstance(r, dict)}
+        rf = dep.get("risk_files")
+        if not isinstance(rf, list):
+            add("risk-file-unrecorded", f"recorded risk_files is {rf!r}, not a list: no risk file is recorded")
+            rf = []
+        recorded = {r.get("file") for r in rf if isinstance(r, dict)}
         missing = sorted(r["file"] for r in plan["risk_files"] if r["file"] not in recorded)
         if missing:
             add("risk-file-unrecorded", f"risk file(s) absent from the record: {missing}")
         passes = dep.get("passes") if isinstance(dep.get("passes"), list) else []
         if lv in RANK and passes != passes_for(lv):
             add("passes-mismatch", f"recorded passes do not match level {lv!r}")
-        if (lv == "deep" or dep.get("risk_files")) and not _security_on_risk(passes):
+        if (lv == "deep" or rf or plan["risk_files"]) and not _security_on_risk(passes):
             add("security-not-on-risk-path", "no pass runs security over the risk files")
     if v:
         return rb.emit({"ok": False, "plan_level": plan["level"], "plan_status": plan["status"],

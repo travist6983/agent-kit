@@ -69,7 +69,7 @@ raised:
 `r6-scan-unavailable` also fires when a changed path holds a newline or control character (the R6
 scan reads one path per line, so such a name could split a denylisted path into harmless pieces) or
 when the scan names a path that is no changed file: a hit is never dropped. `seam-unreadable` also
-fires when `--evid` is not a directory or intake.json's `sensitive` is not a boolean. `record`
+fires when `--evid` is empty, blank or not a directory or intake.json's `sensitive` is not a boolean. `record`
 refuses (exit 2, draft untouched) a draft whose existing `depth` block names no valid level.
 
 **The combined pass (quick).** ONE fresh `Agent` gets all six specialist briefs below, the shared

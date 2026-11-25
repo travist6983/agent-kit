@@ -271,6 +271,11 @@ plan --evid "$ROOT/ev-str"
 deep_unavail "intake sensitive not a boolean" seam-unreadable
 plan --evid "$ROOT/ev-missing-dir"
 deep_unavail "evid dir missing" seam-unreadable
+# an empty or blank --evid (an unset "$EVID") is not "no evidence": never quick, deep, unavailable
+plan --evid ""
+deep_unavail "evid empty" seam-unreadable; has "evid empty" reasons in-loop-review
+plan --evid "  "
+deep_unavail "evid blank" seam-unreadable
 
 # ---- (p) --min-depth raises, never lowers ---------------------------------------------------------
 plan --min-depth deep
@@ -371,6 +376,15 @@ tamper 'd["depth"]["risk_files"] = []' risk-file-unrecorded
 tamper 'd["depth"]["passes"] = d["depth"]["passes"][:6]' security-not-on-risk-path
 tamper 'd["depth"]["passes"] = d["depth"]["passes"][:6]' passes-mismatch
 tamper 'del d["depth"]' depth-missing
+tamper 'd["depth"]["risk_files"] = 5' risk-file-unrecorded
+tamper 'd["depth"]["risk_files"] = "db/migrations/001.sql"' risk-file-unrecorded
+# record and check share the empty --evid path: a quick record on a small diff fails check under --evid ""
+mkrepo; put api/invoices/total.py
+draft "$ROOT/re.json"; run record --review "$ROOT/re.json" --repo "$R" --evid ""
+if [ "$(jget "$ROOT/re.json" "d['depth']['level'], d['depth']['status']")" = "('deep', 'unavailable')" ]; then ok; else bad "record --evid '': $(jget "$ROOT/re.json" "d['depth']")"; fi
+draft "$ROOT/rq.json"; run record --review "$ROOT/rq.json" --repo "$R"
+run check --review "$ROOT/rq.json" --repo "$R" --evid ""
+want_rc "check quick record under --evid ''" 1; has "check --evid ''" violations '"depth-below-plan"'
 printf '{bad' > "$ROOT/tb.json"; run check --review "$ROOT/tb.json" --repo "$R"; want_rc "check unreadable" 2
 
 # ---- (v) the shipped loop-limits block -----------------------------------------------------------
