@@ -1088,8 +1088,8 @@ HYGIENE_DONE=0
 
 feed_lock_probe() {   # prints "<free|held|stale|unknown> <acquired_at|->"
   local o e st at
-  o="$(mktemp -t pr-review-lock)" || return 1
-  e="$(mktemp -t pr-review-lock-err)" || { rm -f "$o"; return 1; }
+  o="$(mktemp "${TMPDIR:-/tmp}/pr-review-lock.XXXXXX")" || return 1
+  e="$(mktemp "${TMPDIR:-/tmp}/pr-review-lock-err.XXXXXX")" || { rm -f "$o"; return 1; }
   feed_run "$o" "$e" lock --status
   st="$(feed_key "$o" status)"
   at="$(feed_key "$o" lock.acquired_at)"
@@ -1149,8 +1149,8 @@ hygiene_sweep() {
   fi
 
   if [ "$st" = "held" ] || [ "$st" = "stale" ]; then
-    o="$(mktemp -t pr-review-rel)" || o="/tmp/pr-review-rel.$$"
-    e="$(mktemp -t pr-review-rel-err)" || e="/tmp/pr-review-rel-err.$$"
+    o="$(mktemp "${TMPDIR:-/tmp}/pr-review-rel.XXXXXX")" || o="/tmp/pr-review-rel.$$"
+    e="$(mktemp "${TMPDIR:-/tmp}/pr-review-rel-err.XXXXXX")" || e="/tmp/pr-review-rel-err.$$"
     feed_run "$o" "$e" lock --release
     if [ "$(feed_key "$o" released)" = "true" ]; then
       released="yes"
@@ -1172,8 +1172,8 @@ hygiene_sweep() {
         continue ;;
     esac
     echo "pr_review.sh: tearing down the review worktree this tick left behind: pr-$id" >&2
-    o="$(mktemp -t pr-review-td)" || o="/tmp/pr-review-td.$$"
-    e="$(mktemp -t pr-review-td-err)" || e="/tmp/pr-review-td-err.$$"
+    o="$(mktemp "${TMPDIR:-/tmp}/pr-review-td.XXXXXX")" || o="/tmp/pr-review-td.$$"
+    e="$(mktemp "${TMPDIR:-/tmp}/pr-review-td-err.XXXXXX")" || e="/tmp/pr-review-td-err.$$"
     feed_run "$o" "$e" teardown --pr "$id"
     rm -f "$o" "$e"
     removed=$((removed + 1))
@@ -1323,7 +1323,7 @@ report_failure() {   # $1 = human label for the kill reason
       echo "    $posted" >&2
       echo "  Any entry above marked 'NOT marked' will be re-reviewed and re-posted by the next" >&2
       echo "  tick — mark it by hand before that happens:" >&2
-      echo "    python3 $PR_FEED mark --pr <id> --commit <sha> --mode live" >&2
+      echo "    python3 $PR_FEED mark --pr <id> --commit <sha> --verdict posted --mode live" >&2
       echo "  Full receipt: $POSTED_RECEIPT" >&2
     else
       echo "  This tick was LIVE, and the posting guard recorded NO live post for run $RUN_ID" >&2
@@ -1344,7 +1344,7 @@ mkdir -p "$TICKS_DIR" 2>/dev/null || true
 HEALTH_ATTENTION="unmeasured"
 health_sweep() {   # health_sweep <json-out-file>  → section on stdout
   local out="$1" err rc
-  err="$(mktemp -t pr-review-health-err)" || err="/tmp/pr-review-health-err.$$"
+  err="$(mktemp "${TMPDIR:-/tmp}/pr-review-health-err.XXXXXX")" || err="/tmp/pr-review-health-err.$$"
   feed_run "$out" "$err" health --budget-s 240; rc=$?
   rm -f "$err"
   python3 - "$out" "$rc" "$WD_TIMED_OUT" <<'PY'
@@ -1401,8 +1401,8 @@ except Exception:
 DISP_LINE=""
 dispositions_sweep() {
   local out err rc fields
-  out="$(mktemp -t pr-review-disp)" || out="/tmp/pr-review-disp.$$"
-  err="$(mktemp -t pr-review-disp-err)" || err="/tmp/pr-review-disp-err.$$"
+  out="$(mktemp "${TMPDIR:-/tmp}/pr-review-disp.XXXXXX")" || out="/tmp/pr-review-disp.$$"
+  err="$(mktemp "${TMPDIR:-/tmp}/pr-review-disp-err.XXXXXX")" || err="/tmp/pr-review-disp-err.$$"
   if [ "$NO_BRAIN" -eq 0 ]; then
     KB_CLI="$KB" feed_run "$out" "$err" dispositions --emit; rc=$?
   else
@@ -1459,8 +1459,8 @@ PY
 CONV_LINE=""
 convergence_sweep() {
   local out err out2 err2 rc rc2 fields
-  out="$(mktemp -t pr-review-conv)" || out="/tmp/pr-review-conv.$$"
-  err="$(mktemp -t pr-review-conv-err)" || err="/tmp/pr-review-conv-err.$$"
+  out="$(mktemp "${TMPDIR:-/tmp}/pr-review-conv.XXXXXX")" || out="/tmp/pr-review-conv.$$"
+  err="$(mktemp "${TMPDIR:-/tmp}/pr-review-conv-err.XXXXXX")" || err="/tmp/pr-review-conv-err.$$"
   out2="$out.sb"; err2="$err.sb"
   if [ "$NO_BRAIN" -eq 0 ]; then
     KB_CLI="$KB" feed_run "$out" "$err" rounds --emit; rc=$?
@@ -1523,8 +1523,8 @@ PY
 if [ "$DRY" -eq 1 ]; then
   echo "pr_review.sh: --dry-run — queue read only (limit=$LIMIT scope=$SCOPE)." >&2
   echo "pr_review.sh: ledger=$LOOP_PR_LEDGER_FILE app_root=$LOOP_APP_ROOT" >&2
-  Q_OUT="$(mktemp -t pr-review-queue)" || { echo "pr_review.sh: FATAL — mktemp failed" >&2; exit 4; }
-  Q_ERR="$(mktemp -t pr-review-queue-err)" || { rm -f "$Q_OUT"; echo "pr_review.sh: FATAL — mktemp failed" >&2; exit 4; }
+  Q_OUT="$(mktemp "${TMPDIR:-/tmp}/pr-review-queue.XXXXXX")" || { echo "pr_review.sh: FATAL — mktemp failed" >&2; exit 4; }
+  Q_ERR="$(mktemp "${TMPDIR:-/tmp}/pr-review-queue-err.XXXXXX")" || { rm -f "$Q_OUT"; echo "pr_review.sh: FATAL — mktemp failed" >&2; exit 4; }
   feed_run "$Q_OUT" "$Q_ERR" unreviewed --limit "$LIMIT"
   Q_RC=$?
   cat "$Q_OUT"
@@ -1546,7 +1546,7 @@ if [ "$DRY" -eq 1 ]; then
   fi
   echo "pr_review.sh: $(feed_key "$Q_OUT" count) unreviewed / backend=$(feed_key "$Q_OUT" backend)" >&2
   if [ "$HEALTH" -eq 1 ]; then
-    H_OUT="$(mktemp -t pr-review-health)" || H_OUT="/tmp/pr-review-health.$$"
+    H_OUT="$(mktemp "${TMPDIR:-/tmp}/pr-review-health.XXXXXX")" || H_OUT="/tmp/pr-review-health.$$"
     echo "pr_review.sh: --health — the section an empty tick would append to its report:" >&2
     health_sweep "$H_OUT" | sed 's/^/pr_review.sh:   /' >&2
     rm -f "$H_OUT"
@@ -1828,7 +1828,7 @@ fi
 # `post --live` path, so a dry-run tick never proves the kill switch is even readable. This
 # gate does, on every tick, before anything is spent.
 if [ "$NO_BRAIN" -eq 0 ]; then
-  PAUSE_OUT="$(mktemp -t pr-review-pause)" || PAUSE_OUT="/tmp/pr-review-pause.$$"
+  PAUSE_OUT="$(mktemp "${TMPDIR:-/tmp}/pr-review-pause.XXXXXX")" || PAUSE_OUT="/tmp/pr-review-pause.$$"
   kb_run "$PAUSE_OUT" pause --status
   P_OK="$(json_key ok      < "$PAUSE_OUT")"
   P_PAUSED="$(json_key paused < "$PAUSE_OUT")"
@@ -1965,8 +1965,8 @@ fi
 # banner says so — pr_feed itself will fail auth-expired rather than guess whose PRs these are.
 IDENTITY="unknown"
 if [ "$LIVE" -eq 1 ]; then
-  ID_OUT="$(mktemp -t pr-review-id)" || ID_OUT="/tmp/pr-review-id.$$"
-  ID_ERR="$(mktemp -t pr-review-id-err)" || ID_ERR="/tmp/pr-review-id-err.$$"
+  ID_OUT="$(mktemp "${TMPDIR:-/tmp}/pr-review-id.XXXXXX")" || ID_OUT="/tmp/pr-review-id.$$"
+  ID_ERR="$(mktemp "${TMPDIR:-/tmp}/pr-review-id-err.XXXXXX")" || ID_ERR="/tmp/pr-review-id-err.$$"
   _wd_id="$WD_TIMED_OUT"
   run_watchdog "$IDENTITY_TIMEOUT" 5 python3 "$PR_FEED" whoami > "$ID_OUT" 2> "$ID_ERR"
   WD_TIMED_OUT="$_wd_id"
@@ -2041,7 +2041,10 @@ fi
 # lines inside pr_feed.cmd_post, next to the R9 check it already makes.
 build_posting_guard() {   # sets GUARD_FEED (or leaves it empty on any failure)
   GUARD_FEED=""
-  RUN_TMP="$(mktemp -d -t pr-review-guard)" || { echo "pr_review.sh: WARNING — mktemp -d failed; the session gets pr_feed.py directly." >&2; return 1; }
+  # Every mktemp in this script uses an explicit XXXXXX template: the BSD-only `mktemp -t name`
+  # fails on GNU mktemp ("too few X's"), which on Linux silently left this guard (and its
+  # auto-mark after a live post) unbuilt and sent every queue-gate tick to the session.
+  RUN_TMP="$(mktemp -d "${TMPDIR:-/tmp}/pr-review-guard.XXXXXX")" || { echo "pr_review.sh: WARNING — mktemp -d failed; the session gets pr_feed.py directly." >&2; return 1; }
   python3 - "$RUN_TMP/guard.json" "$PR_FEED" "$POSTING_MODE" "$SCOPE" "$MAX_THREADS" \
            "$POSTED_RECEIPT" "$RUN_ID" "$RUN_TMP/violations.txt" <<'PY' || return 1
 import json, sys
@@ -2312,8 +2315,8 @@ convergence_sweep || true
 if [ "$NO_GATE" -eq 0 ]; then
   GATE_START="$(now_epoch)"
   GATE_POSTING="dry-run"; [ "$LIVE" -eq 1 ] && GATE_POSTING="live"
-  GATE_OUT="$(mktemp -t pr-review-gate)" || GATE_OUT=""
-  GATE_ERR="$(mktemp -t pr-review-gate-err)" || GATE_ERR=""
+  GATE_OUT="$(mktemp "${TMPDIR:-/tmp}/pr-review-gate.XXXXXX")" || GATE_OUT=""
+  GATE_ERR="$(mktemp "${TMPDIR:-/tmp}/pr-review-gate-err.XXXXXX")" || GATE_ERR=""
   GATE_VERDICT="fallthrough"
   GATE_WHY="mktemp-failed"
   if [ -n "$GATE_OUT" ] && [ -n "$GATE_ERR" ]; then
@@ -2394,7 +2397,7 @@ PY
       if [ "$NO_BRAIN" -eq 0 ]; then
         # The metric the session writes on every tick, empty ones included — tagged with this
         # run id, so `kb receipt --run-id` finds it exactly as the post-run assertion would.
-        GATE_KB="$(mktemp -t pr-review-gate-kb)" || GATE_KB="/tmp/pr-review-gate-kb.$$"
+        GATE_KB="$(mktemp "${TMPDIR:-/tmp}/pr-review-gate-kb.XXXXXX")" || GATE_KB="/tmp/pr-review-gate-kb.$$"
         kb_run "$GATE_KB" metric --name pr-review --value 0 --unit prs_reviewed \
           --area pr-review --source pr_review.sh --loop-id "$RUN_ID" \
           --ticket "$TICKET" --run-id "$RUN_ID" --metadata "$GATE_META"
@@ -2416,13 +2419,13 @@ PY
       fi
       GATE_HEALTH="off"
       if [ "$HEALTH" -eq 1 ] && [ "$GATE_VERDICT" = "empty-queue" ]; then
-        H_OUT="$(mktemp -t pr-review-health)" || H_OUT="/tmp/pr-review-health.$$"
+        H_OUT="$(mktemp "${TMPDIR:-/tmp}/pr-review-health.XXXXXX")" || H_OUT="/tmp/pr-review-health.$$"
         { echo ""; health_sweep "$H_OUT"; } >> "$REPORT"
         rm -f "$H_OUT"
         GATE_HEALTH="on"
         echo "pr_review.sh: health sweep — needs_attention=$HEALTH_ATTENTION (report: $REPORT)" >&2
         if [ "$NO_BRAIN" -eq 0 ] && [ "$HEALTH_ATTENTION" != "unmeasured" ]; then
-          GATE_KB="$(mktemp -t pr-review-gate-kb)" || GATE_KB="/tmp/pr-review-gate-kb.$$"
+          GATE_KB="$(mktemp "${TMPDIR:-/tmp}/pr-review-gate-kb.XXXXXX")" || GATE_KB="/tmp/pr-review-gate-kb.$$"
           kb_run "$GATE_KB" metric --name pr-health --value "$HEALTH_ATTENTION" --unit prs_needing_attention \
             --area pr-review --source pr_review.sh --loop-id "$RUN_ID" \
             --ticket "$TICKET" --run-id "$RUN_ID"
@@ -2631,7 +2634,7 @@ you mention it at all: that ceiling bounds $COST_CAP_MEANS."
   echo "pr_review.sh: pr_feed tick lock before this run: $PRE_LOCK_STATUS ($PRE_LOCK_AT)" >&2
   echo "pr_review.sh: review worktrees before this run: ${PRE_WORKTREES:-none}" >&2
 
-  SESSION_OUT="$(mktemp -t pr-review-session)" || SESSION_OUT="/tmp/pr-review-session.$$"
+  SESSION_OUT="$(mktemp "${TMPDIR:-/tmp}/pr-review-session.XXXXXX")" || SESSION_OUT="/tmp/pr-review-session.$$"
   SESSION_STARTED=1
   CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR" LOOP_RUN_ID="$RUN_ID" LOOP_TICKET="$TICKET" \
     run_watchdog "$TIMEOUT" "$GRACE" "$CLAUDE_BIN" "${CLAUDE_ARGS[@]}" > "$SESSION_OUT"
@@ -2945,7 +2948,7 @@ PY
     REPORTED=1
   fi
   if [ "$NO_ASSERT" -eq 0 ] && [ "$NO_LEDGER_PROOF" -eq 0 ]; then
-    RECEIPT_OUT="$(mktemp -t pr-review-receipt)" || RECEIPT_OUT="/tmp/pr-review-receipt.$$"
+    RECEIPT_OUT="$(mktemp "${TMPDIR:-/tmp}/pr-review-receipt.XXXXXX")" || RECEIPT_OUT="/tmp/pr-review-receipt.$$"
     kb_run "$RECEIPT_OUT" receipt --ticket "$TICKET" --run-id "$RUN_ID" --since 1d
     R_OK="$(json_key ok < "$RECEIPT_OUT")"
     R_N="$(python3 - "$RECEIPT_OUT" <<'PY' 2>/dev/null

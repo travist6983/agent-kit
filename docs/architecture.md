@@ -372,7 +372,7 @@ was real.
 
 Reviews each PR once per head commit and comes back when the author pushes, so it never
 spams and never goes silent — up to `pr_review_loop.max_review_rounds_per_pr` consecutive
-rounds without a pass, after which the PR is named under `round_capped`, not reviewed again
+rounds without a pass (only an explicit approve or an explicit zero-findings `mark` is one), after which the PR is named under `round_capped`, not reviewed again
 automatically, and gets one PR-level step-back comment (dry-run until armed) until a maintainer
 runs `ledger --reset-rounds`. A re-review judges the interdiff since the previously reviewed
 commit, and `post` withholds non-critical findings outside it. The runner's convergence sweep

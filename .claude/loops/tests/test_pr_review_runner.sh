@@ -43,7 +43,7 @@ if [ ! -f "$PRR" ]; then
   exit 0
 fi
 
-W="$(mktemp -d -t pr-review-runner)" || { echo "  pr_review_runner: SKIPPED (mktemp failed)"; exit 0; }
+W="$(mktemp -d "${TMPDIR:-/tmp}/pr-review-runner.XXXXXX")" || { echo "  pr_review_runner: SKIPPED (mktemp failed)"; exit 0; }
 cleanup(){ rm -rf "$W"; }
 trap cleanup EXIT
 mkdir -p "$W/bin" "$W/worktrees" "$W/brain"
@@ -396,6 +396,18 @@ ck    "a failing convergence call leaves the exit code alone" "$RC" "0"
 ckin  "…and the outcome" "outcome=empty-queue" "$W/cf.log"
 ckin  "…and logs its failure class" "event=convergence status=api-unavailable" "$W/cf.log"
 ck    "…still exactly one convergence line" "$(nconv "$W/cf.log")" "1"
+stuckn(){ python3 -c "import json; print(json.load(open('$LOOP_PR_REVIEW_STATE')).get('stuck_count'))" 2>/dev/null; }
+ck    "…leaves the stuck counter cleared (a failing sweep is not a stuck tick)" "$(stuckn)" "0"
+ckin  "…and books no consumption for the gated tick" "spend_usd=0 spend_basis=no-model-call" "$W/cf.log"
+unstick(){ python3 -c "
+import json; p='$LOOP_PR_REVIEW_STATE'; s=json.load(open(p)); s['stuck_count']=0; s['stuck_reason']=''; json.dump(s, open(p,'w'))"; }
+unstick; RC="$(gate_tick cs2 prs)"; S_OK="$(stuckn)"
+ckin  "a session tick books its measured consumption" "spend_basis=" "$W/cs2.log"
+unstick; RC="$(FAKE_CONV=fail gate_tick cs3 prs)"
+ck    "a failing convergence call on a session tick changes neither the stuck counter…" "$(stuckn)" "$S_OK"
+ck    "…nor the spend line the same tick books without it" \
+      "$(grep -o 'event=end.*' "$W/cs3.log" | grep -o 'spend_usd=[^ ]* spend_basis=[^ ]*')" \
+      "$(grep -o 'event=end.*' "$W/cs2.log" | grep -o 'spend_usd=[^ ]* spend_basis=[^ ]*')"
 : > "$W/conv_calls.log"
 RC="$(run_tick cn claude-quick)"
 ckout "a --no-brain tick never passes --emit to rounds" "rounds --emit" "$W/conv_calls.log"

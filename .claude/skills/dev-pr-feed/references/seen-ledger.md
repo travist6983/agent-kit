@@ -62,9 +62,10 @@ state (the cap is `pr_review_loop.max_review_rounds_per_pr` in `loop-limits.json
 - `open` / `total` grow by ONE per new reviewed head commit (`same_commit` on `head`), however many
   times that head is marked or posted: idempotent per head. `open` counts consecutive heads that did
   not pass; `total` never resets.
-- A pass (`mark --verdict approve`, or `--findings-count 0` on any verdict except `posted` /
-  `posting`) records `last_pass` once per head and sets `open` to 0. The write-ahead entry of a live
-  post is never a pass.
+- A pass (`mark --verdict approve`, or an EXPLICIT `--findings-count 0` on any verdict except
+  `posted` / `posting`) records `last_pass` once per head and sets `open` to 0. An omitted
+  `--findings-count` is unknown and is never a pass, whatever the verdict, so a hand-typed recovery
+  `mark` cannot reset the round cap. The write-ahead entry of a live post is never a pass.
 - `prev_head` is what `checkout`/`post`/`scope` diff against for the interdiff when the entry is
   already at the PR's head (a re-post at the same head).
 - `step_back` is written once: `dry-run` after a preview (a second dry-run call skips

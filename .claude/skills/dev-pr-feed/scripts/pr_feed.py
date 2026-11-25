@@ -124,7 +124,9 @@ FAILURE_CLASSES = (
     "pr-closed",          # the PR merged/closed mid-run — drop it, never retry
     "config-invalid",     # LOOP_PR_AUTHOR_SCOPE / LOOP_PR_LEDGER_BACKEND is not a value this
                           # script knows, or a required adapter/config value is absent — refuse
-                          # rather than silently widen scope, switch store or guess a repo
+                          # rather than silently widen scope, switch store or guess a repo;
+                          # also a required input file (`scope --findings`) that is missing,
+                          # empty or not JSON
     "already-posted",     # the ledger says this PR was already posted LIVE at its current head —
                           # a second live post would duplicate comments on a real person's PR
 )
@@ -997,6 +999,19 @@ def cmd_unreviewed(a):
             r["previously_reviewed_commit"] = entry.get("head_commit")
             r["review_round"] = st["open"] + 1
             unreviewed.append(r)
+        elif _rounds_of(entry)["open"] >= round_cap:
+            # Capped at the head it was last reviewed on: name it as capped NOW, not only after the
+            # author's next push, so the tick report says the PR has stopped converging.
+            st = _rounds_of(entry)
+            sb = st.get("step_back") if isinstance(st.get("step_back"), dict) else None
+            round_capped.append({
+                "pr_id": r["pr_id"], "title": r.get("title"), "head_commit": r["head_commit"],
+                "previously_reviewed_commit": entry.get("head_commit"), "rounds": st["open"],
+                "cap": round_cap, "step_back": (sb or {}).get("mode"), "awaiting_push": True,
+                "reason": (f"{st['open']} consecutive reviewed head commits did not pass "
+                           f"(pr_review_loop.max_review_rounds_per_pr={round_cap}); this head is "
+                           "already reviewed and the next push will NOT be reviewed automatically. "
+                           "A maintainer re-admits it with `ledger --reset-rounds <pr>`.")})
         else:
             skipped.append({"pr_id": r["pr_id"], "head_commit": r["head_commit"],
                             "reviewed_at": entry.get("reviewed_at"),
@@ -1469,9 +1484,12 @@ def cmd_mark(a):
              "whose thread records could not be read", code=3, entry=entry)
     if isinstance(prior, dict) and isinstance(prior.get("threads"), dict) and prior["threads"]:
         entry["threads"] = prior["threads"]
-    # Review rounds: one per reviewed head commit, idempotent per head. A pass is an approve, or a
-    # review with nothing to say; `posted` (the runner's auto-mark after a live post) is never one.
-    passed = a.verdict == "approve" or (a.findings_count == 0 and a.verdict not in ("posted", "posting"))
+    # Review rounds: one per reviewed head commit, idempotent per head. A pass is an explicit
+    # approve, or an EXPLICIT --findings-count 0; `posted` (the runner's auto-mark after a live
+    # post) is never one. An omitted count is unknown, and unknown is never a pass: the cap must
+    # not fail open because a hand-typed recovery `mark` left the flag off.
+    passed = a.verdict == "approve" or (a.findings_count is not None and a.findings_count == 0
+                                        and a.verdict not in ("posted", "posting"))
     _carry_rounds(prior, entry, passed=passed)
     try:
         ledger_put(a.pr, entry)
@@ -2045,8 +2063,15 @@ def _scope_fields(pr_id, head, root, worktree):
 
 
 def cmd_scope(a):
-    with open(a.findings) as fh:
-        review = json.load(fh)
+    try:
+        with open(a.findings) as fh:
+            review = json.load(fh)
+    except (OSError, ValueError) as e:
+        fail("config-invalid", f"could not read --findings {a.findings} ({e}) — nothing was "
+             "scoped or written; `post` re-applies the scope itself", code=3, findings=a.findings)
+    if not isinstance(review, (dict, list)):
+        fail("config-invalid", f"--findings {a.findings} is neither a review object nor a "
+             "findings list — nothing was scoped or written", code=3, findings=a.findings)
     findings = review.get("findings", []) if isinstance(review, dict) else review
     findings = [f for f in (findings or []) if isinstance(f, dict)]
     head = a.reviewed_commit
@@ -2344,7 +2369,8 @@ def main(argv=None):
     m.add_argument("--pr", required=True)
     m.add_argument("--commit", required=True)
     m.add_argument("--verdict", default="reviewed")
-    m.add_argument("--findings-count", dest="findings_count", type=int, default=0)
+    m.add_argument("--findings-count", dest="findings_count", type=int, default=None,
+                   help="findings in this review; omitted = unknown, which never counts as a pass")
     m.add_argument("--mode", choices=["dry-run", "live"], default="dry-run")
     m.add_argument("--force", action="store_true",
                    help="record even when the sha doesn't match the PR's current head")

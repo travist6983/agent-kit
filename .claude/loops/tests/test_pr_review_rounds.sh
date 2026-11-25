@@ -252,6 +252,48 @@ python3 "$F" checkout --pr "$E" > "$TMP/c3.json" 2>&1
   && ok "after a rewritten history: review_scope full, history-rewritten" || bad "rewritten" "$(head -c 500 "$TMP/c3.json")"
 python3 "$F" teardown --pr "$E" >/dev/null 2>&1
 
+# --- 8. the cap never fails open: omitted --findings-count, capped-at-head, bad scope input ------
+# C sits at the cap (open=3) at the head it was last reviewed on. A hand-typed recovery `mark`
+# that leaves --findings-count off (the runner prints exactly such commands) must NOT be a pass.
+CH="$(head_of c)"
+python3 "$F" mark --pr "$C" --commit "$CH" --verdict request-changes --mode dry-run > "$TMP/m8a.json" 2>&1
+python3 "$F" mark --pr "$C" --commit "$CH" --verdict reviewed --mode live > "$TMP/m8b.json" 2>&1
+python3 "$F" mark --pr "$C" --commit "$CH" --verdict posted --mode live > "$TMP/m8c.json" 2>&1
+[ "$(led "$C" "r['open'], 'last_pass' in r")" = "(3, False)" ] \
+  && [ "$(jq_ "$TMP/m8a.json" "(d['round_cap_reached'], d['recorded']['findings'])")" = "(True, None)" ] \
+  && [ "$(jq_ "$TMP/m8b.json" "d['round_cap_reached']")" = True ] \
+  && ok "mark without --findings-count is never a pass (request-changes, reviewed, posted): the cap holds" \
+  || bad "omitted findings-count" "$(led "$C" "r") $(head -c 300 "$TMP/m8a.json")"
+python3 "$F" unreviewed > "$TMP/u8.json" 2>&1
+[ "$(in_list "$TMP/u8.json" round_capped "$C")" = True ] && [ "$(in_list "$TMP/u8.json" already_reviewed "$C")" = False ] \
+  && [ "$(jq_ "$TMP/u8.json" "[r.get('awaiting_push') for r in d['round_capped'] if r['pr_id']=='$C']")" = "[True]" ] \
+  && ok "a PR capped at its already-reviewed head is listed round_capped (awaiting_push), not already_reviewed" \
+  || bad "capped at head" "$(head -c 500 "$TMP/u8.json")"
+python3 "$F" rounds --emit > "$TMP/r8.json" 2>&1
+[ "$(wc -l < "$TMP/metric_calls.jsonl" | tr -d ' ')" = 3 ] \
+  && ok "rounds --emit writes no rounds_to_pass for the pass that never happened" || bad "phantom pass" "$(tail -2 "$TMP/metric_calls.jsonl")"
+bump c 25
+python3 "$F" unreviewed > "$TMP/u9.json" 2>&1
+[ "$(in_list "$TMP/u9.json" round_capped "$C")" = True ] && [ "$(in_list "$TMP/u9.json" unreviewed "$C")" = False ] \
+  && ok "after the next push the PR is still round_capped, not re-queued" || bad "capped after push" "$(head -c 400 "$TMP/u9.json")"
+# An explicit zero still passes, so the rule is 'explicit', not 'never'.
+mark "$E" "$(head_of e)" reviewed 0 >/dev/null 2>&1
+[ "$(led "$E" "r['open']")" = 0 ] && ok "an explicit --findings-count 0 is still a pass" || bad "explicit zero" "$(led "$E" "r")"
+
+for kind in missing empty malformed; do
+  case "$kind" in
+    missing) IN="$TMP/no-such-review.json" ;;
+    empty) IN="$TMP/empty-review.json"; : > "$IN" ;;
+    malformed) IN="$TMP/bad-review.json"; echo '{"findings": [' > "$IN" ;;
+  esac
+  rm -f "$TMP/scoped-$kind.json"
+  python3 "$F" scope --pr "$E" --findings "$IN" --out "$TMP/scoped-$kind.json" > "$TMP/sc-$kind.json" 2>&1; CODE=$?
+  [ "$CODE" = 3 ] && [ "$(jq_ "$TMP/sc-$kind.json" "(d['status'], d['failure_class'])")" = "('failed', 'config-invalid')" ] \
+    && [ ! -e "$TMP/scoped-$kind.json" ] \
+    && ok "scope with a $kind --findings file: structured config-invalid, exit 3, nothing written" \
+    || bad "scope $kind" "exit=$CODE $(head -c 300 "$TMP/sc-$kind.json")"
+done
+
 echo
 echo "  pr_review_rounds: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]
