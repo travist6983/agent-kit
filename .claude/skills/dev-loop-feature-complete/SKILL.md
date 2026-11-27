@@ -85,6 +85,30 @@ the target surface and `infra-ship` embeds it in the pull-request body. See belo
   `review_convergence.stagnation_fix_cycles` fix cycles, `loop-limits.json`) → escalate through
   `dev-escalate` with the `stagnant` list and revisit the plan; never re-fix. On `approve`, write the
   recorder's `rounds_to_pass` as the `review_rounds_to_pass` metric through `kb metric`.
+- **Re-fix cycles spend only what the change needs.** The first pass runs the full parallel layer.
+  After a re-fix, the three checks are **not** rerun as a fresh full set, because that is where a
+  feature run's spend goes (each deep review is 6 to 8 strong-model specialists plus validators; each
+  verify drives a browser, which is image-heavy, and runs mutants). The verifiers keep their strong
+  model (`qa-verify`: never trade quality for tokens on a verifier); what shrinks is how often and how
+  widely they run:
+  1. **In order, not in parallel.** Rerun `qa-regression` (cheap) and `dev-code-review` first; run
+     `qa-verify` only once the review round is `approve`. A verify launched beside a review that then
+     asks for changes is thrown away the moment the code changes again.
+  2. **Review the delta.** Brief the re-review with the previous `review.json` and say which files the
+     re-fix touched: it judges each open finding (resolved or still open) and the changed lines, and
+     reads the rest only for context. Depth is still whatever `review_depth.py` decides.
+  3. **Verify the delta.** A re-verify re-checks every AC briefly from the prior attempt's evidence,
+     then concentrates on what changed; brief it with at most **3** mutants, each aimed at the fix.
+  4. **Record the after-video once.** Only on the verify expected to be final. If a re-fix did not
+     touch the screen the video shows, keep the earlier recording (it is still the after) and say so
+     in `verify.json`; never re-record to fill a frame you did not need.
+  5. **Never stop a verifier to save time.** Stopping one throws its spend away; decide the order
+     before launching (step 1) instead.
+  6. **Absolute paths in every brief.** A relative `runs/<KEY>/` resolves inside this framework's
+     checkout, so the agent writes to the wrong folder and the run pays for it twice.
+
+  Run each story in its own session: the brain and `<evidence.root>/<KEY>/` carry everything forward,
+  and a long session re-reads its whole history on every turn (and re-caches it after any pause).
 - **A review verdict of `needs-human` stops the run.** It means the independent validators split
   on a masking or critical finding: only a unanimous reject drops one, so `dev-code-review` keeps
   it with `human_gate: true`. Record the round as usual (a `needs-human` round is never a pass),
