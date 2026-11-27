@@ -75,6 +75,27 @@ test('the ladder marks what ran and where the run stands', async () => {
   expect(held.stages.find(s => s.id === 'verify')?.tone).toBe('bad')
 })
 
+test('each recipe shows its own spine', async () => {
+  const feature = buildRun('/repo', 'VEU-63', { 'intake.json': { recipe: 'dev-loop-feature-complete' } }, [], 1)
+  expect(feature.stages.map(s => s.label)).toEqual([
+    'intake', 'spec', 'explore', 'ac-oracle', 'plan', 'implement', 'verify', 'regression', 'review', 'pre-pr', 'stage',
+  ])
+  // no repro on a feature: after intake the spec is next
+  expect(feature.stages.find(s => s.isCurrent)?.id).toBe('spec')
+
+  // a run from before dev-implement still shows its fix.json under implement
+  const old = buildRun('/repo', 'VEU-63', { 'intake.json': { recipe: 'dev-loop-feature-complete' }, 'fix.json': { status: 'fixed' } }, [], 1)
+  expect(old.stages.find(s => s.id === 'implement')?.outcome).toBe('fixed')
+
+  const defect = buildRun('/repo', 'PROJ-1', { 'intake.json': { recipe: 'dev-loop-defect' } }, [], 1)
+  expect(defect.stages.map(s => s.id)).not.toContain('review')
+  const pre = buildRun('/repo', 'PROJ-2', { 'intake.json': { recipe: 'dev-loop-feature-prerelease' } }, [], 1)
+  expect(pre.stages.at(-1)?.label).toBe('stage')
+  expect(pre.stages.map(s => s.id)).not.toContain('prod-verify')
+  // unknown or missing recipe falls back to the full defect spine
+  expect(buildRun('/repo', 'X-1', {}, [], 1).stages).toHaveLength(9)
+})
+
 test('spend and the band read in plain words', async () => {
   const verdicts = [verdict({ budgetSpent: 2, budgetCap: 10 }), verdict({ stage: 'verify', result: 'fail', action: 're-fix', attempt: 1, budgetSpent: 4.25, budgetCap: 10 })]
   expect(spendText(verdicts)).toBe('$4.25 of $10.00')
