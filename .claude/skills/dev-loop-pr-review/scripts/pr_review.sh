@@ -60,6 +60,10 @@
 #      queue (count 0) or an expired host credential (auth-expired) is answered by the
 #      runner itself — report, metric, log line — and no session starts. Anything else,
 #      including a gate read that failed any other way, hands the tick to the session.
+#   5b. Just before the queue gate, once per real tick, reads back what happened to the threads
+#      earlier ticks posted (pr_feed `dispositions`, read-only on the host; --emit unless
+#      --no-brain writes the pr_review_threads_* metrics). Observation only: it can never change
+#      the tick's exit code, verdict, stuck counter or consumption accounting.
 #   6. Cleans up after the session on ANY exit path — a watchdog kill skips the model's own
 #      `finally`, so the RUNNER releases the pr_feed tick lock and tears down review
 #      worktrees THIS TICK CREATED. It never releases a lock it cannot show is ours and
@@ -119,7 +123,7 @@
 # why the default is dry-run here and widening the scope is an edit to the scheduler's job
 # definition that a human performs.
 #
-# A --live tick has three PRECONDITIONS the runner refuses to guess at (exit 25):
+# A --live tick has four PRECONDITIONS the runner refuses to guess at (exit 25):
 #   * a seen-ledger file must already exist, or --first-run must say out loud that a blank
 #     ledger is intended. A missing ledger reads as "nothing has ever been reviewed", and
 #     the first live tick then re-reviews and re-comments on pull requests that already
@@ -128,6 +132,10 @@
 #     line. Inheriting a widened scope from loop-limits.json is exactly how a one-line JSON
 #     edit turns into comments on colleagues' pull requests.
 #   * the R9 pause flag must read an explicit paused:false (that gate is older than these).
+#   * loop-limits pr_review_loop.timing must record a measurement (measured true, a named
+#     measured_by, samples >= timing_min_samples). prs_per_tick predates the validators and
+#     the deep pass; dry-run ticks are how it gets re-measured (measure_ticks.py), and they
+#     are not gated by this.
 #
 # --no-brain skips the brain health gate, and with it the ledger half of the post-run
 # assertion (there is no brain to ask). --no-assert skips the post-run assertion ENTIRELY,
@@ -372,7 +380,9 @@ KB="${KB_BIN:-$REPO/.claude/skills/qa-kb/scripts/kb.py}"
 PR_FEED="${LOOP_PR_FEED:-$REPO/.claude/skills/dev-pr-feed/scripts/pr_feed.py}"
 LOOPS_DIR="$REPO/.claude/loops"
 TICKS_DIR="$LOOPS_DIR/pr-reviews"
-LIMITS_FILE="$LOOPS_DIR/loop-limits.json"
+# stack.config `limits_file` (env override LOOPS_CFG__LIMITS_FILE), the same key dream.sh reads.
+LIMITS_FILE="$(stack_cfg limits_file .claude/loops/loop-limits.json)"
+case "$LIMITS_FILE" in /*) ;; *) LIMITS_FILE="$REPO/$LIMITS_FILE" ;; esac
 # Named after this runner, not after pr_feed's tick lock — they are two different locks
 # guarding two different overlaps. See "why a SECOND lock" below.
 LOCK_DIR="${LOOP_PR_REVIEW_LOCK_DIR:-$LOOPS_DIR/pr-review.lock}"
@@ -1084,8 +1094,8 @@ HYGIENE_DONE=0
 
 feed_lock_probe() {   # prints "<free|held|stale|unknown> <acquired_at|->"
   local o e st at
-  o="$(mktemp -t pr-review-lock)" || return 1
-  e="$(mktemp -t pr-review-lock-err)" || { rm -f "$o"; return 1; }
+  o="$(mktemp "${TMPDIR:-/tmp}/pr-review-lock.XXXXXX")" || return 1
+  e="$(mktemp "${TMPDIR:-/tmp}/pr-review-lock-err.XXXXXX")" || { rm -f "$o"; return 1; }
   feed_run "$o" "$e" lock --status
   st="$(feed_key "$o" status)"
   at="$(feed_key "$o" lock.acquired_at)"
@@ -1145,8 +1155,8 @@ hygiene_sweep() {
   fi
 
   if [ "$st" = "held" ] || [ "$st" = "stale" ]; then
-    o="$(mktemp -t pr-review-rel)" || o="/tmp/pr-review-rel.$$"
-    e="$(mktemp -t pr-review-rel-err)" || e="/tmp/pr-review-rel-err.$$"
+    o="$(mktemp "${TMPDIR:-/tmp}/pr-review-rel.XXXXXX")" || o="/tmp/pr-review-rel.$$"
+    e="$(mktemp "${TMPDIR:-/tmp}/pr-review-rel-err.XXXXXX")" || e="/tmp/pr-review-rel-err.$$"
     feed_run "$o" "$e" lock --release
     if [ "$(feed_key "$o" released)" = "true" ]; then
       released="yes"
@@ -1168,8 +1178,8 @@ hygiene_sweep() {
         continue ;;
     esac
     echo "pr_review.sh: tearing down the review worktree this tick left behind: pr-$id" >&2
-    o="$(mktemp -t pr-review-td)" || o="/tmp/pr-review-td.$$"
-    e="$(mktemp -t pr-review-td-err)" || e="/tmp/pr-review-td-err.$$"
+    o="$(mktemp "${TMPDIR:-/tmp}/pr-review-td.XXXXXX")" || o="/tmp/pr-review-td.$$"
+    e="$(mktemp "${TMPDIR:-/tmp}/pr-review-td-err.XXXXXX")" || e="/tmp/pr-review-td-err.$$"
     feed_run "$o" "$e" teardown --pr "$id"
     rm -f "$o" "$e"
     removed=$((removed + 1))
@@ -1319,7 +1329,7 @@ report_failure() {   # $1 = human label for the kill reason
       echo "    $posted" >&2
       echo "  Any entry above marked 'NOT marked' will be re-reviewed and re-posted by the next" >&2
       echo "  tick — mark it by hand before that happens:" >&2
-      echo "    python3 $PR_FEED mark --pr <id> --commit <sha> --mode live" >&2
+      echo "    python3 $PR_FEED mark --pr <id> --commit <sha> --verdict posted --mode live" >&2
       echo "  Full receipt: $POSTED_RECEIPT" >&2
     else
       echo "  This tick was LIVE, and the posting guard recorded NO live post for run $RUN_ID" >&2
@@ -1340,7 +1350,7 @@ mkdir -p "$TICKS_DIR" 2>/dev/null || true
 HEALTH_ATTENTION="unmeasured"
 health_sweep() {   # health_sweep <json-out-file>  → section on stdout
   local out="$1" err rc
-  err="$(mktemp -t pr-review-health-err)" || err="/tmp/pr-review-health-err.$$"
+  err="$(mktemp "${TMPDIR:-/tmp}/pr-review-health-err.XXXXXX")" || err="/tmp/pr-review-health-err.$$"
   feed_run "$out" "$err" health --budget-s 240; rc=$?
   rm -f "$err"
   python3 - "$out" "$rc" "$WD_TIMED_OUT" <<'PY'
@@ -1385,6 +1395,132 @@ except Exception:
   return 0
 }
 
+# ── thread dispositions: what happened to the threads earlier ticks posted ───
+# Runs pr_feed's read-only `dispositions` verb once per REAL tick, before the queue gate, so it
+# happens on the next tick even when the queue is empty and no model runs. With the brain on it
+# passes --emit, so each newly settled thread is counted once through `kb metric`
+# (pr_review_threads_*). OBSERVATION ONLY: it always returns 0 and never touches RC, the gate
+# verdict, the stuck counter or the consumption accounting (feed_run restores WD_TIMED_OUT).
+# Sets DISP_LINE to a one-line summary for the report; a response without `newly_settled` (an
+# older feed, non-JSON, a watchdog kill) is logged as status=unmeasured or its failure class,
+# never as zero.
+DISP_LINE=""
+dispositions_sweep() {
+  local out err rc fields
+  out="$(mktemp "${TMPDIR:-/tmp}/pr-review-disp.XXXXXX")" || out="/tmp/pr-review-disp.$$"
+  err="$(mktemp "${TMPDIR:-/tmp}/pr-review-disp-err.XXXXXX")" || err="/tmp/pr-review-disp-err.$$"
+  if [ "$NO_BRAIN" -eq 0 ]; then
+    KB_CLI="$KB" feed_run "$out" "$err" dispositions --emit; rc=$?
+  else
+    KB_CLI="$KB" feed_run "$out" "$err" dispositions; rc=$?
+  fi
+  # A plain heredoc into a file, never inside $( … ) (bash 3.2 re-lexes those).
+  python3 - "$out" "$rc" > "$out.fields" 2>/dev/null <<'PY'
+import json, sys
+path, rc = sys.argv[1:3]
+try:
+    raw = open(path).read()
+    o = json.loads(raw[raw.index("{"):])
+except Exception:
+    o = None
+if not isinstance(o, dict) or not isinstance(o.get("newly_settled"), dict):
+    st = o.get("failure_class") if isinstance(o, dict) else None
+    st = st or ("timeout" if rc == "124" else "unmeasured")
+    print("status=%s checked=0 pending=0 fixed=0 wrong=0 intentional=0 no_action=0 unclassified=0 emitted=0 noise_rate=none" % st)
+    print("Thread dispositions — not measured this tick (%s)" % st)
+    raise SystemExit(0)
+n = o["newly_settled"]
+nr = o.get("noise_rate")
+nr_s = "none" if nr is None else str(nr)
+emitted = sum(int(e.get("value") or 0) for e in (o.get("emitted") or []))
+checked = len(o.get("checked") or [])
+pending = int(o.get("pending") or 0)
+print("status=%s checked=%d pending=%d fixed=%d wrong=%d intentional=%d no_action=%d unclassified=%d emitted=%d noise_rate=%s" % (
+    "ok" if o.get("enumerable", True) else "not-enumerable", checked, pending,
+    n.get("fixed", 0), n.get("wrong", 0), n.get("intentional", 0), n.get("no-action", 0),
+    n.get("unclassified", 0), emitted, nr_s))
+print("Thread dispositions — %d PR(s) read · newly settled: %d fixed, %d wrong, %d intentional, %d no-action, %d unclassified · %d pending · noise rate %s%s" % (
+    checked, n.get("fixed", 0), n.get("wrong", 0), n.get("intentional", 0),
+    n.get("no-action", 0), n.get("unclassified", 0), pending, nr_s,
+    " · metric write failed, retried next tick" if o.get("emit_failed") else ""))
+PY
+  fields="$(sed -n '1p' "$out.fields" 2>/dev/null)"
+  DISP_LINE="$(sed -n '2p' "$out.fields" 2>/dev/null)"
+  [ -n "$fields" ] || fields="status=unmeasured checked=0 pending=0 fixed=0 wrong=0 intentional=0 no_action=0 unclassified=0 emitted=0 noise_rate=none"
+  [ -n "$DISP_LINE" ] || DISP_LINE="Thread dispositions — not measured this tick (unmeasured)"
+  log_line "run_id=$RUN_ID event=dispositions $fields"
+  echo "pr_review.sh: $DISP_LINE" >&2
+  rm -f "$out" "$err" "$out.fields"
+  return 0
+}
+
+# ── review convergence: rounds metrics + the step-back comment ──────────────
+# Once per real tick, right after the dispositions sweep. `rounds` (with --emit unless --no-brain)
+# writes pr_review_rounds_to_pass once per pass and pr_review_round_cap_hit once per capped PR;
+# `step-back --due` writes the one PR-level step-back for every PR at
+# pr_review_loop.max_review_rounds_per_pr — a preview unless this tick is --live. OBSERVATION
+# ONLY, like dispositions_sweep: always returns 0 and never touches RC, the gate verdict, the
+# stuck counter or the consumption accounting (feed_run restores WD_TIMED_OUT). Logs one
+# event=convergence line; an unparseable answer is status=unmeasured or its failure class.
+CONV_LINE=""
+convergence_sweep() {
+  local out err out2 err2 rc rc2 fields
+  out="$(mktemp "${TMPDIR:-/tmp}/pr-review-conv.XXXXXX")" || out="/tmp/pr-review-conv.$$"
+  err="$(mktemp "${TMPDIR:-/tmp}/pr-review-conv-err.XXXXXX")" || err="/tmp/pr-review-conv-err.$$"
+  out2="$out.sb"; err2="$err.sb"
+  if [ "$NO_BRAIN" -eq 0 ]; then
+    KB_CLI="$KB" feed_run "$out" "$err" rounds --emit; rc=$?
+  else
+    KB_CLI="$KB" feed_run "$out" "$err" rounds; rc=$?
+  fi
+  if [ "$LIVE" -eq 1 ]; then
+    KB_CLI="$KB" feed_run "$out2" "$err2" step-back --due --live; rc2=$?
+  else
+    KB_CLI="$KB" feed_run "$out2" "$err2" step-back --due; rc2=$?
+  fi
+  # A plain heredoc into a file, never inside $( … ) (bash 3.2 re-lexes those).
+  python3 - "$out" "$rc" "$out2" "$rc2" > "$out.fields" 2>/dev/null <<'PY'
+import json, sys
+p1, rc1, p2, rc2 = sys.argv[1:5]
+def load(p):
+    try:
+        raw = open(p).read()
+        o = json.loads(raw[raw.index("{"):])
+        return o if isinstance(o, dict) else None
+    except Exception:
+        return None
+r, sb = load(p1), load(p2)
+if not r or not isinstance(r.get("prs"), list):
+    st = (r or {}).get("failure_class") or ("timeout" if rc1 == "124" else "unmeasured")
+    capped = passed = cap_e = 0
+else:
+    st = "ok" if r.get("enumerable", True) else "not-enumerable"
+    capped = len(r.get("capped") or [])
+    em = r.get("emitted") or []
+    passed = sum(1 for e in em if e.get("name") == "pr_review_rounds_to_pass")
+    cap_e = sum(1 for e in em if e.get("name") == "pr_review_round_cap_hit")
+if sb and isinstance(sb.get("posted"), list):
+    posted, prev = len(sb.get("posted") or []), len(sb.get("previewed") or [])
+    sb_st = sb.get("status") or "ok"
+else:
+    posted = prev = 0
+    sb_st = (sb or {}).get("failure_class") or ("timeout" if rc2 == "124" else "unmeasured")
+print("status=%s capped=%d passed_emitted=%d cap_emitted=%d step_back_posted=%d step_back_previewed=%d step_back_status=%s" % (
+    st, capped, passed, cap_e, posted, prev, sb_st))
+print("Review convergence — %d PR(s) round-capped · rounds-to-pass written %d · cap hits written %d · step-back posted %d, previewed %d%s" % (
+    capped, passed, cap_e, posted, prev,
+    " · metric write failed, retried next tick" if r and r.get("emit_failed") else ""))
+PY
+  fields="$(sed -n '1p' "$out.fields" 2>/dev/null)"
+  CONV_LINE="$(sed -n '2p' "$out.fields" 2>/dev/null)"
+  [ -n "$fields" ] || fields="status=unmeasured capped=0 passed_emitted=0 cap_emitted=0 step_back_posted=0 step_back_previewed=0 step_back_status=unmeasured"
+  [ -n "$CONV_LINE" ] || CONV_LINE="Review convergence — not measured this tick (unmeasured)"
+  log_line "run_id=$RUN_ID event=convergence $fields"
+  echo "pr_review.sh: $CONV_LINE" >&2
+  rm -f "$out" "$err" "$out2" "$err2" "$out.fields"
+  return 0
+}
+
 # ══ DRY RUN ═════════════════════════════════════════════════════════════════
 # Queue read only: no lock (not this script's, not pr_feed's), no claude call, no posting,
 # no brain write, no log line, no assertion. `unreviewed` is read-only, so this is safe to
@@ -1393,8 +1529,8 @@ except Exception:
 if [ "$DRY" -eq 1 ]; then
   echo "pr_review.sh: --dry-run — queue read only (limit=$LIMIT scope=$SCOPE)." >&2
   echo "pr_review.sh: ledger=$LOOP_PR_LEDGER_FILE app_root=$LOOP_APP_ROOT" >&2
-  Q_OUT="$(mktemp -t pr-review-queue)" || { echo "pr_review.sh: FATAL — mktemp failed" >&2; exit 4; }
-  Q_ERR="$(mktemp -t pr-review-queue-err)" || { rm -f "$Q_OUT"; echo "pr_review.sh: FATAL — mktemp failed" >&2; exit 4; }
+  Q_OUT="$(mktemp "${TMPDIR:-/tmp}/pr-review-queue.XXXXXX")" || { echo "pr_review.sh: FATAL — mktemp failed" >&2; exit 4; }
+  Q_ERR="$(mktemp "${TMPDIR:-/tmp}/pr-review-queue-err.XXXXXX")" || { rm -f "$Q_OUT"; echo "pr_review.sh: FATAL — mktemp failed" >&2; exit 4; }
   feed_run "$Q_OUT" "$Q_ERR" unreviewed --limit "$LIMIT"
   Q_RC=$?
   cat "$Q_OUT"
@@ -1416,7 +1552,7 @@ if [ "$DRY" -eq 1 ]; then
   fi
   echo "pr_review.sh: $(feed_key "$Q_OUT" count) unreviewed / backend=$(feed_key "$Q_OUT" backend)" >&2
   if [ "$HEALTH" -eq 1 ]; then
-    H_OUT="$(mktemp -t pr-review-health)" || H_OUT="/tmp/pr-review-health.$$"
+    H_OUT="$(mktemp "${TMPDIR:-/tmp}/pr-review-health.XXXXXX")" || H_OUT="/tmp/pr-review-health.$$"
     echo "pr_review.sh: --health — the section an empty tick would append to its report:" >&2
     health_sweep "$H_OUT" | sed 's/^/pr_review.sh:   /' >&2
     rm -f "$H_OUT"
@@ -1572,6 +1708,28 @@ if [ "$LIVE" -eq 1 ]; then
     log_line "run_id=$RUN_ID event=refused reason=live_wide_scope_not_reaffirmed scope=$SCOPE"
     exit 25
   fi
+  # (3) The per-tick timing behind prs_per_tick must have been MEASURED since the review grew
+  # (validators, deep pass). Unmeasured, unreadable or malformed all refuse: fail closed.
+  # Dry-run ticks are not gated — they post nothing and are how the measurement is taken.
+  TIMING_STATE="$(python3 - "$LIMITS_FILE" <<'PY' 2>/dev/null || echo unreadable
+import json, sys
+o = json.load(open(sys.argv[1]))["pr_review_loop"]
+t, m = o["timing"], o["timing_min_samples"]
+ok = (isinstance(t, dict) and t.get("measured") is True
+      and isinstance(t.get("measured_by"), str) and t["measured_by"].strip()
+      and type(t.get("samples")) is int and type(m) is int and m >= 1 and t["samples"] >= m)
+print("measured" if ok else "unmeasured")
+PY
+)"
+  if [ "$TIMING_STATE" != "measured" ]; then
+    echo "pr_review.sh: REFUSING a LIVE tick — pr_review_loop.timing is $TIMING_STATE in" >&2
+    echo "    $LIMITS_FILE" >&2
+    echo "  prs_per_tick was measured before independent validators and the deep review pass" >&2
+    echo "  landed. Run dry-run ticks, then measure_ticks.py --log <pr-review.log>, and have a" >&2
+    echo "  person record timing.measured / measured_by / samples (see timing_rule)." >&2
+    log_line "run_id=$RUN_ID event=refused reason=timing_unmeasured state=$TIMING_STATE"
+    exit 25
+  fi
 fi
 
 # NB: capture the rc explicitly — inside `if ! cmd; then`, `$?` is the negation's 0.
@@ -1698,7 +1856,7 @@ fi
 # `post --live` path, so a dry-run tick never proves the kill switch is even readable. This
 # gate does, on every tick, before anything is spent.
 if [ "$NO_BRAIN" -eq 0 ]; then
-  PAUSE_OUT="$(mktemp -t pr-review-pause)" || PAUSE_OUT="/tmp/pr-review-pause.$$"
+  PAUSE_OUT="$(mktemp "${TMPDIR:-/tmp}/pr-review-pause.XXXXXX")" || PAUSE_OUT="/tmp/pr-review-pause.$$"
   kb_run "$PAUSE_OUT" pause --status
   P_OK="$(json_key ok      < "$PAUSE_OUT")"
   P_PAUSED="$(json_key paused < "$PAUSE_OUT")"
@@ -1835,8 +1993,8 @@ fi
 # banner says so — pr_feed itself will fail auth-expired rather than guess whose PRs these are.
 IDENTITY="unknown"
 if [ "$LIVE" -eq 1 ]; then
-  ID_OUT="$(mktemp -t pr-review-id)" || ID_OUT="/tmp/pr-review-id.$$"
-  ID_ERR="$(mktemp -t pr-review-id-err)" || ID_ERR="/tmp/pr-review-id-err.$$"
+  ID_OUT="$(mktemp "${TMPDIR:-/tmp}/pr-review-id.XXXXXX")" || ID_OUT="/tmp/pr-review-id.$$"
+  ID_ERR="$(mktemp "${TMPDIR:-/tmp}/pr-review-id-err.XXXXXX")" || ID_ERR="/tmp/pr-review-id-err.$$"
   _wd_id="$WD_TIMED_OUT"
   run_watchdog "$IDENTITY_TIMEOUT" 5 python3 "$PR_FEED" whoami > "$ID_OUT" 2> "$ID_ERR"
   WD_TIMED_OUT="$_wd_id"
@@ -1911,13 +2069,17 @@ fi
 # lines inside pr_feed.cmd_post, next to the R9 check it already makes.
 build_posting_guard() {   # sets GUARD_FEED (or leaves it empty on any failure)
   GUARD_FEED=""
-  RUN_TMP="$(mktemp -d -t pr-review-guard)" || { echo "pr_review.sh: WARNING — mktemp -d failed; the session gets pr_feed.py directly." >&2; return 1; }
+  # Every mktemp in this script uses an explicit XXXXXX template: the BSD-only `mktemp -t name`
+  # fails on GNU mktemp ("too few X's"), which on Linux silently left this guard (and its
+  # auto-mark after a live post) unbuilt and sent every queue-gate tick to the session.
+  RUN_TMP="$(mktemp -d "${TMPDIR:-/tmp}/pr-review-guard.XXXXXX")" || { echo "pr_review.sh: WARNING — mktemp -d failed; the session gets pr_feed.py directly." >&2; return 1; }
   python3 - "$RUN_TMP/guard.json" "$PR_FEED" "$POSTING_MODE" "$SCOPE" "$MAX_THREADS" \
-           "$POSTED_RECEIPT" "$RUN_ID" "$RUN_TMP/violations.txt" <<'PY' || return 1
+           "$POSTED_RECEIPT" "$RUN_ID" "$RUN_TMP/violations.txt" \
+           "$REPO/.claude/skills/dev-code-review/scripts/finding_votes.py" <<'PY' || return 1
 import json, sys
 json.dump({"real": sys.argv[2], "posting": sys.argv[3], "scope": sys.argv[4],
            "max_threads": int(sys.argv[5]), "receipt": sys.argv[6],
-           "run_id": sys.argv[7], "violations": sys.argv[8]},
+           "run_id": sys.argv[7], "violations": sys.argv[8], "finding_votes": sys.argv[9]},
           open(sys.argv[1], "w"), indent=2)
 PY
   cat > "$RUN_TMP/pr_feed.py" <<'PYGUARD' || return 1
@@ -2012,6 +2174,60 @@ if "--live" in argv and POSTING != "live":
 
 capped = []
 fpath = argval("--findings")
+# REVIEW CHECKS before anything is posted or previewed (fail CLOSED): the findings file is the
+# PR's review.json. It must carry the independent-validation and depth blocks dev-code-review
+# writes, and finding_votes.py check must accept it against the votes in the review-validation
+# dir beside it. A review that fails is not posted; the session reports it. review_depth /
+# review_brief `check` need the PR worktree and are run by the session, not here (prose).
+if fpath:
+    def _refuse(why):
+        note("REFUSED post — review checks failed (%s). Nothing was posted or previewed; "
+             "re-run dev-code-review for this PR and report it in the tick report." % why)
+        emit({"status": "failed", "failure_class": "review-check-failed", "message": why}, 3)
+    try:
+        _rev = json.load(open(fpath))
+    except Exception as exc:
+        _refuse("review.json unreadable: %s" % exc)
+    if not isinstance(_rev, dict):
+        _refuse("review.json is not an object")
+    _miss = [k for k in ("validation", "depth") if not isinstance(_rev.get(k), dict)]
+    if _miss:
+        _refuse("review.json lacks " + ", ".join(_miss))
+    _fv = G.get("finding_votes") or ""
+    if not os.path.isfile(_fv):
+        _refuse("finding_votes.py not found at %r" % _fv)
+    try:
+        _cp = subprocess.run([sys.executable, _fv, "check", "--dir",
+                              os.path.join(os.path.dirname(os.path.abspath(fpath)), "review-validation"),
+                              "--review", fpath], env=env, text=True, capture_output=True, timeout=120)
+        if _cp.returncode != 0:
+            _refuse("finding_votes.py check exit %s: %s" % (_cp.returncode, (_cp.stdout or _cp.stderr).strip()[-300:]))
+    except subprocess.TimeoutExpired:
+        _refuse("finding_votes.py check timed out")
+    except OSError as exc:
+        _refuse("finding_votes.py check could not run: %s" % exc)
+# Interdiff scope BEFORE the volume cap, so the cap ranks only findings this re-review may
+# comment on. Fails OPEN: on any failure the findings pass through and the real `post` applies
+# the same scope itself. Not an intervention, so it is not written to the violations file.
+pr_arg = argval("--pr")
+if fpath and pr_arg:
+    try:
+        import re as _re
+        scoped = os.path.join(HERE, "findings-scoped-%s.json" % (_re.sub(r"[^A-Za-z0-9._-]+", "-", pr_arg) or "x"))
+        cmd = [sys.executable, REAL, "scope", "--pr", pr_arg, "--findings", fpath, "--out", scoped]
+        rc_ = argval("--reviewed-commit")
+        if rc_:
+            cmd += ["--reviewed-commit", rc_]
+        sp = subprocess.run(cmd, env=env, text=True, capture_output=True, timeout=120)
+        if sp.returncode == 0 and os.path.exists(scoped):
+            argset("--findings", scoped)
+            fpath = scoped
+        else:
+            sys.stderr.write("pr_feed(runner guard): interdiff scope unavailable (rc %s) — findings "
+                             "passed through; `post` re-applies the scope\n" % sp.returncode)
+    except Exception as exc:
+        sys.stderr.write("pr_feed(runner guard): interdiff scope failed (%s) — findings passed "
+                         "through; `post` re-applies the scope\n" % exc)
 if fpath and CAP > 0:
     try:
         doc = json.load(open(fpath))
@@ -2020,10 +2236,14 @@ if fpath and CAP > 0:
             postable = [f for f in items if isinstance(f, dict) and not f.get("withheld")]
             if len(postable) > CAP:
                 rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+                # a human-gated finding (dev-code-review v1.8.0) is never withheld for volume
                 order = sorted(range(len(postable)),
-                               key=lambda i: (rank.get(str(postable[i].get("severity", "")).lower(), 4), i))
+                               key=lambda i: (0 if postable[i].get("human_gate") is True else 1,
+                                              rank.get(str(postable[i].get("severity", "")).lower(), 4), i))
                 for i in order[CAP:]:
                     f = postable[i]
+                    if f.get("human_gate") is True:
+                        continue
                     f["withheld"] = True
                     f["withheld_reason"] = (
                         "runner volume cap (max_threads_per_pr=%d): this PR produced %d postable "
@@ -2152,11 +2372,16 @@ PYGUARD
 #
 # Placed AFTER every refusal above (metered-key guard, all three locks, the brain + R9 gate,
 # the daily cap), so a gated tick is exactly as authorized as a session tick. --no-gate skips it.
+# Thread dispositions: once per real tick, before the gate, so empty and session ticks both read
+# back what happened to the threads earlier ticks posted. Never changes the tick's outcome.
+dispositions_sweep || true
+convergence_sweep || true
+
 if [ "$NO_GATE" -eq 0 ]; then
   GATE_START="$(now_epoch)"
   GATE_POSTING="dry-run"; [ "$LIVE" -eq 1 ] && GATE_POSTING="live"
-  GATE_OUT="$(mktemp -t pr-review-gate)" || GATE_OUT=""
-  GATE_ERR="$(mktemp -t pr-review-gate-err)" || GATE_ERR=""
+  GATE_OUT="$(mktemp "${TMPDIR:-/tmp}/pr-review-gate.XXXXXX")" || GATE_OUT=""
+  GATE_ERR="$(mktemp "${TMPDIR:-/tmp}/pr-review-gate-err.XXXXXX")" || GATE_ERR=""
   GATE_VERDICT="fallthrough"
   GATE_WHY="mktemp-failed"
   if [ -n "$GATE_OUT" ] && [ -n "$GATE_ERR" ]; then
@@ -2179,8 +2404,9 @@ if not isinstance(obj, dict):
 cur = obj.get("already_reviewed") or []
 loop = obj.get("loop_prs_skipped") or []
 big = obj.get("too_large") or []
+capped = obj.get("round_capped") or []
 meta = {"swept": 0, "reviewed": 0, "candidates": 0, "already_current": len(cur),
-        "loop_prs_skipped": len(loop), "too_large": len(big), "model_call": False,
+        "loop_prs_skipped": len(loop), "too_large": len(big), "round_capped": len(capped), "model_call": False,
         "answered_by": "pr_review.sh queue gate", "posting": posting, "scope": scope,
         "limit": int(limit)}
 if obj.get("status") == "ok" and obj.get("count") == 0 and not obj.get("unreviewed"):
@@ -2193,6 +2419,7 @@ if obj.get("status") == "ok" and obj.get("count") == 0 and not obj.get("unreview
         "  Already current: " + ids(cur, lambda r: "%s (%s)" % (r.get("pr_id"), r.get("verdict") or "reviewed")),
         "  Loop PRs skipped (carry the loop label, reviewed in-loop): " + ids(loop, lambda r: str(r.get("pr_id"))),
         "  Too large: " + ids(big, lambda r: "%s (changes at least %s files)" % (r.get("pr_id"), r.get("changed_files_at_least"))),
+        "  Round-capped (no further automatic review; a maintainer runs ledger --reset-rounds): " + ids(capped, lambda r: "%s (%s rounds)" % (r.get("pr_id"), r.get("rounds"))),
         "  Withheld findings: none (no reviews run)",
         "  Posts: none · Marks: none · Worktrees: none checked out",
         "Queued for next tick: none",
@@ -2235,7 +2462,7 @@ PY
       if [ "$NO_BRAIN" -eq 0 ]; then
         # The metric the session writes on every tick, empty ones included — tagged with this
         # run id, so `kb receipt --run-id` finds it exactly as the post-run assertion would.
-        GATE_KB="$(mktemp -t pr-review-gate-kb)" || GATE_KB="/tmp/pr-review-gate-kb.$$"
+        GATE_KB="$(mktemp "${TMPDIR:-/tmp}/pr-review-gate-kb.XXXXXX")" || GATE_KB="/tmp/pr-review-gate-kb.$$"
         kb_run "$GATE_KB" metric --name pr-review --value 0 --unit prs_reviewed \
           --area pr-review --source pr_review.sh --loop-id "$RUN_ID" \
           --ticket "$TICKET" --run-id "$RUN_ID" --metadata "$GATE_META"
@@ -2249,15 +2476,21 @@ PY
         fi
         rm -f "$GATE_KB"
       fi
+      if [ "$GATE_VERDICT" = "empty-queue" ] && [ -n "$DISP_LINE" ]; then
+        { echo ""; echo "$DISP_LINE"; } >> "$REPORT"
+      fi
+      if [ "$GATE_VERDICT" = "empty-queue" ] && [ -n "$CONV_LINE" ]; then
+        echo "$CONV_LINE" >> "$REPORT"
+      fi
       GATE_HEALTH="off"
       if [ "$HEALTH" -eq 1 ] && [ "$GATE_VERDICT" = "empty-queue" ]; then
-        H_OUT="$(mktemp -t pr-review-health)" || H_OUT="/tmp/pr-review-health.$$"
+        H_OUT="$(mktemp "${TMPDIR:-/tmp}/pr-review-health.XXXXXX")" || H_OUT="/tmp/pr-review-health.$$"
         { echo ""; health_sweep "$H_OUT"; } >> "$REPORT"
         rm -f "$H_OUT"
         GATE_HEALTH="on"
         echo "pr_review.sh: health sweep — needs_attention=$HEALTH_ATTENTION (report: $REPORT)" >&2
         if [ "$NO_BRAIN" -eq 0 ] && [ "$HEALTH_ATTENTION" != "unmeasured" ]; then
-          GATE_KB="$(mktemp -t pr-review-gate-kb)" || GATE_KB="/tmp/pr-review-gate-kb.$$"
+          GATE_KB="$(mktemp "${TMPDIR:-/tmp}/pr-review-gate-kb.XXXXXX")" || GATE_KB="/tmp/pr-review-gate-kb.$$"
           kb_run "$GATE_KB" metric --name pr-health --value "$HEALTH_ATTENTION" --unit prs_needing_attention \
             --area pr-review --source pr_review.sh --loop-id "$RUN_ID" \
             --ticket "$TICKET" --run-id "$RUN_ID"
@@ -2466,7 +2699,7 @@ you mention it at all: that ceiling bounds $COST_CAP_MEANS."
   echo "pr_review.sh: pr_feed tick lock before this run: $PRE_LOCK_STATUS ($PRE_LOCK_AT)" >&2
   echo "pr_review.sh: review worktrees before this run: ${PRE_WORKTREES:-none}" >&2
 
-  SESSION_OUT="$(mktemp -t pr-review-session)" || SESSION_OUT="/tmp/pr-review-session.$$"
+  SESSION_OUT="$(mktemp "${TMPDIR:-/tmp}/pr-review-session.XXXXXX")" || SESSION_OUT="/tmp/pr-review-session.$$"
   SESSION_STARTED=1
   CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR" LOOP_RUN_ID="$RUN_ID" LOOP_TICKET="$TICKET" \
     run_watchdog "$TIMEOUT" "$GRACE" "$CLAUDE_BIN" "${CLAUDE_ARGS[@]}" > "$SESSION_OUT"
@@ -2780,7 +3013,7 @@ PY
     REPORTED=1
   fi
   if [ "$NO_ASSERT" -eq 0 ] && [ "$NO_LEDGER_PROOF" -eq 0 ]; then
-    RECEIPT_OUT="$(mktemp -t pr-review-receipt)" || RECEIPT_OUT="/tmp/pr-review-receipt.$$"
+    RECEIPT_OUT="$(mktemp "${TMPDIR:-/tmp}/pr-review-receipt.XXXXXX")" || RECEIPT_OUT="/tmp/pr-review-receipt.$$"
     kb_run "$RECEIPT_OUT" receipt --ticket "$TICKET" --run-id "$RUN_ID" --since 1d
     R_OK="$(json_key ok < "$RECEIPT_OUT")"
     R_N="$(python3 - "$RECEIPT_OUT" <<'PY' 2>/dev/null

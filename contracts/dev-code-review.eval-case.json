@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "loops/contracts/dev-code-review.eval-case.json",
+  "title": "dev-code-review eval case.json — one answer key in the reviewer's eval set",
+  "version": "1.0.0",
+  "status": "proposed",
+  "description": "The answer key of one reviewer eval case, tracked at .claude/skills/dev-code-review/evals/cases/<id>/case.json beside change.diff, base/ and (optionally) fix.json. A `bad` case names the confirmed bug location(s) the reviewer must find (recall); a `clean` case is a diff a human confirmed has nothing to flag (false-flag rate). Read by reviewer_eval.py check/score; NEVER copied into the reviewer's sandbox by materialize. Cross-field rule DEV-REVIEW-EVAL-K1 (validate.py): kind=bad needs a non-empty `bugs` with line_end >= line_start, kind=clean has no bugs, and any non-seed case carries source.ref and source.confirmed_by.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "kind", "title", "ticket", "source"],
+  "properties": {
+    "id": { "type": "string", "description": "Equals the case directory name (enforced by reviewer_eval.py check, not the schema)." },
+    "kind": { "type": "string", "enum": ["bad", "clean"], "description": "The one branch field. bad = scored for recall; clean = scored for false flags." },
+    "title": { "type": "string" },
+    "ticket": { "type": "string", "description": "A key matching project.ticket_key_pattern, e.g. PROJ-123. Becomes the evidence key when the case is materialized." },
+    "bugs": {
+      "type": "array",
+      "description": "The confirmed bug locations. Each range must sit on lines change.diff ADDS (the reviewer only judges the diff).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["file", "line_start", "line_end", "class"],
+        "properties": {
+          "file": { "type": "string", "description": "Repo-relative path, forward slashes." },
+          "line_start": { "type": "integer", "minimum": 1, "description": "New-file line where the confirmed bug starts." },
+          "line_end": { "type": "integer", "minimum": 1, "description": "New-file line where it ends (inclusive)." },
+          "class": { "type": "string", "enum": ["frontend", "backend", "data", "security", "tests", "perf", "masking"], "description": "The reviewer dimension the bug belongs to. masking additionally requires review.masking=true to count as caught." },
+          "pattern": { "type": "string", "description": "Free label for humans, e.g. swallowed-exception." },
+          "note": { "type": "string" }
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["origin", "added"],
+      "properties": {
+        "origin": { "type": "string", "enum": ["seed", "prod-regressed", "escalation", "re-fix", "human-review"], "description": "Where the case came from. seed = authored for the kit, not a real incident." },
+        "ref": { "type": "string", "description": "The run key or PR ref the case came from. Required for a non-seed case." },
+        "added": { "type": "string", "description": "YYYY-MM-DD." },
+        "confirmed_by": { "type": "string", "description": "The human who confirmed the bug location, or confirmed the diff clean. Required for a non-seed case." }
+      }
+    }
+  }
+}

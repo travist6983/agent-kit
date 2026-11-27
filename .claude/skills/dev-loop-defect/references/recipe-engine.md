@@ -75,7 +75,16 @@ A retry that repeats the same action is a bug, not a retry. The router routes by
 - **unrelated-area break** → **escalate immediately, no retry** (the fix exceeded its blast radius — a
   scary signal that retrying won't fix).
 - **verify fail / partial** → `dev-fix` with the new observation.
-- **code-review request-changes (incl. masking)** → `dev-fix` with the findings.
+- **code-review request-changes (incl. masking)** → `dev-fix` with the findings — unless the review
+  is not converging. Recipes ② and ④ run `scripts/review_rounds.py record --review
+  <evid>/<KEY>/review.json --out <evid>/<KEY>/review-rounds.json` after every review and pass
+  `--review-rounds <evid>/<KEY>/review-rounds.json` to the router; when one finding fingerprint
+  (file + `bug_class`, line excluded) is open in the last
+  `loop-limits.json review_convergence.stagnation_fix_cycles` + 1 rounds, the router returns
+  `escalate` with `failure_class: review-stagnation` and the `stagnant` findings, checked BEFORE the
+  retry cap. That class means step back and reconsider the approach: never another re-fix. A
+  missing number or an unreadable rounds file escalates too (fail closed); without the flag the
+  stage applies the retry cap only.
 
 ## Blind judging — a producer NEVER grades its own work
 
@@ -183,6 +192,25 @@ malformed JSON — plus a judge weaker than its producer, ranked by `models.rank
 input never merges silently, and a `null` result from an agent is a reported failure — never
 something to filter away.** On exit 1 route by its `next_action`; on exit 2 escalate.
 
+## Risk reclassification and the commit binding
+
+The tier is set at triage from an estimate; the diff sets it again. `dev-pre-pr` runs
+`scripts/commit_binding.py stamp` first (the content it judges) and `scripts/risk_reclass.py` after its
+verify gate, and writes both into `pre-pr.json` (`judged`, `risk`). The recipe's part:
+
+- **Format right after `dev-fix` returns `fixed`, before the judges spawn.** Run the formatter the target
+  repo's guidelines name in the sandbox, so `infra-ship`'s own formatter is a no-op and the commit is
+  the tree the judges and `dev-pre-pr` saw. A formatter that changes a byte after the verdict makes
+  `infra-ship`'s `commit_binding.py check` abort `stale-readiness`.
+- **When `pre-pr.json.risk.escalated` is true**, append `{tier, reason, at}` to `context.json`
+  `tier_history` (a record — the tier never moves down) and carry `risk.human_approvals_required` into
+  the run report. A tier-up raises the human gate; it does **not** re-run verify or review at the higher
+  tier's breadth (not built). It is a warning, so the pre-pr result is `warnings` and the loop advances.
+- **`stale-readiness` / `readiness-unbound` from ship** go to the router (`--stage ship --result <abort>`),
+  which escalates with that `failure_class`: deterministic failures, never re-shipped or re-fixed.
+- The loop's `dev-code-review` `approve` is an agent verdict. It fills none of the
+  `human_approvals_required`; the PR body says so and the host's branch protection enforces the count.
+
 ## Caps (per retryable stage) — rebalanced by tier
 
 Measured on real runs, `qa-repro` and `qa-verify` almost never needed a failure-retry; the
@@ -195,6 +223,11 @@ evidence rather than guarding stages that have never needed it:
 | T0 | 1 | 1 | 2 | 3 → then escalate to T1 |
 | T1 | 1 | 2 | 3 | 5 |
 | T2 | 2 | 2 | 3 + stagnation check | 6 |
+
+The stagnation check is the router's `--review-rounds` branch above, not prose: with the dev-fix
+cap at 3 and `stagnation_fix_cycles` at 2 it usually fires on the same attempt the cap would, so
+what it changes is the escalation class (`review-stagnation`, findings named); it fires earlier
+only under a larger `--max`.
 
 `context.json.tier` supplies the tier; pass the stage's cap as `recipe_router.py --max M`.
 With no tier (a pre-tiering run) the old default of 3 still applies.
@@ -237,8 +270,49 @@ registry mutates only under an exclusive lock, race-tested), so file paths are n
 `version_conflict` means re-read + resolve, never clobber.
 
 ## R8 — meta-monitor
-Each stage records a `qa-kb` metric (cost, attempt count, escalation/flake/bless, time). The
-meta-monitor trends these (escalation rate climbing, cost-per-fix rising) and can trip the global pause.
+Each stage records a `qa-kb` metric (cost, attempt count, escalation/flake/bless, time). The meta-monitor
+is a deterministic comparator over three of them, with no model in it:
+
+```bash
+python3 .claude/skills/dev-loop-defect/scripts/meta_monitor.py [--out <evidence.root>/meta-monitor.json]
+```
+
+**When it runs:** mechanically, in `infra-ship`'s `ship_preflight.sh` before its R9 check, so every
+ship runs it and an armed trip halts that ship (decision in the preflight's `meta_monitor` field;
+unreadable metrics never block; a monitor that cannot run fails closed, exit 8). A recipe also runs it
+at loop start, beside the R9 `kb pause --status` check (prose). As shipped it is
+report-only: a `trip` goes at the top of the run report and nothing else happens. When a human has armed
+it (below), a trip turns the R9 pause on, so the next R9 check halts this loop and every other one.
+
+**What it reads:** `kb metrics --breakdown --since <window_days>d`, every project (the pause is global).
+The numbers are `loop-limits.json r8_meta_monitor`; every comparison is `>=`:
+- `prod_regressed_rate` — `prod_outcome` rows with `metadata.outcome` prod-regressed / those with
+  prod-confirmed or prod-regressed (inconclusive excluded from both), at ≥ `min_prod_verdicts` decisive rows;
+- `escalation_rate` — `escalation` rows / `loop_outcome` rows, at ≥ `min_loop_outcomes`; more escalations
+  than loop outcomes means `loop_outcome` is under-recorded: a warning, no breach;
+- `repeat_failure_by_area` — `escalation` rows in one non-empty area ≥ `area_escalations_trip` (events, not
+  distinct tickets; rows with no area are reported unattributed and never count toward an area).
+
+Any breached signal = `trip`; all three insufficient = `insufficient-data`; else `no-trip`. The decision
+document is contract `contracts/dev-loop-defect.meta-monitor.json` (branch on `decision`).
+
+**Arming:** `trip_mode: "armed"` plus a non-empty `armed_by` in the tracked limits file, changed by PR.
+Only then does a trip run `kb pause --on --reason <breaches> --by meta-monitor` (an existing pause is left
+alone). No flag or env var arms it; `--report-only` and `--metrics-file` only disarm. It never unpauses:
+clearing is a human `kb pause --off --by <human>`.
+
+**Exit codes:** 0 decision produced and its action done · 1 armed trip but the pause could not be set ·
+2 bad usage or bad limits (no decision, no kb call) · 3 metrics unreadable (no pause, nothing written) ·
+4 the document violated its contract (nothing written). Treat 2, 3 and 4 as "the guardrail is blind":
+report it at the top of the run, never as health.
+
+**Enforced vs declared.** Enforced and tested (`test_meta_monitor.sh`): the comparator, the fail-closed
+limits, the trip path through the existing pause verb, and the absence of any unpause path. Declared, not
+enforced: nothing schedules or invokes the monitor yet — this section is prose — so until a runner does,
+it is a tested comparator with a tested trip path, not an enforced guardrail. The signals are only as
+good as the metric writes, which are skill and recipe prose (dev-escalate calls its `escalation` write
+optional), so missing writes read as insufficient-data or a quiet no-trip, never as health. Every number
+is argued, not measured.
 
 ## Knowledge write-back — every run (strongly encouraged, NOT a hard gate)
 This is loop-engineering principle #2: every run writes reusable knowledge back so the next task is
@@ -251,7 +325,8 @@ gated**: a missing write does **not** fail the loop — but it must be **visible
 - **`expectations`** (`qa-repro`/`qa-explore` **propose**, never bless): the correct behavior of the
   surface; `search` first to dedup.
 - **`fix_lessons`** — **the RECIPE writes this, not `dev-fix`.** See *Who writes the fix lesson* below.
-- **`metrics`** (the recipe): loop_outcome, fix_cycles, review findings, etc. (R8 history) — plus
+- **`metrics`** (the recipe): loop_outcome, fix_cycles, review findings, `review_rounds_to_pass`
+  (the recorder's `rounds_to_pass`, written on approve in recipes ② and ④), etc. (R8 history) — plus
   `pr_threads_posted` / `pr_threads_before_merging` / `pr_threads_outside_funnel` from `ship.json`
   after every ship, so review-thread volume is measured rather than noticed by an annoyed reviewer.
 - **`flakiness`** — one data point per test run (`qa-regression`, passes included); **`pause`** only the

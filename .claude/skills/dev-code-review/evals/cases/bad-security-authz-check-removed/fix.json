@@ -1,0 +1,11 @@
+{
+  "key": "PROJ-204",
+  "status": "fixed",
+  "root_cause": "archiveProject returned 403 for the Project's owner because only admins passed the role check.",
+  "is_root_cause": true,
+  "confidence": 82,
+  "failure_class": null,
+  "files_changed": [
+    "api/src/projects/archiveProject.js"
+  ]
+}

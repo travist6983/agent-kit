@@ -1,0 +1,21 @@
+{
+  "id": "bad-data-missing-workspace-scope",
+  "kind": "bad",
+  "title": "Invoice list: the sort fix drops the workspace filter",
+  "ticket": "PROJ-203",
+  "bugs": [
+    {
+      "file": "api/src/invoices/listInvoices.js",
+      "line_start": 6,
+      "line_end": 7,
+      "class": "data",
+      "pattern": "missing-tenant-scope",
+      "note": "The query no longer filters by workspace_id: every Workspace's Invoices are returned to any Member. The sort change itself is right."
+    }
+  ],
+  "source": {
+    "origin": "seed",
+    "added": "2026-11-25",
+    "confirmed_by": "kit-seed"
+  }
+}

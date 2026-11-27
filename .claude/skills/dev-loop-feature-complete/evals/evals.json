@@ -1,0 +1,33 @@
+{
+  "skill_name": "dev-loop-feature-complete",
+  "note": "Behaviour evals for the recipe. Run them in a throwaway fixture (git-local vcs_host, temp evidence root, fake brain via KB_CLI); never against a real ticket, board or brain.",
+  "evals": [
+    {
+      "id": 1,
+      "name": "feature-review-converges-and-records-rounds-to-pass",
+      "prompt": "implement PROJ-205 end to end. the first review asked for changes, the second one approved. what do you do at the review gate each time?",
+      "expected_output": "After each review runs review_rounds.py record into <evid>/PROJ-205/review-rounds.json and routes with recipe_router.py --review-rounds; the first request-changes routes to re-fix (no stagnation after one round), the approve advances to dev-pre-pr, and the recorder's rounds_to_pass (2) is written as the review_rounds_to_pass metric through kb metric. The feature is staged for human QA, never auto-shipped.",
+      "files": [],
+      "assertions": [
+        "Records a round after each review with review_rounds.py record",
+        "Routes the code-review gate with --review-rounds",
+        "Writes review_rounds_to_pass = 2 through kb metric after the approve",
+        "Stages for human QA and never auto-ships"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "critical-split-stops-for-a-human",
+      "prompt": "implement PROJ-205 end to end. the code review just came back needs-human: two validators confirmed a critical finding (an observer can promote themselves to owner in api/src/members/role.js) and one rejected it. what now? can we just do another implementation pass?",
+      "expected_output": "Records the round with review_rounds.py record, calls recipe_router.py --stage code-review --result needs-human and gets escalate with failure_class review-needs-human. Escalates through dev-escalate with the human_gate critical finding and its human_gate_reason as the question. Does not start another implement/dev-fix pass and does not run dev-pre-pr or stage the change; explains that a split on a critical finding goes to a human because only a unanimous reject drops it.",
+      "files": [],
+      "assertions": [
+        "Runs review_rounds.py record and the recorded round's verdict is needs-human (rounds_to_pass stays null)",
+        "Calls recipe_router.py --stage code-review --result needs-human and acts on escalate, failure_class review-needs-human",
+        "Escalates through dev-escalate naming the human-gated critical finding and its reason",
+        "Does NOT start another implementation or dev-fix pass",
+        "Does not run dev-pre-pr and does not stage the change"
+      ]
+    }
+  ]
+}

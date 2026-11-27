@@ -138,11 +138,35 @@ diff and `files_changed` are fair game: facts about the code, not claims about i
 blindness and judge strength are falsifiable rather than assumed. One invariant remains under
 pressure: nothing yet mechanically prevents a recipe from invoking the judge as a skill and
 self-reporting `judged_blind: true`; the checker catches a *weak* judge, not a *dishonest*
-one.
+one. The same holds for `dev-code-review`'s validators.
+
+**The rule applies inside the reviewer too.** The specialists produce candidate findings; fresh
+validator `Agent` spawns (`loop-limits.json review_validation.validators`) vote on each one; the
+orchestrating reviewer only counts, through `dev-code-review/scripts/finding_votes.py`, and keeps a
+finding only at `quorum` confirms at or above the floor, except a protected one (masking-class or
+critical): a unanimous reject drops it, a unanimous confirm keeps it as a plain block, and any split
+keeps it with `human_gate` and the verdict `needs-human`, a gate whose next step is a person
+(`recipe_router.py` escalates `review-needs-human`; `check_convergence.py` flags `needs-human`).
+A split is a disagreement between judges, and a disagreement a re-fix cannot settle is a human's.
+The count of distinct returned ballots and
+the arithmetic are mechanical (`tally`, `check`, validate.py DEV-REVIEW-V1); that each validator ran
+in a fresh context is self-reported, like `judged_blind`. `check_convergence.py` warns
+`unvalidated-findings` on a review whose open findings carry no independent validation.
 
 **The long pole.** Review already fans out into parallel specialists, so the diamond's saving
 is bounded by review's width. Do not expect the diamond to save more on features than on
 defects; the structural win is the same, the proportion is smaller.
+
+**Review depth follows the tier rule.** `dev-code-review/scripts/review_depth.py` scales the
+specialist fan-out by risk, read from the diff: quick (one combined spawn), standard (six), deep
+(six + a security pass over the risk paths). Like a verification tier, a level may shrink *how
+much* is reviewed, never *whether*: every level covers all six dimensions and security is never off
+(validate.py DEV-REVIEW-D1). Unknowns move up (an unreadable conventions file, an R6 scan that cannot
+run, missing limits, a malformed seam file, an empty or blank `--evid`, or a changed path the R6 scan cannot see as itself are
+deep; a hit the scan names is never dropped), a level is only ever raised, and an in-loop
+review floors at standard, so quick shortens only the PR-review loop's long pole. One honest gap:
+a sensitive area reaches the selector only through intake.json `sensitive`, so a small incoming PR
+in a sensitive area outside the denylist and shared core plans quick (security still on, no risk pass).
 
 **Only `dev-fix` writes.** The diamond needs no extra worktrees because the three judges are
 readers. If a future node writes inside the parallel layer, it needs its own worktree (§10).
@@ -211,6 +235,14 @@ a gate:
 **A green build never substitutes for it.** A missing `review.json` stays non-blocking in the
 standard defect recipe (review is mandatory only where the recipe or tier says so); a missing
 `verify.json` is never acceptable at any tier.
+
+**A present `review.json` is gated the same way.** `dev-pre-pr/scripts/review_gate.py` blocks one
+that lacks the `validation` or `depth` block or fails `finding_votes.py`, `review_depth.py` or
+`review_brief.py` `check`; with `--require-review` (the two recipes that have a review stage) a
+missing one blocks too. The PR-review loop's posting guard applies the same checks before a
+comment is posted or previewed, and `recipe_router.py` escalates a code-review `request-changes`
+that arrives without `--review-rounds`. Covered by `test_review_gate.sh`,
+`test_pr_review_guard_checks.sh` and `test_recipe_router.sh`.
 
 **A stale verify is never re-run by pre-pr.** Pre-pr has no edit tool, drives no browser, and
 — decisively — a verify it ran itself would not be blind.
@@ -313,12 +345,16 @@ at triage, by rule.
 | Trigger | Action |
 |---|---|
 | a fix attempt fails verify | fix step → next model up, retry within cap, with the observation as new context |
-| scope surprise: files touched > 2× the triage estimate | **tier up** and model up |
-| cross-layer impact discovered (one layer turns out to need another) | tier up |
+| scope surprise: files touched > 2× the triage estimate | **tier up** and model up — decided mechanically by `dev-pre-pr/scripts/risk_reclass.py` (`loop-limits.json` `risk_reclass.scope_surprise_factor`) |
+| the diff itself is bigger than triage thought (more files, a second project, a shared-core hit) | tier up — `risk_reclass.py` re-runs `assign_tier.py`'s own `decide()` on the actual diff and keeps the higher of that and the triage tier |
+| cross-layer impact discovered (one layer turns out to need another) | tier up (the diff spanning ≥ 2 conventions projects is read as layer `both`) |
+| the second check demands a human (`is_root_cause` false, an existing test weakened, an R6 denylist hit, a sensitive area) | `risk.human_gate.demanded`; human approvals raised to `risk_reclass.human_gate_min_approvals` whatever the tier |
+| the commit infra-ship is about to push is not the content `dev-pre-pr` judged | `commit_binding.py check` aborts `stale-readiness` before the push → escalate (deterministic, never re-shipped) |
+| the PR body lacks a rendered Testing / Risk / How to revert block (missing, edited, heading doubled, or rendered for another commit) | `pr_sections.py check` before `open_pr` → one rebuild from the rendered blocks, then abort `pr-body-incomplete` → escalate; no PR opens |
 | triage confidence < 70 / < 50 | start at T1 / T2 |
 | `qa-regression` returns `unrelated-break` | escalate immediately — no retry |
 | `dev-code-review` finds R3 masking | fix → stronger model; hard block on ship |
-| the same review finding survives 2 fix cycles | stagnation → escalate |
+| the same review finding survives `review_convergence.stagnation_fix_cycles` fix cycles (2 today) | stagnation → escalate (`recipe_router.py --review-rounds`, `failure_class: review-stagnation`; `review_convergence.stagnation_fix_cycles`) |
 | retries exhausted at the tier cap | escalate |
 | checker flags any convergence input | route by `next_action`; never merge |
 | `dev-fix` returns `blocked-blast-radius` (R6) | **stop** — forced human gate; never a model escalation |
@@ -335,6 +371,15 @@ an invalid one, and the checker blocks on it.
 escalation keeps `context.json`, `intake.json` and `repro.json` and re-runs only what the
 higher tier requires. The move is recorded in `context.json.tier_history[]`, so the run's own
 record shows what it started as.
+
+**The diff sets the tier; the kit states how many humans must approve.** At `dev-pre-pr` the tier is
+read again from the real change and recorded in `pre-pr.json` `risk` (`triage_tier`, `diff_tier`,
+`tier`, `escalated`, `human_approvals_required`). A tier-up raises the human gate and makes the
+verdict `warnings`; it does **not** re-run verify or review at the higher tier's breadth — that is
+not built and not claimed. An agent `approve` never counts as a human approval
+(`agent_approval_counts_as_human` is pinned false), and the readiness verdict covers one commit:
+the one whose content matches `pre-pr.json` `judged`. The kit states the count in `pre-pr.json`,
+`ship.json` and the PR body; the host's branch protection, set by a human, enforces it.
 
 ---
 
@@ -509,7 +554,9 @@ is untouched — and T0's lower cap means fewer chances to notice. The guards, i
 
 1. Verification is never removed, only narrowed — T0 still runs a blind judge and still
    requires `verify.json.verdict == pass`.
-2. Scope-surprise auto-escalation: files touched > 2× the estimate → tier up mid-flight.
+2. Scope-surprise auto-escalation: files touched > 2× the estimate → tier up, decided by
+   `dev-pre-pr/scripts/risk_reclass.py` from the actual diff (escalate-only), which also raises the
+   number of human approvals the PR states.
 3. `dev-pre-pr` fails closed on `verify.json` — a prerequisite, not a nicety; without it,
    parallelism makes the misclassification risk strictly worse.
 4. Gherkin coverage check: if parsed scenarios exist that the T0 verify did not exercise, the

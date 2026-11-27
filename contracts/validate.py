@@ -140,11 +140,340 @@ def validate(schema, doc):
         _check_regression_c1(doc, errors)
     if str(schema.get("$id", "")).endswith("/dev-harden.json"):
         _check_harden_ladder(doc, errors)
+        _check_harden_miss(doc, errors)
     if str(schema.get("$id", "")).endswith("/dev-fix.json"):
         _check_fix_root_cause(doc, errors)
+        _check_fix_feature_flag(doc, errors)
     if str(schema.get("$id", "")).endswith("/qa-verify.collateral.json"):
         _check_collateral_proof(doc, errors)
+    if str(schema.get("$id", "")).endswith("/dev-code-review.eval-case.json"):
+        _check_reviewer_eval_case(doc, errors)
+    if str(schema.get("$id", "")).endswith("/dev-pre-pr.json"):
+        _check_pre_pr_risk(doc, errors)
+    if str(schema.get("$id", "")).endswith("/dev-loop-defect.meta-monitor.json"):
+        _check_meta_monitor(doc, errors)
+    if str(schema.get("$id", "")).endswith("/dev-code-review.json"):
+        _check_review_brief(doc, errors)
+        _check_review_validation(doc, errors)
+        _check_review_human_gate(doc, errors)
+        _check_review_depth(doc, errors)
     return errors
+
+
+_HEADLINE_RX = re.compile(r"^(\d+) findings?\b")
+
+
+def _check_review_brief(doc, errors):
+    """DEV-REVIEW-H1/B1, the v1.5.0 rules the schema keywords can't express. Both fire only when the
+    new fields are present, so every older review.json still validates.
+    H1 a `headline` starts with the integer count of OPEN findings (objects not resolved:true and not
+       withheld:true) and `summary` starts with the headline.
+    B1 brief.status applied: open low findings <= brief.max_nits (when an integer) and no file is in
+       both skipped and skip_refused. brief.status unavailable: nothing skipped, nothing withheld."""
+    findings = doc.get("findings") if isinstance(doc.get("findings"), list) else []
+    opened = [f for f in findings if isinstance(f, dict)
+              and f.get("resolved") is not True and f.get("withheld") is not True]
+    headline = doc.get("headline")
+    if isinstance(headline, str):
+        m = _HEADLINE_RX.match(headline)
+        if not m:
+            errors.append(f"DEV-REVIEW-H1: headline {headline!r} does not start with a finding count")
+        elif int(m.group(1)) != len(opened):
+            errors.append(f"DEV-REVIEW-H1: headline says {m.group(1)} finding(s) but {len(opened)} "
+                          "finding(s) are open (not resolved, not withheld)")
+        if not str(doc.get("summary") or "").startswith(headline):
+            errors.append("DEV-REVIEW-H1: summary does not start with the headline (the count comes first)")
+    brief = doc.get("brief")
+    if not isinstance(brief, dict):
+        return
+    skipped = [s for s in brief.get("skipped") or [] if isinstance(s, dict)] \
+        if isinstance(brief.get("skipped"), list) else []
+    if brief.get("status") == "applied":
+        cap = brief.get("max_nits")
+        # a human-gated finding is never withheld by the nit cap, so it does not count against it
+        lows = sum(1 for f in opened if f.get("severity") == "low" and f.get("human_gate") is not True)
+        if isinstance(cap, int) and not isinstance(cap, bool) and lows > cap:
+            errors.append(f"DEV-REVIEW-B1: {lows} open low finding(s) exceed brief.max_nits {cap} "
+                          "(the over-cap nits must be withheld)")
+        refused = brief.get("skip_refused") if isinstance(brief.get("skip_refused"), list) else []
+        both = sorted({s.get("file") for s in skipped}
+                      & {r.get("file") for r in refused if isinstance(r, dict)})
+        if both:
+            errors.append(f"DEV-REVIEW-B1: {both} both skipped and skip_refused — a refused path is reviewed")
+    elif brief.get("status") == "unavailable":
+        if skipped:
+            errors.append("DEV-REVIEW-B1: brief unavailable but files were skipped (unavailable reviews everything)")
+        if brief.get("nits_withheld") not in (None, 0):
+            errors.append("DEV-REVIEW-B1: brief unavailable but nits_withheld is not 0 (no cap applies)")
+
+
+def _vint(v):
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+def _check_review_validation(doc, errors):
+    """DEV-REVIEW-V1, the v1.6.0 rule the schema keywords can't express. Fires only when
+    `validation` is an object, so every older review.json still validates.
+    independent: quorum <= validators_returned <= validators; candidates >= 1;
+       kept + rejected == candidates; every finding not resolved:true carries votes with
+       confirm >= quorum and confirm <= cast == validators_returned; the open findings number kept.
+    no-candidates: kept == 0, kept + rejected == candidates and no finding is open (no candidate
+       reached the ballot, so nothing can have been confirmed)."""
+    val = doc.get("validation")
+    if not isinstance(val, dict):
+        return
+    nums = {k: val.get(k) for k in ("validators", "validators_returned", "quorum", "candidates",
+                                    "kept", "rejected")}
+    if not all(_vint(v) for v in nums.values()):
+        return  # the schema already reported the type error
+    findings = doc.get("findings") if isinstance(doc.get("findings"), list) else []
+    opened = [f for f in findings if isinstance(f, dict) and f.get("resolved") is not True]
+    if nums["kept"] + nums["rejected"] != nums["candidates"]:
+        errors.append(f"DEV-REVIEW-V1: kept {nums['kept']} + rejected {nums['rejected']} != "
+                      f"candidates {nums['candidates']}")
+    status = val.get("status")
+    if status == "independent":
+        q, n, r = nums["quorum"], nums["validators"], nums["validators_returned"]
+        if not q <= r <= n:
+            errors.append(f"DEV-REVIEW-V1: need quorum {q} <= validators_returned {r} <= validators {n}")
+        if nums["candidates"] < 1:
+            errors.append("DEV-REVIEW-V1: status independent with 0 candidates (that is no-candidates)")
+        for f in opened:
+            votes = f.get("votes")
+            where = f"finding {f.get('finding_id') or f.get('issue')!r}"
+            if not isinstance(votes, dict) or not _vint(votes.get("confirm")) \
+                    or not _vint(votes.get("cast")):
+                errors.append(f"DEV-REVIEW-V1: {where} is open but carries no votes "
+                              "(an open finding needs independent validation)")
+                continue
+            if votes["confirm"] < q and f.get("human_gate") is not True:
+                errors.append(f"DEV-REVIEW-V1: {where} has {votes['confirm']} confirm(s), below "
+                              f"quorum {q}")
+            if votes["confirm"] > votes["cast"] or votes["cast"] != r:
+                errors.append(f"DEV-REVIEW-V1: {where} votes confirm {votes['confirm']} / cast "
+                              f"{votes['cast']} do not fit validators_returned {r}")
+        if len(opened) != nums["kept"]:
+            errors.append(f"DEV-REVIEW-V1: {len(opened)} open finding(s) but validation.kept is "
+                          f"{nums['kept']}")
+    elif status == "no-candidates":
+        if nums["kept"] != 0:
+            errors.append("DEV-REVIEW-V1: status no-candidates but kept is not 0")
+        if opened:
+            errors.append(f"DEV-REVIEW-V1: status no-candidates but {len(opened)} finding(s) are open")
+
+
+def _review_protected(f):
+    return f.get("bug_class") == "symptom-masking" or f.get("dimension") == "masking" \
+        or str(f.get("severity") or "").lower() == "critical"
+
+
+def _check_review_human_gate(doc, errors):
+    """DEV-REVIEW-G1, the v1.8.0 rule (owner decision): a masking-class or critical finding is never
+    voted down by the quorum; a split keeps it for a human. Fires on what is present, so an older
+    review.json (no human_gate anywhere, no needs-human) still validates unless it approves a mask.
+    - human_gate true only on a protected finding (masking-class or critical), with a reason, never
+      withheld; with votes, it is a split (not confirm == cast, not reject == cast).
+    - with validation independent, an open protected finding whose votes are not a unanimous
+      confirm (confirm < cast) must carry human_gate true.
+    - an open gated finding => top-level human_gate true and verdict needs-human; top-level
+      human_gate true => an open gated finding; verdict needs-human => human_gate true.
+    - masking true or human_gate true never sits under verdict approve."""
+    findings = doc.get("findings") if isinstance(doc.get("findings"), list) else []
+    opened = [f for f in findings if isinstance(f, dict) and f.get("resolved") is not True]
+    val = doc.get("validation")
+    independent = isinstance(val, dict) and val.get("status") == "independent"
+    gated = []
+    for f in opened:
+        where = f"finding {f.get('finding_id') or f.get('issue')!r}"
+        votes = f.get("votes") if isinstance(f.get("votes"), dict) else None
+        conf, cast = (votes or {}).get("confirm"), (votes or {}).get("cast")
+        rej = (votes or {}).get("reject", 0)
+        has_votes = _vint(conf) and _vint(cast)
+        if f.get("human_gate") is True:
+            gated.append(f)
+            if not _review_protected(f):
+                errors.append(f"DEV-REVIEW-G1: {where} carries human_gate but is neither masking-class "
+                              "nor critical (only a protected finding is human-gated)")
+            if not str(f.get("human_gate_reason") or "").strip():
+                errors.append(f"DEV-REVIEW-G1: {where} carries human_gate with no human_gate_reason")
+            if f.get("withheld") is True:
+                errors.append(f"DEV-REVIEW-G1: {where} needs a human decision and is withheld "
+                              "(a human-gated finding is never withheld)")
+            if has_votes and conf == cast:
+                errors.append(f"DEV-REVIEW-G1: {where} carries human_gate on a unanimous confirm "
+                              "(that is a plain block, not a split)")
+            if has_votes and _vint(rej) and rej == cast:
+                errors.append(f"DEV-REVIEW-G1: {where} carries human_gate on a unanimous reject "
+                              "(a unanimous reject drops it)")
+        elif independent and _review_protected(f) and has_votes and conf < cast:
+            errors.append(f"DEV-REVIEW-G1: {where} is masking-class or critical and the validators "
+                          f"split ({conf} confirm of {cast}) but it carries no human_gate (a split on "
+                          "a protected finding goes to a human)")
+    verdict = doc.get("verdict")
+    if gated and doc.get("human_gate") is not True:
+        errors.append(f"DEV-REVIEW-G1: {len(gated)} open finding(s) carry human_gate but the review's "
+                      "human_gate is not true")
+    if gated and verdict != "needs-human":
+        errors.append(f"DEV-REVIEW-G1: {len(gated)} open finding(s) need a human decision but verdict "
+                      f"is {verdict!r} (must be needs-human: a human decides, not a re-fix)")
+    if doc.get("human_gate") is True and not gated:
+        errors.append("DEV-REVIEW-G1: human_gate true but no open finding carries human_gate")
+    if verdict == "needs-human" and doc.get("human_gate") is not True:
+        errors.append("DEV-REVIEW-G1: verdict needs-human without human_gate true")
+    if verdict == "approve" and doc.get("masking") is True:
+        errors.append("DEV-REVIEW-G1: verdict approve with masking true (masking is a hard block)")
+    if verdict == "approve" and (doc.get("human_gate") is True or gated):
+        errors.append("DEV-REVIEW-G1: verdict approve while a finding needs a human decision")
+
+
+_DEPTH_SPECIALISTS = ("frontend", "backend", "data", "security", "tests", "perf")
+_DEPTH_FORCES_DEEP = {"blast-radius", "shared-core", "sensitive-area", "conventions-changed",
+                      "r6-scan-unavailable", "conventions-unreadable", "limits-invalid",
+                      "seam-unreadable", "diff-unavailable"}
+
+
+def _check_review_depth(doc, errors):
+    """DEV-REVIEW-D1, the v1.7.0 rule the schema keywords can't express. Fires only when `depth` is
+    an object, so every older review.json still validates. Depth may shrink how much is spawned,
+    never which dimensions are looked at, and a risk path or an unknown is always deep.
+    (a) the union of passes[].specialists is exactly the six, at every level;
+    (b) quick => status decided, reasons == [small-diff], no risk file, an integer changed_lines,
+        exactly one pass;
+    (c) a risk file, status unavailable, or a risk/unknown reason => level deep;
+    (d) deep => some pass with files `risk` contains security;
+    (e) standard or deep => each of the six has its own single-specialist pass over files `review`."""
+    dep = doc.get("depth")
+    if not isinstance(dep, dict):
+        return
+    passes = [p for p in dep.get("passes") or [] if isinstance(p, dict)] \
+        if isinstance(dep.get("passes"), list) else []
+    reasons = dep.get("reasons") if isinstance(dep.get("reasons"), list) else []
+    risk = dep.get("risk_files") if isinstance(dep.get("risk_files"), list) else []
+    level = dep.get("level")
+    union = set()
+    for p in passes:
+        if isinstance(p.get("specialists"), list):
+            union |= {s for s in p["specialists"] if isinstance(s, str)}
+    missing = [s for s in _DEPTH_SPECIALISTS if s not in union]
+    if missing:
+        errors.append(f"DEV-REVIEW-D1: passes drop specialist(s) {missing} — depth shrinks how much "
+                      "is spawned, never which dimensions are looked at")
+    if level == "quick":
+        if dep.get("status") != "decided":
+            errors.append("DEV-REVIEW-D1: level quick with status unavailable (an unknown is deep)")
+        if reasons != ["small-diff"]:
+            errors.append(f"DEV-REVIEW-D1: level quick but reasons are {reasons} (quick needs exactly "
+                          "[small-diff])")
+        if risk:
+            errors.append("DEV-REVIEW-D1: level quick with risk_files (a risk path is always deep)")
+        cl = dep.get("changed_lines")
+        if not (isinstance(cl, int) and not isinstance(cl, bool)):
+            errors.append("DEV-REVIEW-D1: level quick with an unknown changed_lines")
+        if len(passes) != 1:
+            errors.append(f"DEV-REVIEW-D1: level quick has {len(passes)} passes (quick is one combined pass)")
+    forcing = sorted({r for r in reasons if r in _DEPTH_FORCES_DEEP})
+    if (risk or dep.get("status") == "unavailable" or forcing) and level != "deep":
+        errors.append(f"DEV-REVIEW-D1: level {level!r} but a risk path or an unknown forces deep "
+                      f"(risk_files {len(risk)}, status {dep.get('status')!r}, reasons {forcing})")
+    if level == "deep" and not any(p.get("files") == "risk" and "security" in (p.get("specialists") or [])
+                                   for p in passes):
+        errors.append("DEV-REVIEW-D1: level deep without a security pass over the risk files")
+    if level in ("standard", "deep"):
+        solo = {p["specialists"][0] for p in passes if p.get("files") == "review"
+                and isinstance(p.get("specialists"), list) and len(p["specialists"]) == 1}
+        lacking = [s for s in _DEPTH_SPECIALISTS if s not in solo]
+        if lacking:
+            errors.append(f"DEV-REVIEW-D1: level {level} lacks a single-specialist pass for {lacking}")
+
+
+def _check_meta_monitor(doc, errors):
+    """META-MON-D1/D2/A1/A2, the rules the schema keywords can't express for the R8 decision.
+    D1 decision trip iff at least one signal is breached, and breaches is non-empty iff trip.
+    D2 insufficient-data only when no signal is breached and none is ok.
+    A1 an outward action (paused / already-paused / pause-failed) needs armed true AND decision trip.
+    A2 action paused needs a pause object with a non-empty reason and by."""
+    sigs = [s for s in (doc.get("signals") or []) if isinstance(s, dict)] \
+        if isinstance(doc.get("signals"), list) else []
+    statuses = [s.get("status") for s in sigs]
+    decision = doc.get("decision")
+    breached = "breached" in statuses
+    breaches = doc.get("breaches") if isinstance(doc.get("breaches"), list) else []
+    if (decision == "trip") != breached:
+        errors.append(f"META-MON-D1: decision={decision!r} but a signal is "
+                      f"{'breached' if breached else 'not breached'} (trip iff any signal breached)")
+    if (decision == "trip") != bool(breaches):
+        errors.append(f"META-MON-D1: decision={decision!r} with {len(breaches)} breach(es) "
+                      "(breaches is non-empty iff trip)")
+    if decision == "insufficient-data" and (breached or "ok" in statuses):
+        errors.append("META-MON-D2: decision insufficient-data while a signal is breached or ok")
+    if decision == "no-trip" and "ok" not in statuses:
+        errors.append("META-MON-D2: decision no-trip needs at least one ok signal "
+                      "(all insufficient is insufficient-data)")
+    action = doc.get("action")
+    if action in ("paused", "already-paused", "pause-failed") \
+            and not (doc.get("armed") is True and decision == "trip"):
+        errors.append(f"META-MON-A1: action={action!r} needs armed true and decision trip "
+                      f"(armed={doc.get('armed')!r}, decision={decision!r}); report-only never pauses")
+    if action == "paused":
+        p = doc.get("pause") if isinstance(doc.get("pause"), dict) else {}
+        if not str(p.get("reason") or "").strip() or not str(p.get("by") or "").strip():
+            errors.append("META-MON-A2: action paused needs a pause object with a non-empty reason and by")
+
+
+_TIER_RANK = {"T0": 0, "T1": 1, "T2": 2}
+
+
+def _check_pre_pr_risk(doc, errors):
+    """DEV-PRE-PR-T1/T2/R1, the rules the schema keywords can't express for the v1.3.0 `risk` block.
+    T1 never de-escalate: the final tier is never below the triage tier or the diff tier.
+    T2 `escalated` means exactly tier > triage tier (T1 when the run was untiered).
+    R1 a verdict whose tier rose on the diff, or whose human gate fired, is `warnings`, never `ready`:
+    the reader of the PR must see why more humans are asked for."""
+    risk = doc.get("risk")
+    if not isinstance(risk, dict):
+        return
+    tier, triage, diff = risk.get("tier"), risk.get("triage_tier"), risk.get("diff_tier")
+    if tier in _TIER_RANK:
+        if triage in _TIER_RANK and _TIER_RANK[tier] < _TIER_RANK[triage]:
+            errors.append(f"DEV-PRE-PR-T1: risk.tier {tier} is below triage_tier {triage} — never de-escalate")
+        if diff in _TIER_RANK and _TIER_RANK[tier] < _TIER_RANK[diff]:
+            errors.append(f"DEV-PRE-PR-T1: risk.tier {tier} is below diff_tier {diff} — never de-escalate")
+        want = _TIER_RANK[tier] > _TIER_RANK[triage if triage in _TIER_RANK else "T1"]
+        if isinstance(risk.get("escalated"), bool) and risk["escalated"] != want:
+            errors.append(f"DEV-PRE-PR-T2: risk.escalated={risk['escalated']} but tier {tier} vs triage "
+                          f"{triage or 'untiered (T1)'} says {want}")
+    gate = risk.get("human_gate") if isinstance(risk.get("human_gate"), dict) else {}
+    if doc.get("status") == "ready" and (risk.get("escalated") is True or gate.get("demanded") is True):
+        errors.append("DEV-PRE-PR-R1: status=ready while risk.escalated or risk.human_gate.demanded is true "
+                      "— such a verdict is `warnings`")
+
+
+def _check_reviewer_eval_case(doc, errors):
+    """DEV-REVIEW-EVAL-K1: an answer key must be able to score something, and a real-world case must
+    carry a person's signature. A bad case with no confirmed bug scores nothing and silently shrinks
+    the recall denominator; a clean case that names bugs contradicts itself; a case that came from a
+    real run (anything but seed) is only an answer key once a human confirmed the location, or
+    confirmed the diff clean, and said where it came from."""
+    kind = doc.get("kind")
+    bugs = doc.get("bugs")
+    bugs = bugs if isinstance(bugs, list) else []
+    if kind == "bad":
+        if not bugs:
+            errors.append("DEV-REVIEW-EVAL-K1: kind=bad needs at least one confirmed bug in `bugs`")
+        for i, b in enumerate(bugs):
+            if not isinstance(b, dict):
+                continue
+            ls, le = b.get("line_start"), b.get("line_end")
+            if isinstance(ls, int) and isinstance(le, int) and not isinstance(ls, bool) \
+                    and not isinstance(le, bool) and le < ls:
+                errors.append(f"DEV-REVIEW-EVAL-K1: bugs[{i}] line_end {le} < line_start {ls}")
+    elif kind == "clean" and bugs:
+        errors.append("DEV-REVIEW-EVAL-K1: kind=clean must not name bugs (a clean case has nothing to flag)")
+    src = doc.get("source") if isinstance(doc.get("source"), dict) else {}
+    if src.get("origin") and src.get("origin") != "seed":
+        for k in ("ref", "confirmed_by"):
+            if not str(src.get(k) or "").strip():
+                errors.append(f"DEV-REVIEW-EVAL-K1: origin={src.get('origin')} needs a non-empty source.{k}")
 
 
 
@@ -165,6 +494,22 @@ def _check_fix_root_cause(doc, errors):
         errors.append("DEV-FIX-RC1: state_legitimate=false but fix_site == symptom_site with is_root_cause=true; "
                       "fix where the bad state was produced (fault_site), or set is_root_cause=false")
 
+
+
+def _check_fix_feature_flag(doc, errors):
+    """DEV-FIX-FF1 (v1.5.0): a recorded feature flag must name a real key on one line. The schema
+    has no minLength keyword, and infra-ship renders the name into the PR body's How to revert block,
+    so a blank or multi-line name would tell a human to flip nothing, or forge a line."""
+    ff = doc.get("feature_flag")
+    if not isinstance(ff, dict):
+        return
+    name = ff.get("name")
+    if isinstance(name, str) and (not name.strip() or "\n" in name or "\r" in name):
+        errors.append("DEV-FIX-FF1: feature_flag.name must be a non-blank single line (the flag key the "
+                      "code reads), or drop feature_flag when no flag gates the change")
+    how = ff.get("how_to_turn_off")
+    if isinstance(how, str) and ("\n" in how or "\r" in how):
+        errors.append("DEV-FIX-FF1: feature_flag.how_to_turn_off must be one line")
 
 
 _PROOF_RUNG = {"stated": 1, "cited": 2, "walked": 3, "ran": 4, "reproduced": 5}
@@ -232,6 +577,46 @@ def _check_harden_ladder(doc, errors):
         errors.append("DEV-HARDEN-L1: status=expectation-proposed needs the `expectation` text")
     if status == "ticket-drafted" and not doc.get("ticket_draft"):
         errors.append("DEV-HARDEN-L1: status=ticket-drafted needs `ticket_draft`")
+
+
+_MISS_KINDS = ("check", "context", "expectation", "instruction", "nothing")
+
+
+def _check_harden_miss(doc, errors):
+    """DEV-HARDEN-M1 (v1.1.0), the review-miss guard: before a miss is placed, the artifact must say
+    what the reviewer did not have in front of it. Fires only when a `miss` block or the
+    `review-miss` source is present, so every older harden.json validates unchanged.
+    (i)/(ii) the `review-miss` source and a `miss` object go together; (iii) unless blocked,
+    miss.lacked needs a kind in the enum and a non-blank statement; (iv) kind `nothing` ends
+    declined (nothing was lacking, so no check or prose is justified); (v) declining a miss that
+    did lack something needs a decline_reason."""
+    sources = (doc.get("correction") or {}).get("sources") if isinstance(doc.get("correction"), dict) else None
+    from_miss = isinstance(sources, list) and "review-miss" in sources
+    miss = doc.get("miss")
+    if not from_miss and miss is None:
+        return
+    if from_miss and not isinstance(miss, dict):
+        errors.append("DEV-HARDEN-M1: correction.sources has review-miss but there is no `miss` block")
+        return
+    if isinstance(miss, dict) and not from_miss:
+        errors.append("DEV-HARDEN-M1: a `miss` block needs review-miss in correction.sources")
+    if not isinstance(miss, dict):
+        return
+    status = doc.get("status")
+    if status == "blocked":
+        return
+    lacked = miss.get("lacked")
+    kind = lacked.get("kind") if isinstance(lacked, dict) else None
+    statement = lacked.get("statement") if isinstance(lacked, dict) else None
+    if kind not in _MISS_KINDS or not isinstance(statement, str) or not statement.strip():
+        errors.append("DEV-HARDEN-M1: a review miss cannot be placed until it says what the reviewer "
+                      "lacked (miss.lacked {kind, statement})")
+        return
+    if kind == "nothing" and status != "declined":
+        errors.append(f"DEV-HARDEN-M1: miss.lacked.kind=nothing but status={status}: nothing was lacking, "
+                      "so no check or prose is justified; decline and leave it to the eval set")
+    if status == "declined" and kind != "nothing" and not str(doc.get("decline_reason") or "").strip():
+        errors.append(f"DEV-HARDEN-M1: declining a miss that lacked {kind} needs a decline_reason")
 
 
 def _check_regression_c1(doc, errors):

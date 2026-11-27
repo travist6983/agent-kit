@@ -177,5 +177,37 @@
     "Invoice": "a billing document for a Workspace; the sensitive area that never auto-ships",
     "Member": "a user inside a Workspace with one of the roles owner / admin / member / observer",
     "Settings": "per-Workspace configuration; changes here are shared-core edits"
+  },
+  "review_brief": {
+    "_comment": "OPTIONAL. The per-area reviewer brief, written by the code owners and read only by dev-code-review/scripts/review_brief.py (see README.md, Reviewer brief). Absent = today's behaviour. skip_paths narrows what the specialists read; db/migrate/** is listed on purpose to show it is REFUSED: a skip glob never covers an R6-denylisted path (this pack's blast_radius_denylist_globs or the framework floor) or a shared_core_globs path, so a migration is always reviewed. max_nits caps the open low findings; the rest are withheld, never deleted.",
+    "max_nits": 3,
+    "skip_paths": [
+      "web/src/generated/**",
+      "**/*.snap",
+      "db/migrate/**"
+    ],
+    "areas": [
+      {
+        "name": "invoices",
+        "owner": "billing owners",
+        "path_globs": ["app/models/invoice*.rb", "app/services/invoices/**", "web/src/invoices/**"],
+        "failure_looks_like": [
+          "an Invoice total that disagrees with the sum of its line items after a discount or a refund",
+          "an Invoice sent twice when the send action is retried",
+          "an Invoice of one Workspace readable or editable from another Workspace"
+        ],
+        "not_worth_flagging": ["naming inside generated serializers"]
+      },
+      {
+        "name": "members",
+        "owner": "identity owners",
+        "path_globs": ["app/models/member*.rb", "app/policies/member*", "web/src/members/**"],
+        "failure_looks_like": [
+          "an observer able to change a Task, a Comment or Settings",
+          "a Member removed from a Workspace who keeps access until their session expires",
+          "a role check done in the UI only, with the API accepting the request anyway"
+        ]
+      }
+    ]
   }
 }

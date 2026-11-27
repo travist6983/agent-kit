@@ -1,0 +1,37 @@
+{
+  "status": "declined",
+  "fingerprint": "review-miss-eval-bad-masking-narrow-special-case",
+  "band": "none",
+  "correction": {
+    "statement": "Reviewer eval case bad-masking-narrow-special-case was missed: 1 of 1 confirmed bug(s) not located (masking).",
+    "sources": ["review-miss"],
+    "refs": ["eval:bad-masking-narrow-special-case@1d18e767dbc4"],
+    "occurrences": 1
+  },
+  "why_not_higher": [],
+  "ticket_draft": null,
+  "expectation": null,
+  "guideline": null,
+  "applied": null,
+  "decline_reason": "The reviewer had the changed file, the brief and the masking rule in front of it and still approved the narrow special case. No artifact would have changed that; the case stays in the eval set, which is where a judgment slip is measured.",
+  "miss": {
+    "origin": "eval-missed",
+    "ref": "eval:bad-masking-narrow-special-case@1d18e767dbc4",
+    "review_verdict": "approve",
+    "locations": [
+      { "file": "web/src/invoices/invoiceTotal.js", "line_start": 3, "line_end": 5, "class": "masking" }
+    ],
+    "had": {
+      "masking": false,
+      "unmatched_findings": 0,
+      "unlocatable_findings": 0,
+      "case_set_sha256": "1d18e767dbc4c637f78a0bf0db7f2f7b9f988aaf769304d205c643868beba68e",
+      "score_status": "fail"
+    },
+    "lacked": {
+      "kind": "nothing",
+      "statement": "The diff, the masking judge's instructions and the narrow-special-case rule were all in front of the reviewer; it was a judgment slip."
+    }
+  },
+  "summary": "Declined: nothing was lacking, so no check or prose is justified. The case remains in the reviewer eval set."
+}

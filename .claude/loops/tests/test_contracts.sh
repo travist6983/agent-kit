@@ -38,6 +38,10 @@ must_fail "$C/dev-fix.json" "$C/samples/EXAMPLE-bad-must-read-no-ask/fix.json"  
 # same receipt with the fix landed at the symptom site must FAIL (validate.py DEV-FIX-RC1)
 must_pass "$C/dev-fix.json" "$C/samples/EXAMPLE-fix-root-cause/fix.json"
 must_fail "$C/dev-fix.json" "$C/samples/EXAMPLE-bad-fix-guard-at-symptom/fix.json"
+# dev-fix v1.5.0 (feature_flag): a flag-gated fix whose flag off restores the old behaviour passes; a
+# blank flag name must FAIL (DEV-FIX-FF1). The older fix samples above stay green unchanged (additive).
+must_pass "$C/dev-fix.json" "$C/samples/EXAMPLE-fix-feature-flag/fix.json"
+must_fail "$C/dev-fix.json" "$C/samples/EXAMPLE-bad-fix-feature-flag/fix.json"
 
 # dev-code-review — the sample review validates as-is
 must_pass "$C/dev-code-review.json" "$C/samples/EXAMPLE-defect-loop/review.json"
@@ -45,19 +49,81 @@ must_pass "$C/dev-code-review.json" "$C/samples/EXAMPLE-defect-loop/review.json"
 # must_trip, must_pass); an off-enum band must FAIL
 must_pass "$C/dev-code-review.json" "$C/samples/EXAMPLE-review-harden/review.json"
 must_fail "$C/dev-code-review.json" "$C/samples/EXAMPLE-bad-review-harden-band/review.json"
+# dev-code-review v1.3.0: a finding may carry an integer `line` (EXAMPLE-review-harden has one, above);
+# a line written as a range string must FAIL (the eval scorer locates a catch by file + integer line)
+must_fail "$C/dev-code-review.json" "$C/samples/EXAMPLE-bad-review-line/review.json"
+# dev-code-review v1.4.0 (review convergence): bug_class from the closed vocabulary + instances
+# validate; a free-text bug_class must FAIL (the fingerprint needs one word per class)
+must_pass "$C/dev-code-review.json" "$C/samples/EXAMPLE-review-bug-class/review.json"
+must_fail "$C/dev-code-review.json" "$C/samples/EXAMPLE-bad-review-bug-class/review.json"
+# dev-code-review v1.5.0 (reviewer brief): real review_brief.py finalize output with a brief applied
+# (one skipped, one refused as blast-radius, one nit withheld) and a clean approve leading with
+# `0 findings: nothing needs fixing.` pass; a headline that miscounts the open findings AND open lows
+# over brief.max_nits must FAIL (validate.py DEV-REVIEW-H1 / DEV-REVIEW-B1)
+must_pass "$C/dev-code-review.json" "$C/samples/EXAMPLE-review-brief/review.json"
+must_pass "$C/dev-code-review.json" "$C/samples/EXAMPLE-review-clean-headline/review.json"
+must_fail "$C/dev-code-review.json" "$C/samples/EXAMPLE-bad-review-brief/review.json"
+# dev-code-review v1.6.0 (independent finding validation): real finding_votes.py tally output (three
+# validators, quorum 2: one finding 3/3, one 2/3 kept, one 1/3 rejected) passes; an open finding
+# with fewer confirms than validation.quorum must FAIL (validate.py DEV-REVIEW-V1)
+must_pass "$C/dev-code-review.json" "$C/samples/EXAMPLE-review-validated/review.json"
+must_fail "$C/dev-code-review.json" "$C/samples/EXAMPLE-bad-review-validation/review.json"
+# dev-code-review v1.8.0 (protected findings): real finding_votes.py tally output where the masking
+# finding split 1 confirm / 2 reject (kept, human_gate, verdict needs-human), a 3/3 critical and a
+# 2/3 medium passes; the same split carried as a plain finding under request-changes, with no human
+# gate, must FAIL (validate.py DEV-REVIEW-G1)
+must_pass "$C/dev-code-review.json" "$C/samples/EXAMPLE-review-human-gate/review.json"
+must_fail "$C/dev-code-review.json" "$C/samples/EXAMPLE-bad-review-human-gate/review.json"
+# dev-code-review v1.7.0 (review depth): real review_depth.py record + review_brief.py finalize
+# output: a one-line copy change reviewed quick (one combined pass, all six lenses) and a migration
+# reviewed deep (risk_files blast-radius, six passes + security-risk-paths) pass; quick claimed on
+# a risk path with a combined pass lacking security must FAIL (validate.py DEV-REVIEW-D1)
+must_pass "$C/dev-code-review.json" "$C/samples/EXAMPLE-review-depth-quick/review.json"
+must_pass "$C/dev-code-review.json" "$C/samples/EXAMPLE-review-depth-deep/review.json"
+must_fail "$C/dev-code-review.json" "$C/samples/EXAMPLE-bad-review-depth/review.json"
+# dev-loop-defect.review-rounds v1.0.0 (proposed): review_rounds.py's per-round history;
+# a verdict off the enum must FAIL
+must_pass "$C/dev-loop-defect.review-rounds.json" "$C/samples/EXAMPLE-review-rounds/review-rounds.json"
+must_fail "$C/dev-loop-defect.review-rounds.json" "$C/samples/EXAMPLE-bad-review-rounds/review-rounds.json"
 
-# dev-harden (v1.0.0, proposed): a proposed rule and a proposed guideline pass; an off-enum band
+# dev-loop-defect.meta-monitor v1.0.0 (proposed): meta_monitor.py's R8 decision (real script output);
+# negative: action paused while unarmed must FAIL (META-MON-A1: report-only never pauses)
+must_pass "$C/dev-loop-defect.meta-monitor.json" "$C/samples/EXAMPLE-meta-monitor/meta-monitor.json"
+must_fail "$C/dev-loop-defect.meta-monitor.json" "$C/samples/EXAMPLE-bad-meta-monitor/meta-monitor.json"
+
+# dev-code-review eval case (v1.0.0, proposed): a signed re-fix bad case and a signed clean case pass;
+# a bad case naming no bug must FAIL (validate.py DEV-REVIEW-EVAL-K1)
+must_pass "$C/dev-code-review.eval-case.json" "$C/samples/EXAMPLE-reviewer-eval-bad/case.json"
+must_pass "$C/dev-code-review.eval-case.json" "$C/samples/EXAMPLE-reviewer-eval-clean/case.json"
+must_fail "$C/dev-code-review.eval-case.json" "$C/samples/EXAMPLE-bad-reviewer-eval-case/case.json"
+# dev-code-review eval score (v1.0.0, proposed): real reviewer_eval.py output over the seed set
+must_pass "$C/dev-code-review.eval-score.json" "$C/samples/EXAMPLE-reviewer-eval/score.json"
+
+# dev-harden (v1.1.0, proposed): a proposed rule and a proposed guideline pass; an off-enum band
 # fails, and a guideline that skips the static/verification bands without a reason must FAIL
 # (validate.py's DEV-HARDEN-L1 anti-prose guard)
 must_pass "$C/dev-harden.json" "$C/samples/EXAMPLE-harden-rule/harden.json"
 must_pass "$C/dev-harden.json" "$C/samples/EXAMPLE-harden-prose/harden.json"
 must_fail "$C/dev-harden.json" "$C/samples/EXAMPLE-bad-harden-band/harden.json"
 must_fail "$C/dev-harden.json" "$C/samples/EXAMPLE-bad-harden-prose-skip/harden.json"
+# dev-harden v1.1.0: a review miss carries a miss block and must say what the reviewer lacked (DEV-HARDEN-M1)
+must_pass "$C/dev-harden.json" "$C/samples/EXAMPLE-harden-miss/harden.json"
+must_pass "$C/dev-harden.json" "$C/samples/EXAMPLE-harden-miss-declined/harden.json"
+must_fail "$C/dev-harden.json" "$C/samples/EXAMPLE-bad-harden-miss-no-lacked/harden.json"
+must_fail "$C/dev-harden.json" "$C/samples/EXAMPLE-bad-harden-miss-nothing-ruled/harden.json"
 
 # dev-pre-pr — the readiness gate. A blocked verdict (stale evidence + violations) and a
 # warnings verdict (heuristics cleared, no blockers).
 must_pass "$C/dev-pre-pr.json" "$C/samples/EXAMPLE-pre-pr-blocked/pre-pr.json"
 must_pass "$C/dev-pre-pr.json" "$C/samples/EXAMPLE-pre-pr-warnings/pre-pr.json"
+# dev-pre-pr v1.3.0: the post-diff `risk` block + the `judged` commit binding. EXAMPLE-pre-pr-blocked
+# above carries neither (they are optional); a T0 run that outgrew its tier passes as `warnings`;
+# lowering the tier (DEV-PRE-PR-T1), counting an agent approval as human (enum [false]) and saying
+# `ready` while escalated (DEV-PRE-PR-R1) must FAIL
+must_pass "$C/dev-pre-pr.json" "$C/samples/EXAMPLE-pre-pr-risk-escalated/pre-pr.json"
+must_fail "$C/dev-pre-pr.json" "$C/samples/EXAMPLE-bad-pre-pr-deescalated/pre-pr.json"
+must_fail "$C/dev-pre-pr.json" "$C/samples/EXAMPLE-bad-pre-pr-agent-approval/pre-pr.json"
+must_fail "$C/dev-pre-pr.json" "$C/samples/EXAMPLE-bad-pre-pr-ready-escalated/pre-pr.json"
 
 # qa-verify collateral (v1.0.0, proposed): a rung-4 safety fact with its command and output passes;
 # the same claim without them must FAIL (validate.py QA-COLLATERAL-P1)

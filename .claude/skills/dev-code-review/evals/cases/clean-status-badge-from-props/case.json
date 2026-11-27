@@ -1,0 +1,11 @@
+{
+  "id": "clean-status-badge-from-props",
+  "kind": "clean",
+  "title": "Status badge renders from props instead of a mount-time copy",
+  "ticket": "PROJ-205",
+  "source": {
+    "origin": "seed",
+    "added": "2026-11-25",
+    "confirmed_by": "kit-seed"
+  }
+}

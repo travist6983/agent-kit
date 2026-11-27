@@ -1,0 +1,48 @@
+{
+  "critical": 0,
+  "findings": [],
+  "high": 0,
+  "key": "PROJ-125",
+  "masking": false,
+  "next_action": "ship-ok",
+  "summary": "0 findings: nothing needs fixing. Copy change: the Invoices total label now reads Invoice total. One file, one line, no risk path; one combined pass covered all six lenses and raised nothing. Approve.",
+  "validation": {
+    "candidates": 0,
+    "confidence_floor": 80,
+    "kept": 0,
+    "quorum": 2,
+    "rejected": 0,
+    "source": ".claude/loops/loop-limits.json#review_validation",
+    "split": 0,
+    "status": "no-candidates",
+    "validators": 0,
+    "validators_returned": 0
+  },
+  "verdict": "approve",
+  "depth": {
+    "level": "quick",
+    "status": "decided",
+    "reasons": [
+      "small-diff"
+    ],
+    "files": 1,
+    "changed_lines": 2,
+    "risk_files": [],
+    "passes": [
+      {
+        "name": "combined",
+        "specialists": [
+          "frontend",
+          "backend",
+          "data",
+          "security",
+          "tests",
+          "perf"
+        ],
+        "files": "review"
+      }
+    ],
+    "source": ".claude/loops/loop-limits.json#review_depth"
+  },
+  "headline": "0 findings: nothing needs fixing."
+}

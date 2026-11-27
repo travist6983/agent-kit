@@ -1,0 +1,11 @@
+{
+  "id": "clean-archived-project-transitions-invoice",
+  "kind": "clean",
+  "title": "Archiving a Project moves its open Invoices out of Due, with a test",
+  "ticket": "PROJ-206",
+  "source": {
+    "origin": "seed",
+    "added": "2026-11-25",
+    "confirmed_by": "kit-seed"
+  }
+}

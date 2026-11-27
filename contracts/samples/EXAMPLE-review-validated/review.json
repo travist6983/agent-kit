@@ -1,0 +1,56 @@
+{
+  "critical": 0,
+  "findings": [
+    {
+      "bug_class": "authz-or-authn-gap",
+      "confidence": 92,
+      "dimension": "data",
+      "file": "api/src/invoices/listInvoices.js",
+      "finding_id": "F-245637a805",
+      "issue": "The rewritten Invoices query no longer filters by workspace_id, so any Member lists every Workspace's Invoices.",
+      "line": 7,
+      "severity": "high",
+      "suggestion": "Keep the workspace_id predicate in the WHERE clause.",
+      "votes": {
+        "cast": 3,
+        "confirm": 3,
+        "pre_existing": 0,
+        "reject": 0
+      }
+    },
+    {
+      "bug_class": "missing-or-weak-test",
+      "confidence": 85,
+      "dimension": "tests",
+      "file": "api/test/invoices/listInvoices.test.js",
+      "finding_id": "F-337d2bcbdb",
+      "issue": "No test lists Invoices as a Member of a second Workspace, so the dropped scope would not be caught.",
+      "line": 12,
+      "severity": "medium",
+      "votes": {
+        "cast": 3,
+        "confirm": 2,
+        "pre_existing": 0,
+        "reject": 1
+      }
+    }
+  ],
+  "high": 1,
+  "key": "PROJ-123",
+  "masking": false,
+  "summary": "2 findings (1 high, 1 medium). request-changes: the Invoices list query drops the workspace scope (high), and no test covers a Member of a second Workspace (medium). Two of three candidates reached quorum; the in-memory sort was rejected 1 of 3.",
+  "validation": {
+    "candidates": 3,
+    "confidence_floor": 80,
+    "kept": 2,
+    "quorum": 2,
+    "rejected": 1,
+    "source": ".claude/loops/loop-limits.json#review_validation",
+    "split": 1,
+    "status": "independent",
+    "validators": 3,
+    "validators_returned": 3
+  },
+  "verdict": "request-changes",
+  "headline": "2 findings (1 high, 1 medium)."
+}

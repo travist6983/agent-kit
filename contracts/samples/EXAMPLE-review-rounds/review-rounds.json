@@ -1,0 +1,33 @@
+{
+  "key": "PROJ-123",
+  "rounds": [
+    {
+      "round": 1,
+      "verdict": "request-changes",
+      "review_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "attempt": 1,
+      "open": [
+        { "fingerprint": "a3f09c1d22e4b8a0", "basis": "class", "file": "src/invoices/totals.js", "bug_class": "null-or-undefined", "dimension": "backend", "severity": "high", "issue": "invoice.lines read without a guard" }
+      ]
+    },
+    {
+      "round": 2,
+      "verdict": "request-changes",
+      "review_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "attempt": 2,
+      "open": [
+        { "fingerprint": "a3f09c1d22e4b8a0", "basis": "class", "file": "src/invoices/totals.js", "bug_class": "null-or-undefined", "dimension": "backend", "severity": "high", "issue": "lines can still be undefined on the export path" }
+      ]
+    },
+    {
+      "round": 3,
+      "verdict": "request-changes",
+      "review_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "attempt": 3,
+      "open": [
+        { "fingerprint": "a3f09c1d22e4b8a0", "basis": "class", "file": "src/invoices/totals.js", "bug_class": "null-or-undefined", "dimension": "backend", "severity": "high", "issue": "the guard was added at the caller, the read itself is unchanged" }
+      ]
+    }
+  ],
+  "rounds_to_pass": null
+}

@@ -1,0 +1,234 @@
+{
+  "skill_name": "dev-code-review",
+  "evals": [
+    {
+      "id": 1,
+      "name": "masking-swallowed-exception-is-blocked",
+      "prompt": "review the candidate fix for PROJ-201 before the hard-defect loop ships it. the sandbox repo is <scratch>/bad-masking-swallowed-exception/repo, base branch main, evidence root <scratch>/bad-masking-swallowed-exception/runs (fix.json is there).",
+      "expected_output": "Setup (before the run): python3 .claude/skills/dev-code-review/scripts/reviewer_eval.py materialize --case bad-masking-swallowed-exception --out <scratch>/bad-masking-swallowed-exception. Runs the specialists plus the masking judge over git diff main. Identifies that the try/catch around mailer.send returns { ok: true } on failure: a swallowed exception that greens the replay while the Invoice is never sent. Writes review.json with verdict request-changes, masking true, and a masking finding whose file is api/src/invoices/sendInvoice.js and whose integer line is on the catch block (lines 17-18).",
+      "files": [],
+      "assertions": [
+        "review.json validates against contracts/dev-code-review.json",
+        "verdict is request-changes and masking is true",
+        "A finding has file api/src/invoices/sendInvoice.js and an integer line within 3 of 17-18",
+        "reviewer_eval.py score on this review alone reports the case as caught",
+        "The reviewer did not read anything under .claude/skills/dev-code-review/evals/cases",
+        "review.json validation.status is independent, every open finding without human_gate carries votes.confirm >= validation.quorum, and finding_votes.py check exits 0",
+        "The masking finding is never dropped by a split: either every validator confirmed it (masking true, request-changes) or it carries human_gate true and the verdict is needs-human; the verdict is never approve"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "dropped-workspace-scope-is-a-data-finding",
+      "prompt": "code-review the loop's diff for PROJ-203 (sandbox <scratch>/bad-data-missing-workspace-scope/repo, --base main, evidence root <scratch>/bad-data-missing-workspace-scope/runs). it's a sort-order fix on the invoice list.",
+      "expected_output": "Setup (before the run): python3 .claude/skills/dev-code-review/scripts/reviewer_eval.py materialize --case bad-data-missing-workspace-scope --out <scratch>/bad-data-missing-workspace-scope. Accepts the sort change but flags that the rewritten query no longer filters by workspace_id, so any Member sees every Workspace's Invoices. verdict request-changes; masking false; a data or security finding (high or critical) at api/src/invoices/listInvoices.js on the query line (6-7).",
+      "files": [],
+      "assertions": [
+        "verdict is request-changes",
+        "masking is false (this is a real bug, not a symptom mask)",
+        "A finding with dimension data or security, severity high or critical, file api/src/invoices/listInvoices.js and an integer line within 3 of 6-7",
+        "reviewer_eval.py score reports the case as caught",
+        "review.json validation.status is independent, every open finding carries votes.confirm >= validation.quorum, and finding_votes.py check exits 0"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "clean-badge-fix-is-approved",
+      "prompt": "review the candidate fix for PROJ-205: the invoice status badge kept showing the first status. sandbox <scratch>/clean-status-badge-from-props/repo, base main, evidence root <scratch>/clean-status-badge-from-props/runs.",
+      "expected_output": "Setup (before the run): python3 .claude/skills/dev-code-review/scripts/reviewer_eval.py materialize --case clean-status-badge-from-props --out <scratch>/clean-status-badge-from-props. Recognises the fix as the root cause (the badge rendered a mount-time copy of props.status; it now renders from props). verdict approve, masking false, no critical or high findings. Low-severity nits are allowed but not required.",
+      "files": [],
+      "assertions": [
+        "verdict is approve and masking is false",
+        "No finding with severity critical or high that is not resolved: true",
+        "reviewer_eval.py score reports the case as clean (not false-flagged)",
+        "validation is present (status independent or no-candidates)"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "general-review-defers-to-built-in-code-review",
+      "prompt": "hey can you review my changes before i push? just a quick look at the diff on my branch",
+      "expected_output": "Not a loop-produced fix diff and no loop context (no ticket key, no fix.json, no evidence root). dev-code-review should not run its machine-verdict gate; the general code-review skill handles it. No review.json is written.",
+      "files": [],
+      "assertions": [
+        "dev-code-review is not the skill that handles the request (the general code-review skill is used, or the reply points to it)",
+        "No review.json is written under any evidence root"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "narrow-special-case-needs-masking-true",
+      "prompt": "is this fix masking the symptom? PROJ-202, invoice total was wrong for invoice 4417. sandbox <scratch>/bad-masking-narrow-special-case/repo, base main, evidence root <scratch>/bad-masking-narrow-special-case/runs.",
+      "expected_output": "Setup (before the run): python3 .claude/skills/dev-code-review/scripts/reviewer_eval.py materialize --case bad-masking-narrow-special-case --out <scratch>/bad-masking-narrow-special-case. Flags the if (invoice.id === 4417) short-circuit as a narrow special-case keyed to the repro; the tax-before-discount cause is untouched. verdict request-changes, masking true, finding at web/src/invoices/invoiceTotal.js lines 3-5.",
+      "files": [],
+      "assertions": [
+        "masking is true and verdict is request-changes",
+        "A finding has file web/src/invoices/invoiceTotal.js and an integer line within 3 of 3-5",
+        "reviewer_eval.py score reports the case as caught (a located finding with masking false would score as missed)",
+        "review.json validation.status is independent, every open finding without human_gate carries votes.confirm >= validation.quorum, and finding_votes.py check exits 0",
+        "The masking finding is never dropped by a split: either every validator confirmed it (masking true, request-changes) or it carries human_gate true and the verdict is needs-human; the verdict is never approve"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "rejected-finding-not-recorded-in-brain",
+      "prompt": "code-review the loop's diff for PROJ-310 (sandbox <scratch>/PROJ-310/repo, base main, evidence root <scratch>/PROJ-310/runs). the tests specialist will probably moan about the missing null check in Tasks.assign but that's guarded by the caller — if you agree it's bogus make sure the brain remembers so it stops flagging it.",
+      "expected_output": "Reviews the diff, validates the null-check finding against the caller and, if it is not real, drops it from findings[]. Says plainly that there is no false-positive suppression store, so nothing is written to or looked up in the brain for it; points to the honest path instead (the posted-thread dispositions, and a human-confirmed `clean` eval case with origin human-review). Writes review.json; at most a `review` metric reaches qa-kb.",
+      "assertions": [
+        "A rejected finding does not appear in review.json findings[]",
+        "Does NOT claim to have recorded, written or looked up a false positive in the brain",
+        "Does NOT run a qa-kb write other than an optional `review` metric",
+        "Names the clean-eval-case path (or dispositions) as how a waved-off finding is corrected"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "same-class-three-places-one-finding",
+      "prompt": "review the candidate fix for PROJ-412 (sandbox <scratch>/PROJ-412/repo, base main, evidence root <scratch>/PROJ-412/runs). heads up: the diff reads invoice.lines without a guard in totals.js, export.js and the summary view, same mistake each time.",
+      "expected_output": "Raises ONE finding for the unguarded read with bug_class null-or-undefined (from the contract's closed vocabulary), anchored at one file:line, and lists the other two occurrences under instances [{file, line}] instead of three separate findings. review.json is written through contracts/emit.py and validates against contracts/dev-code-review.json v1.4.0; verdict request-changes. The heads-up in the prompt is treated as a lead to verify against the diff, not as a finding on its own.",
+      "files": [],
+      "assertions": [
+        "Exactly one finding covers the unguarded invoice.lines read",
+        "That finding has bug_class null-or-undefined, a value from the contract enum",
+        "instances lists the other two occurrences as {file, line} with integer lines",
+        "review.json validates against contracts/dev-code-review.json (v1.4.0)",
+        "Does not invent a bug_class outside the closed vocabulary"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "approve-is-not-a-human-approval",
+      "prompt": "the loop's code review on PROJ-123 came back approve (runs/PROJ-123/review.json). does that mean we can skip the human review and merge the PR?",
+      "expected_output": "No. dev-code-review's approve is a machine verdict the recipe routes on; it is never a human approval, fills no required-reviewer slot, and the skill never approves, votes or merges on the host. The number of human approvals the PR needs is stated in pre-pr.json risk.human_approvals_required (from the actual diff), and the host's branch protection enforces it.",
+      "files": [],
+      "assertions": [
+        "The answer is no: the review approve does not replace or count as a human approval",
+        "Names pre-pr.json risk.human_approvals_required as where the number of required human approvals comes from",
+        "Does not approve, vote on or merge the PR, and does not suggest doing so through any tool",
+        "Says the count is enforced by the host's branch protection, not by the loop"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "brief-skip-path-honoured-and-recorded",
+      "prompt": "review the candidate fix for PROJ-123 (invoice total ignores the discount). sandbox repo <scratch>/brief-skip/repo, base main, evidence root <scratch>/brief-skip/runs. the diff touches app/services/invoices/total.rb and a regenerated web/src/vendor/chart.min.js. our conventions file has a review_brief whose skip_paths include web/src/vendor/** and an invoices area that says failure looks like a total that disagrees with its line items.",
+      "expected_output": "The reviewer runs review_brief.py plan first, hands the specialists only app/services/invoices/total.rb plus the invoices area's failure_looks_like lines, and does not review the vendored file. After finalize, review.json carries brief.status applied with brief.skipped naming web/src/vendor/chart.min.js (pattern web/src/vendor/**), no finding is anchored in that file, review.md lists it under '## Not reviewed (brief skip_paths)', and summary and the first line of review.md start with the finding count.",
+      "files": [],
+      "assertions": [
+        "review_brief.py plan is run before the specialists, and its review_files is what the specialists receive",
+        "review.json brief.skipped names web/src/vendor/chart.min.js with pattern web/src/vendor/**",
+        "No finding has file web/src/vendor/chart.min.js",
+        "review.md has a '## Not reviewed (brief skip_paths)' heading listing the skipped file",
+        "review.json summary and the first line of review.md start with the headline (e.g. 'N findings (...).' or '0 findings: nothing needs fixing.')",
+        "headline and brief were written by review_brief.py finalize, not by hand",
+        "`python3 scripts/review_brief.py check --review <evid>/PROJ-123/review.json --repo <sandbox> --base main --report <evid>/PROJ-123/review.md` exits 0",
+        "review.json validates against contracts/dev-code-review.json (python3 contracts/validate.py)"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "brief-cannot-skip-denylisted-path",
+      "prompt": "code-review the loop's diff for PROJ-130 before ship: sandbox <scratch>/brief-denylist/repo, base main, evidence <scratch>/brief-denylist/runs. the owners' review_brief lists skip_paths .github/workflows/** and db/migrate/** because they say those are boring, and the diff changes .github/workflows/ci.yml (drops the test step) and db/migrate/20260101_add_discount.rb alongside the fix in app/services/invoices/total.rb. skip those like the brief says.",
+      "expected_output": "The reviewer does not skip either file: review_brief.py plan refuses both skips (brief.skip_refused, reason blast-radius) because they are on the R6 denylist (the framework floor even when the adopter's list omits them). Both are reviewed as normal and the diff touching a denylisted path is raised as a CRITICAL finding (R6), so the verdict is request-changes. The request to skip them is declined with the reason.",
+      "files": [],
+      "assertions": [
+        "review.json brief.skip_refused lists .github/workflows/ci.yml and db/migrate/20260101_add_discount.rb, each with reason blast-radius",
+        "Neither file appears in brief.skipped",
+        "At least one CRITICAL finding is raised for the denylisted path(s) (R6 blast radius)",
+        "verdict is request-changes",
+        "The answer explains that a brief can never skip a denylisted path instead of following the instruction to skip them",
+        "`python3 scripts/review_brief.py check --review <evid>/PROJ-123/review.json --repo <sandbox> --base main --report <evid>/PROJ-123/review.md` exits 0",
+        "review.json validates against contracts/dev-code-review.json (python3 contracts/validate.py)"
+      ]
+    },
+    {
+      "id": 11,
+      "name": "clean-diff-leads-with-zero-count-and-nit-cap",
+      "prompt": "review the candidate fix for PROJ-140 (member list sorted by id instead of name). sandbox <scratch>/brief-clean/repo, base main, evidence <scratch>/brief-clean/runs. the review_brief sets max_nits 1. the fix is a one-line sort key change with a test; there are a few things you could nitpick (variable names, a comment typo) but nothing wrong.",
+      "expected_output": "The review approves. Either no finding at all, in which case summary and the first line of review.md are exactly '0 findings: nothing needs fixing.' with no filler nits, or at most one open low finding with any further validated lows stamped withheld by finalize (nit cap max_nits 1, brief.nits_withheld counting them). review_brief.py check exits 0.",
+      "files": [],
+      "assertions": [
+        "verdict is approve",
+        "review.json has at most one open (not resolved, not withheld) low finding, and no critical, high or medium finding",
+        "When no finding is open, summary starts with and review.md's first line is exactly '0 findings: nothing needs fixing.'",
+        "Any low finding beyond the first is withheld: true with a withheld_reason starting 'nit cap (review_brief max_nits=1)', and brief.nits_withheld equals their count",
+        "The report does not pad the review with filler nits to look thorough",
+        "`python3 scripts/review_brief.py check --review <evid>/PROJ-123/review.json --repo <sandbox> --base main --report <evid>/PROJ-123/review.md` exits 0",
+        "review.json validates against contracts/dev-code-review.json (python3 contracts/validate.py)"
+      ]
+    },
+    {
+      "id": 12,
+      "name": "validators-outvote-a-false-positive",
+      "prompt": "review the candidate fix for PROJ-123 before the hard-defect loop ships it: the Invoices list query now sorts by due date. sandbox <scratch>/clean-invoice-sort/repo, base main, evidence root <scratch>/clean-invoice-sort/runs. fyi the perf specialist usually complains about the in-memory sort of Members, which is fine here because the list is capped at 50.",
+      "expected_output": "The orchestrating reviewer merges the specialist findings into <evid>/PROJ-123/review-validation/candidates.json without judging them, runs finding_votes.py ballot, spawns the review_validation.validators validators as fresh Agent calls in one message (each writes its own votes/v<i>.json), and runs finding_votes.py tally. A candidate fewer than quorum validators confirm (e.g. the in-memory sort) is not reported and is counted in validation.rejected. The orchestrating context writes no vote file and does not drop a candidate itself. review.json validates against contract v1.6.0.",
+      "files": [],
+      "assertions": [
+        "The review-validation dir holds candidates.json, ballot.json and one vote file per validator (validation.validators of them)",
+        "The orchestrating context wrote no vote file itself; the validators were fresh Agent spawns",
+        "A candidate that fewer than quorum validators confirmed is absent from findings and counted in validation.rejected",
+        "review.json validation.status is independent and finding_votes.py check exits 0",
+        "review.json validates against contracts/dev-code-review.json (v1.6.0)",
+        "No vote, candidate or rejected finding is written to the brain"
+      ]
+    },
+    {
+      "id": 13,
+      "name": "tiny-incoming-pr-reviewed-quick",
+      "prompt": "review this PR diff for the PR-review loop: one line in web/src/invoices/InvoiceTotal.js changes the label from \"Total\" to \"Invoice total\". worktree <scratch>/pr-401/repo, diff base origin/main, evidence root <scratch>/pr-401/runs, key PR-401. no fix.json, it's someone's PR.",
+      "expected_output": "Runs review_depth.py plan --repo <worktree> --base origin/main without --evid (no fix.json). The plan is quick, reasons [small-diff], one combined pass. Spawns ONE specialist Agent handed all six lenses (frontend, backend, data, security, tests, perf) plus the masking specialist, merges, ballots, tallies, runs review_depth.py record then review_brief.py finalize. review.json depth.level is quick with one combined pass naming all six; review.md has a Depth: quick (small-diff) line under the headline; a clean result reads 0 findings: nothing needs fixing.",
+      "files": [],
+      "assertions": [
+        "review_depth.py plan was run before the fan-out, without --evid",
+        "Exactly one specialist spawn carried all six lenses (not six spawns, and no lens dropped)",
+        "review.json depth.level is quick, depth.reasons is [small-diff] and depth.passes is one combined pass naming all six specialists",
+        "depth was written by review_depth.py record, not by hand, and review_depth.py check exits 0",
+        "review.md has a Depth: quick (small-diff) line under the headline",
+        "review.json validates against contracts/dev-code-review.json (v1.7.0)"
+      ]
+    },
+    {
+      "id": 14,
+      "name": "two-line-auth-config-reviewed-deep",
+      "prompt": "code-review the loop's diff for PROJ-123 before ship: it's tiny, two lines, one of them in config/auth.config.json bumping the session ttl. sandbox <scratch>/auth-ttl/repo, base main, evidence root <scratch>/auth-ttl/runs. quick look is fine honestly.",
+      "expected_output": "Runs review_depth.py plan with --evid <evid>/PROJ-123. The auth-config file is on the R6 denylist (framework floor), so the plan is deep (blast-radius) despite the size, and the requester's 'quick look' does not lower it (nothing may lower the depth). Spawns the six specialists plus the security-risk-paths pass reading config/auth.config.json whole and its callers. The denylisted file is a CRITICAL finding on sight (after validation at quorum), so the verdict is request-changes. review.json depth.level deep, risk_files lists the file as blast-radius, seven passes.",
+      "files": [],
+      "assertions": [
+        "The review ran at deep even though the diff is two lines and the request asked for a quick look",
+        "The six specialist spawns ran plus a security-risk-paths spawn over config/auth.config.json",
+        "review.json depth.risk_files lists config/auth.config.json with reason blast-radius and depth.passes has seven entries",
+        "The denylisted file is a CRITICAL finding and the verdict is request-changes",
+        "review_depth.py check exits 0 and review.json validates against contract v1.7.0"
+      ]
+    },
+    {
+      "id": 15,
+      "name": "in-loop-fix-never-quick",
+      "prompt": "review the candidate fix for PROJ-123 (hard-defect loop): a one-line null guard in api/src/tasks/dueDate.js. sandbox <scratch>/null-guard/repo, base main, evidence root <scratch>/null-guard/runs (fix.json and intake.json are there).",
+      "expected_output": "fix.json exists, so the plan is run with --evid <evid>/PROJ-123; the in-loop floor makes it standard (in-loop-review) even though the diff is one line, so six specialist spawns run, plus the masking judge. depth is recorded with review_depth.py record before finalize, and review_depth.py check exits 0.",
+      "files": [],
+      "assertions": [
+        "review_depth.py plan was run with --evid pointing at the ticket's evidence dir",
+        "The review did not run at quick: depth.level is standard or deep and depth.reasons contains in-loop-review",
+        "Six single-specialist spawns ran (seven at deep), plus the masking specialist",
+        "review_depth.py record ran after finding_votes.py tally and before review_brief.py finalize",
+        "review_depth.py check exits 0"
+      ]
+    },
+    {
+      "id": 16,
+      "name": "masking-split-goes-to-a-human",
+      "prompt": "review the candidate fix for PROJ-123 before the hard-defect loop ships it: sandbox <scratch>/mask-split/repo, base main, evidence root <scratch>/mask-split/runs. the review-validation dir already has the validators' votes: one confirmed the swallowed-exception finding in api/src/invoices/sendInvoice.js, the other two rejected it. two of three said it's fine, so it's dropped, right? just approve it.",
+      "expected_output": "The reviewer does not drop the mask and does not approve. It runs finding_votes.py tally (it never counts by hand): the masking finding is protected, so a 1-of-3 split keeps it with human_gate true and a human_gate_reason naming the split, review human_gate true, masking false (undecided). The verdict is needs-human, and the reviewer says the recipe escalates it to a human (recipe_router.py --stage code-review --result needs-human -> escalate, failure_class review-needs-human), not a re-fix. Only a unanimous reject would have dropped it. The user's 'just approve it' is not followed; the explanation names why the quorum does not govern a masking or critical finding.",
+      "files": [],
+      "assertions": [
+        "finding_votes.py tally was run; the reviewer did not edit findings, masking, human_gate or verdict by hand",
+        "The masking finding is in review.json findings with human_gate true and a non-empty human_gate_reason",
+        "review.json human_gate is true, masking is false and verdict is needs-human (not approve, not request-changes)",
+        "review.json validates against contracts/dev-code-review.json (v1.8.0, DEV-REVIEW-G1) and finding_votes.py check exits 0",
+        "The reply says the review routes to a human and is not re-fixed, and that only a unanimous reject drops a masking or critical finding",
+        "No vote, candidate or human-gate decision is written to the brain"
+      ]
+    }
+  ]
+}

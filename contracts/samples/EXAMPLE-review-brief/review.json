@@ -1,0 +1,86 @@
+{
+  "key": "PROJ-123",
+  "verdict": "request-changes",
+  "masking": false,
+  "critical": 1,
+  "high": 0,
+  "findings": [
+    {
+      "dimension": "security",
+      "severity": "critical",
+      "confidence": 100,
+      "file": "db/migrate/001_add_discount.rb",
+      "line": 1,
+      "issue": "The fix adds a DB migration. Migrations are on the R6 blast-radius denylist: a loop fix may never touch one without a forced human gate. The brief's skip_paths lists db/migrate/**, and the skip was refused (brief.skip_refused), so the file was reviewed.",
+      "bug_class": "convention-violation"
+    },
+    {
+      "dimension": "backend",
+      "severity": "low",
+      "confidence": 92,
+      "file": "app/services/invoices/send.rb",
+      "line": 14,
+      "issue": "The retry guard re-reads the Invoice twice; one read is enough.",
+      "bug_class": "performance"
+    },
+    {
+      "dimension": "backend",
+      "severity": "low",
+      "confidence": 88,
+      "file": "app/services/invoices/send.rb",
+      "line": 22,
+      "issue": "The log line names the Invoice by id only; the Workspace id would make it searchable.",
+      "bug_class": "other"
+    },
+    {
+      "dimension": "tests",
+      "severity": "low",
+      "confidence": 85,
+      "file": "app/services/invoices/send.rb",
+      "line": 30,
+      "issue": "The new early return has no test of its own; the retry spec covers it indirectly.",
+      "bug_class": "missing-or-weak-test"
+    },
+    {
+      "dimension": "backend",
+      "severity": "low",
+      "confidence": 80,
+      "file": "app/services/invoices/send.rb",
+      "line": 31,
+      "issue": "The constant name SEND_ONCE reads as a flag rather than a lock key.",
+      "bug_class": "other",
+      "withheld": true,
+      "withheld_reason": "nit cap (review_brief max_nits=3): a low finding beyond the code owner's nit cap; kept here, not posted and not counted as open"
+    }
+  ],
+  "summary": "4 findings (1 critical, 3 low). The send-twice-on-retry fix in app/services/invoices/send.rb is at the root cause (an idempotency key on the send), but the diff also adds a migration, which a loop fix may not touch. Request changes: move the column to a human-reviewed change.",
+  "next_action": "re-fix",
+  "brief": {
+    "status": "applied",
+    "source": "examples/conventions/example-pack.json#review_brief",
+    "max_nits": 3,
+    "nits_withheld": 1,
+    "skipped": [
+      {
+        "file": "web/src/generated/api.ts",
+        "pattern": "web/src/generated/**"
+      }
+    ],
+    "skip_refused": [
+      {
+        "file": "db/migrate/001_add_discount.rb",
+        "pattern": "db/migrate/**",
+        "reason": "blast-radius"
+      }
+    ],
+    "areas": [
+      {
+        "name": "invoices",
+        "files": [
+          "app/services/invoices/send.rb"
+        ]
+      }
+    ]
+  },
+  "headline": "4 findings (1 critical, 3 low)."
+}

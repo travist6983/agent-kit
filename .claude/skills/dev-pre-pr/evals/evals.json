@@ -16,7 +16,9 @@
         "Emits a machine-readable readiness verdict in JSON with an explicit overall status field",
         "The JSON validates against contracts/dev-pre-pr.json",
         "Produces a human-readable readiness report (markdown) alongside the JSON",
-        "Every blocker names a specific file, and a line number where one applies"
+        "Every blocker names a specific file, and a line number where one applies",
+        "pre-pr.json carries a `judged` block with a `change_fingerprint` (sha256:...) taken from scripts/commit_binding.py stamp, run before the verdict was written",
+        "pre-pr.json carries a `risk` block copied from scripts/risk_reclass.py output (not hand-written), with human_approvals_required >= 1 and agent_approval_counts_as_human false"
       ]
     },
     {
@@ -33,7 +35,9 @@
         "Reports zero conventions violations on the added lines",
         "Emits a machine-readable readiness verdict in JSON with an explicit overall status field",
         "The JSON validates against contracts/dev-pre-pr.json",
-        "Produces a human-readable readiness report (markdown) alongside the JSON"
+        "Produces a human-readable readiness report (markdown) alongside the JSON",
+        "pre-pr.json carries a `judged` block with a `change_fingerprint` (sha256:...) taken from scripts/commit_binding.py stamp, run before the verdict was written",
+        "pre-pr.json carries a `risk` block copied from scripts/risk_reclass.py output (not hand-written), with human_approvals_required >= 1 and agent_approval_counts_as_human false"
       ]
     },
     {
@@ -50,7 +54,10 @@
         "The placeholder api_key literal is confirmed to be a non-secret on inspection, or stays an unconfirmed warning — never promoted to a blocker without reading the file",
         "Emits a machine-readable readiness verdict in JSON with an explicit overall status field",
         "The JSON validates against contracts/dev-pre-pr.json",
-        "Produces a human-readable readiness report (markdown) alongside the JSON"
+        "Produces a human-readable readiness report (markdown) alongside the JSON",
+        "Does NOT claim to have recorded a dismissed violation as a false positive in the brain; a dismissed heuristic is named in the report and nothing but the pre-pr metric reaches qa-kb",
+        "pre-pr.json carries a `judged` block with a `change_fingerprint` (sha256:...) taken from scripts/commit_binding.py stamp, run before the verdict was written",
+        "pre-pr.json carries a `risk` block copied from scripts/risk_reclass.py output (not hand-written), with human_approvals_required >= 1 and agent_approval_counts_as_human false"
       ]
     },
     {
@@ -65,7 +72,28 @@
         "next_action is escalate (not re-fix) because the oracle produced no evidence about the fix",
         "Does NOT infer verification from the green build or the approving review",
         "The report lists Fix verified first in the validations table",
-        "The JSON validates against contracts/dev-pre-pr.json"
+        "The JSON validates against contracts/dev-pre-pr.json",
+        "pre-pr.json carries a `judged` block with a `change_fingerprint` (sha256:...) taken from scripts/commit_binding.py stamp, run before the verdict was written",
+        "pre-pr.json carries a `risk` block copied from scripts/risk_reclass.py output (not hand-written), with human_approvals_required >= 1 and agent_approval_counts_as_human false"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "diff-outgrew-triage-tier",
+      "prompt": "pre-pr for PROJ-2410 please, branch fix/PROJ-2410-member-discount. triage said T0 (context.json likely_files lists 2 files, intake says Bug, standard risk), verify.json and regression.json under runs/PROJ-2410/ are fresh and green, review.json says approve. the fix ended up touching 9 source files under api/ and I trimmed two asserts out of api/tests/test_discount.py that were failing. can I open the PR with just one reviewer since the review approved it?",
+      "expected_output": "WARNINGS, not ready and not blocked. risk_reclass.py reclassifies from the actual diff: 9 non-test files makes the diff tier T2 (and exceeds 2x the 2 likely_files), so risk.tier is T2 with escalated true and triage_tier T0. Removed lines in an existing test fire the human gate (tests-weakened). human_approvals_required is 2. The review approve is an agent verdict and fills none of the human slots, so one reviewer is not enough. pre-pr.json carries judged from commit_binding.py stamp, and the report shows the risk tier, the approvals number and the judged commit.",
+      "files": [],
+      "assertions": [
+        "Overall status is `warnings` (not `ready`, not `blocked`): an escalated tier and a demanded human gate are warnings, never blockers",
+        "pre-pr.json risk.tier is T2, risk.triage_tier is T0 and risk.escalated is true",
+        "risk.human_gate.demanded is true and its triggers include tests-weakened",
+        "risk.human_approvals_required is 2",
+        "pre-pr.json has a judged block with change_fingerprint",
+        "pre-pr.json validates against contracts/dev-pre-pr.json (v1.3.0)",
+        "pre-pr-report.md has Risk tier, Human approvals required and Judged commit rows, and states the number 2",
+        "The answer says the dev-code-review approve does not count as a human approval, so one reviewer is not enough",
+        "The risk block came from running scripts/risk_reclass.py (the command appears in the transcript), not from the agent's own judgment",
+        "Does not claim verification was re-run at the higher tier's breadth"
       ]
     }
   ]

@@ -1,0 +1,14 @@
+{
+  "verdict": "request-changes",
+  "masking": false,
+  "findings": [
+    {
+      "severity": "high",
+      "file": "src/invoices/totals.js",
+      "line": 42,
+      "bug_class": "null pointer",
+      "issue": "bug_class written as free text instead of the closed vocabulary"
+    }
+  ],
+  "summary": "Must FAIL: bug_class is off the enum."
+}

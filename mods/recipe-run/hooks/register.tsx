@@ -3,7 +3,7 @@ import type { Elements, EngineInterface, Register, RenderChildren } from 'claude
 
 import type { Answer, Question, RunView, Tone, Verdict } from '../types'
 import {
-  STAGES,
+  ALL_STAGE_FILES,
   answersContext,
   bandText,
   buildRun,
@@ -78,8 +78,7 @@ async function loadRun($: EngineInterface, root: string, key: string): Promise<R
   const dir = `${root}/runs/${key}`
   const docs: Record<string, Record<string, unknown> | undefined> = {}
   let touched = 0
-  for (const s of [...STAGES.map(st => st.file), 'context.json']) {
-    if (!s) continue
+  for (const s of [...ALL_STAGE_FILES, 'context.json']) {
     docs[s] = await readJson($, `${dir}/${s}`)
     if (docs[s]) touched = Math.max(touched, (await $.fs.stat(`${dir}/${s}`).catch(() => undefined))?.mtimeMs ?? 0)
   }

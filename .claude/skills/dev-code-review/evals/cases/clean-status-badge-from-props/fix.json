@@ -1,0 +1,11 @@
+{
+  "key": "PROJ-205",
+  "status": "fixed",
+  "root_cause": "StatusBadge copied props.status into state at mount, so the badge kept the first status after the Invoice changed.",
+  "is_root_cause": true,
+  "confidence": 92,
+  "failure_class": null,
+  "files_changed": [
+    "web/src/invoices/StatusBadge.jsx"
+  ]
+}

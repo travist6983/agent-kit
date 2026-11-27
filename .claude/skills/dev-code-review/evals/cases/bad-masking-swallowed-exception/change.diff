@@ -1,0 +1,27 @@
+diff --git a/api/src/invoices/sendInvoice.js b/api/src/invoices/sendInvoice.js
+index f857d49..52071f4 100644
+--- a/api/src/invoices/sendInvoice.js
++++ b/api/src/invoices/sendInvoice.js
+@@ -7,12 +7,16 @@ async function sendInvoice(workspaceId, invoiceId) {
+   if (!invoice) {
+     return { ok: false, error: "not-found" };
+   }
+-  await mailer.send({
+-    to: invoice.billingEmail,
+-    subject: `Invoice ${invoice.number}`,
+-    template: "invoice",
+-    data: { invoice },
+-  });
++  try {
++    await mailer.send({
++      to: invoice.billingEmail,
++      subject: `Invoice ${invoice.number}`,
++      template: "invoice",
++      data: { invoice },
++    });
++  } catch (err) {
++    return { ok: true };
++  }
+   return { ok: true };
+ }
+ 

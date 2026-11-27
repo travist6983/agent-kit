@@ -1,0 +1,14 @@
+diff --git a/web/src/invoices/StatusBadge.jsx b/web/src/invoices/StatusBadge.jsx
+index b4e790d..f850ad6 100644
+--- a/web/src/invoices/StatusBadge.jsx
++++ b/web/src/invoices/StatusBadge.jsx
+@@ -1,8 +1,5 @@
+-import { useState } from "react";
+-
+ // The status pill on an Invoice row: Draft, Due, Paid, Void.
+-export function StatusBadge(props) {
+-  const [status] = useState(props.status);
++export function StatusBadge({ status }) {
+   return (
+     <span className={`badge badge-${status}`} aria-label={`Invoice status: ${status}`}>
+       {status}

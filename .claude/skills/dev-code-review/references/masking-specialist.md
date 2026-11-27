@@ -39,12 +39,22 @@ The discriminating question: **after this change, is the underlying state/behavi
 just less visible?** If the diff makes the wrong thing quieter instead of right, it's masking.
 
 ## Output
-A finding object like the other specialists (`dimension: "masking"`), plus it drives the overall
-**verdict**: any confirmed `SYMPTOM_MASKING` (confidence ≥ 80) forces overall `request-changes` and
-lowers the fix's confidence — even if every other specialist is clean and the replay is green.
+A finding object like the other specialists (`dimension: "masking"`, `bug_class: "symptom-masking"`),
+plus it drives the overall **verdict**: any confirmed `SYMPTOM_MASKING` forces overall
+`request-changes` and lowers the fix's confidence — even if every other specialist is clean and the
+replay is green. "Confirmed" means confirmed at quorum by the independent validators
+(`references/specialists.md`, loop-limits `review_validation`): `finding_votes.py tally` sets
+`masking: true` from a masking finding every returned ballot confirmed. A masking finding is never
+voted down by the quorum (contract v1.8.0): it goes on the ballot whatever this judge's
+confidence, only a unanimous reject drops it, and any split keeps it with `human_gate: true` while
+`masking` stays false (the call is undecided) and the verdict becomes `needs-human`: the recipe
+escalates to a human, it does not re-fix. The reviewer never sets `masking` or `human_gate` by
+hand.
 
-## False positives → qa-kb, not a flat file
-A standalone review tool typically suppresses known false positives from a flat JSON file in the
-repo. `dev-code-review` routes them through **`qa-kb`** (the `flakiness`/known-FP provenance store)
-so the suppression is shared across machines, decayed, and audited with the rest of the brain — not
-a stray JSON only one checkout can see.
+## False positives: measured, not suppressed
+No false-positive suppression store exists — not in `qa-kb`, not in a flat file — so a finding this
+judge rejects is simply not reported, and nothing is looked up before a finding is raised. False
+positives that reach a pull request are measured after the fact by `dev-pr-feed dispositions` (threads
+a human answered `wrong` or `intentional`), and a human-confirmed one is turned into a `clean` case in
+`evals/cases` (`origin: human-review`, see `eval-set.md`), so every later change to the reviewer is
+scored against it, in the open, rather than hidden behind a suppression list.

@@ -5,8 +5,9 @@ description: >-
   shared/core-module, migration-adjacent, or otherwise higher-risk (dev-intake routes them here).
   Trigger for "run the hard-defect loop on PROJ-123", "this one's risky — review the fix before
   shipping", or when dev-intake picks it. Sequence: intake → provision → repro → fix → verify →
-  regression → code-review (masking = hard block; the same finding surviving 2 fix cycles =
-  stagnation → escalate) → pre-pr → ship → prod-verify. THIN orchestrator on the shared engine; no
+  regression → code-review (masking = hard block; a validator split on a masking or critical
+  finding = needs-human → escalate; the same finding surviving 2 fix cycles = stagnation →
+  escalate) → pre-pr → ship → prod-verify. THIN orchestrator on the shared engine; no
   prod deploy while the `staging_only` posture flag is set, i.e. until the safety gates are verified.
 allowed-tools: Read, Write, Bash, Agent, Skill, ToolSearch
 ---
@@ -58,15 +59,36 @@ its verdict is `inconclusive`, which the router escalates with a prod-confirm ha
   the diff against the target repo's own rules — `stack.repo_guidelines_file` and
   `stack.conventions_file` from `stack.config.json` — never against a built-in stack.
   The router maps its verdict: `approve` → advance; `request-changes` (including any **R3 masking**
-  finding) → back to `dev-fix` with the findings as new context (until cap → escalate). This is
+  finding) → back to `dev-fix` with the findings as new context (until cap → escalate);
+  `needs-human` → **escalate** through `dev-escalate` at once, failure class `review-needs-human`,
+  with the `human_gate` findings and their `human_gate_reason` named as the question for the
+  human. `needs-human` means the independent validators split on a masking or critical finding:
+  only a unanimous reject drops one, so it is kept for a person, and another fix cycle cannot
+  settle a disagreement between judges. Never re-fix on it, never ship past it, at any attempt
+  count. Any other result (e.g. `blocked: validation-unavailable`) also escalates. This is
   defense in depth on top of `qa-verify`'s runtime masking detector — and the two are kept
   **separate deliberately**. Merging them to save a node would violate the blind-judge invariant:
   they judge different objects (runtime behaviour vs. the diff), and the checker flags them
   contradicting each other, which is only possible while they are two.
   The reviewers run concurrently, so the extra depth costs reviewer count, not wall clock.
-- **Stagnation check** (shared with feature-complete): if the *same* review finding survives **2**
-  fix cycles, stop and escalate — repeated identical findings mean the loop isn't converging, and a
-  third cycle that repeats the action is not a retry, it is a loop.
+- **Stagnation check, mechanical** (shared with feature-complete). After EVERY review, record the
+  round, then pass the history to the router at the code-review stage:
+  ```
+  python3 ../dev-loop-defect/scripts/review_rounds.py record \
+      --review <evid>/<KEY>/review.json --out <evid>/<KEY>/review-rounds.json --key <KEY>
+  python3 ../dev-loop-defect/scripts/recipe_router.py --stage code-review --result <verdict> \
+      --attempt N --max M --review-rounds <evid>/<KEY>/review-rounds.json ...
+  ```
+  The recorder fingerprints every open finding by file + `bug_class` (line excluded, lines move);
+  the router returns `escalate` with `failure_class: review-stagnation` and a `stagnant` list when
+  one fingerprint is open in the last `review_convergence.stagnation_fix_cycles` + 1 rounds
+  (`.claude/loops/loop-limits.json`, 2 today: the same finding surviving 2 fix cycles). On that
+  class, escalate through `dev-escalate` with the stagnant findings named: step back and reconsider
+  the approach, never re-fix — a third cycle that repeats the action is not a retry, it is a loop.
+  Without `--review-rounds` the router only applies the retry cap, so never omit it here. On
+  `approve`, write the recorder's `rounds_to_pass` as the `review_rounds_to_pass` metric through
+  `kb metric` (unit `rounds`), like the loop's other metrics. The text fallback (no class, or
+  `other`) is defeated by rewording; the retry cap still bounds a miss.
 - **The review gate adds no PR comments.** Findings the re-fix resolved are in the diff, not new
   design decisions. Pre-existing issues the review noticed go to the description's *Noticed, not
   changed* and the run report — never a thread. Risk earns a review, not more threads: this recipe
@@ -81,7 +103,7 @@ its verdict is `inconclusive`, which the router escalates with a prod-confirm ha
   the shared engine.
 
 ## The pre-PR gate
-- **`dev-pre-pr` before ship.** The readiness gate: it reconciles this loop's `regression.json` (and
+- **`dev-pre-pr` before ship**, with `review_gate.py --require-review` (this recipe has a review stage, so a missing or unchecked review.json blocks). The readiness gate: it reconciles this loop's `regression.json` (and
   `review.json`, where the recipe ran one) **by freshness**, runs the deterministic conventions scan
   (`.claude/loops/conventions.json`, the ruleset the target repo supplies) on the added lines, rolls
   up the blockers, and emits one verdict. Router: `ready`/`warnings` → advance; `blocked` → back to
@@ -92,6 +114,8 @@ its verdict is `inconclusive`, which the router escalates with a prod-confirm ha
 
 ## Key principles
 1. **Risk earns a review.** Hard defects get the diff-level gate a standard defect skips.
-2. **Masking is a hard block.** `request-changes` with masking → re-fix, never ship.
-3. **Converge or escalate.** A finding that survives 2 cycles stops the loop (stagnation).
+2. **Masking is a hard block.** `request-changes` with masking → re-fix, never ship. A split on
+   a mask or a critical is `needs-human` → escalate to a person, never re-fix and never ship.
+3. **Converge or escalate.** A finding that survives 2 cycles stops the loop (stagnation) — the
+   router decides it from `review-rounds.json`, not the agent from memory.
 4. **Thin.** Same engine + atomic skills as Recipe ①; only the review gate is added.

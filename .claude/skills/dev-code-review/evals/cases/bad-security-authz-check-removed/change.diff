@@ -1,0 +1,15 @@
+diff --git a/api/src/projects/archiveProject.js b/api/src/projects/archiveProject.js
+index 360a4e5..bebd3d8 100644
+--- a/api/src/projects/archiveProject.js
++++ b/api/src/projects/archiveProject.js
+@@ -8,8 +8,8 @@ async function archiveProject(req) {
+   if (!project) {
+     throw new HttpError(404, "project not found");
+   }
+-  if (member.role !== "admin") {
+-    throw new HttpError(403, "only an admin can archive a project");
++  if (!member.id) {
++    throw new HttpError(401, "sign in to archive a project");
+   }
+   project.archived = true;
+   project.archivedBy = member.id;

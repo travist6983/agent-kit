@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "loops/contracts/dev-loop-defect.meta-monitor.json",
+  "title": "dev-loop-defect meta-monitor.json: the R8 loop-health decision (trip / no-trip / insufficient-data)",
+  "version": "1.0.0",
+  "status": "proposed",
+  "description": "Written ONLY by .claude/skills/dev-loop-defect/scripts/meta_monitor.py (no model), on stdout and, with --out, through contracts/emit.py to a caller-chosen path. It compares three loop-health signals (prod_regressed_rate, escalation_rate, repeat_failure_by_area), read through `kb metrics --breakdown`, against loop-limits.json r8_meta_monitor and records the decision. It is REPORT-ONLY unless that section has trip_mode armed and a non-empty armed_by, and the run read its metrics from kb without --report-only; only then may a trip turn the R9 global pause on, through `kb pause --on --by meta-monitor`. It NEVER unpauses. `decision` is the one branch field.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["decision", "armed", "action", "window_days", "signals", "breaches", "metrics_source"],
+  "properties": {
+    "decision": {
+      "type": "string",
+      "enum": ["trip", "no-trip", "insufficient-data"],
+      "description": "trip iff at least one signal is breached; insufficient-data iff no signal is breached and none is ok; else no-trip."
+    },
+    "armed": {
+      "type": "boolean",
+      "description": "True only when limits trip_mode is armed AND armed_by is non-empty AND --report-only was not passed AND the metrics came from kb (not --metrics-file)."
+    },
+    "action": {
+      "type": "string",
+      "enum": ["reported", "paused", "already-paused", "pause-failed"],
+      "description": "reported: nothing outward was done. paused: `kb pause --on` succeeded. already-paused: the pause was on and its reason was left alone. pause-failed: the pause could not be set (the script exits 1)."
+    },
+    "window_days": { "type": "integer", "minimum": 1 },
+    "metrics_source": { "type": "string", "enum": ["kb", "file"] },
+    "signals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["signal", "status", "numerator", "threshold", "min_samples"],
+        "properties": {
+          "signal": { "type": "string", "enum": ["prod_regressed_rate", "escalation_rate", "repeat_failure_by_area"] },
+          "status": { "type": "string", "enum": ["breached", "ok", "insufficient-data"] },
+          "value": { "type": ["number", "null"], "description": "The rate, or the area's escalation count; null when insufficient-data." },
+          "threshold": { "type": "number" },
+          "numerator": { "type": "integer", "minimum": 0 },
+          "denominator": { "type": ["integer", "null"], "minimum": 0, "description": "null for repeat_failure_by_area, which is a count, not a rate." },
+          "min_samples": { "type": "integer", "minimum": 1 },
+          "area": { "type": "string" },
+          "detail": { "type": "string" }
+        }
+      }
+    },
+    "breaches": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "One entry per breached signal: the signal name, or repeat_failure_by_area:<area>."
+    },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "armed_by": { "type": "string", "description": "The human who armed the monitor, from loop-limits.json; present when trip_mode is armed." },
+    "report_only_reason": {
+      "type": "string",
+      "enum": ["trip-mode-report-only", "flag-report-only", "metrics-file"],
+      "description": "Why armed is false."
+    },
+    "pause": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["reason", "by"],
+      "properties": {
+        "reason": { "type": "string" },
+        "by": { "type": "string" },
+        "receipt": { "type": ["object", "null"] }
+      }
+    },
+    "limits_file": { "type": "string" },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "OPTIONAL. Which attempt of this stage produced the artifact, 1-based."
+    },
+    "retry_reason": {
+      "type": "string",
+      "description": "OPTIONAL. Why this attempt happened, when attempt > 1."
+    },
+    "timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "OPTIONAL. When this file was written. meta_monitor.py writes with --no-timing so the file is a pure function of the metrics and limits read.",
+      "required": ["started_at", "ended_at"],
+      "properties": {
+        "started_at": { "type": "string" },
+        "ended_at": { "type": "string" },
+        "duration_s": { "type": "number", "minimum": 0 }
+      }
+    }
+  }
+}

@@ -21,6 +21,14 @@ that the judge correctly classifies, with sharp reasoning, every pattern in the 
 **Re-run:** spawn an agent as "the R3 symptom-masking specialist", paste a diff, ask for
 `{masking, verdict, reason}`. A real fix must `approve`; each masking pattern must `request-changes`.
 
+**Now scoreable for two patterns and the real fix.** The swallowed-exception and narrow-special-case
+patterns, two non-masking bugs (a dropped workspace scope, a removed authorization check) and two
+real fixes (including the archived-project worked example, with its test) are seeded as tracked
+cases in `.claude/skills/dev-code-review/evals/cases/`. For those, the manual paste-a-diff re-run is
+superseded: `reviewer_eval.py materialize` each case, run the full `dev-code-review` as a fresh agent on
+it, and `reviewer_eval.py score` the review.json files, which grades with no model call
+(`dev-code-review/references/eval-set.md`). The remaining patterns above are not yet cases.
+
 ## plan-synthesis (`dev-fix` wide/feature mode) — validated
 On an assignee-clear bug in Projects (which has a sibling picker with the same pattern, so the fix *locus*
 is a real decision — the shape of `contracts/samples/EXAMPLE-defect-minimal`), plan-synthesis produced **3 genuinely distinct loci** — per-component / shared-helper /

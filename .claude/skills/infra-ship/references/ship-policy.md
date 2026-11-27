@@ -47,7 +47,19 @@ interactive prompt (this is autonomous).
    `plan.md`/`TASK.md`/`*-report.md`.
 4. commit via HEREDOC; type from the branch prefix (`project.branch_prefixes`: `fix/`→`fix`,
    `feature/`→`feat`; conventional prefixes otherwise).
-5. push to the preflight's `remote` (with `git pull --rebase` retry on non-fast-forward).
+5. **bind the readiness verdict to the commit** (after the commit, before the push):
+   `dev-pre-pr/scripts/commit_binding.py check --pre-pr <EVID_ROOT>/<KEY>/pre-pr.json --repo . --key <KEY>`.
+   Exit 0 = the commit is exactly the content `dev-pre-pr` judged (path + blob id); record `readiness`
+   in `ship.json` and put its `pr_body_block` (tier, human approvals required, the agent-verdict
+   sentence, the bound commit) in the body under `description_top`. Exit 1/2 = abort
+   `stale-readiness` / `readiness-unbound`, nothing pushed, escalate. Re-run after any
+   `git pull --rebase`. `--no-loop` only for the ticketless parity `--draft` ship.
+   **Render the Testing / Risk / How to revert blocks** from the seam files (after the binding, before
+   the push): `infra-ship/scripts/pr_sections.py render --evid-dir <EVID_ROOT>/<KEY> --repo . --key <KEY>
+   --out <EVID_ROOT>/<KEY>/pr-sections.json`. Exit 1 = `pr-sections-unsourced`, exit 2 = a malformed or
+   cross-wired seam file (`pr-body-incomplete`): nothing pushed, escalate. A deploy adapter at `none` is
+   reported in the revert block, never a stop. Re-run after any `git pull --rebase`.
+   push to the preflight's `remote` (with `git pull --rebase` retry on non-fast-forward).
 6. **release target, when the tracker provides one** — the normalized `Ticket` has no release field, so
    this is provider-specific (`raw`): bracket the **version** in the title, full name in the body:
    `python3 lib/adapters/cli.py vcs_host open_pr --json '{"branch": "<branch>", "base": "<default_branch>", "title": "<type>: PROJ-123 [<version>] — <summary>", "body": "…(Tickets section lists PROJ-123 + its full release target, e.g. Release 1.2.3)…", "draft": false, "labels": ["agent-loop"]}'`
@@ -58,6 +70,11 @@ interactive prompt (this is autonomous).
    bypasses branch protection; pipeline runs, stage approvals and deploy reverts are human-only.
    **No release target on the ticket → omit the bracket and flag it in the body**
    (`⚠️ No release target on PROJ-123 — confirm before merge`); never guess a version.
+   **Before the create**, write the assembled body to a file and run `pr_sections.py check --sections
+   <pr-sections.json> --body-file <pr-body.md> --repo . --require-block <review-requirements.md>`: each
+   rendered block and the Review requirements block verbatim, each heading once, rendered for HEAD. One
+   rebuild from the rendered blocks on exit 1; a second failure → no `open_pr`, abort
+   `pr-body-incomplete`.
 7. embed before/after media in the PR **body** as a side-by-side `## Before → After` block (before | after
    GIFs that animate + `[before MP4]` · `[after MP4]` download links) — per `references/pr-media-embedding.md`.
    **In the body, never a comment.** Required whenever the loop produced recordings (SKILL.md Step 5).

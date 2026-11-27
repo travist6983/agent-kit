@@ -1958,6 +1958,15 @@ def cmd_metrics(cur, a, embed):
             return fail("bad --since (use e.g. 7d, 24h, 30m)")
         where.append("recorded_at >= now() - interval '{}'".format(iv))
     wsql = ("WHERE " + " AND ".join(where)) if where else ""
+    if getattr(a, "breakdown", False):
+        # Read-only counts per metric x area x metadata.outcome: what the R8 meta-monitor
+        # (dev-loop-defect/scripts/meta_monitor.py) reads. No schema change.
+        cur.execute("""SELECT metric, area, COALESCE(metadata->>'outcome','') AS outcome,
+                               count(*) AS n, sum(value) AS sum,
+                               min(recorded_at) AS first_at, max(recorded_at) AS last_at
+                        FROM metrics {} GROUP BY metric, area, COALESCE(metadata->>'outcome','')
+                        ORDER BY metric, area, outcome""".format(wsql), params)
+        return ok(action="metrics_breakdown", breakdown=cur.fetchall())
     cur.execute("""SELECT metric, count(*) AS n, sum(value) AS sum, avg(value) AS avg,
                            min(value) AS min, max(value) AS max,
                            min(recorded_at) AS first_at, max(recorded_at) AS last_at
@@ -2756,6 +2765,8 @@ def build_parser():
     _project_arg(m)
 
     ms = sub.add_parser("metrics"); ms.add_argument("--summary", action="store_true")
+    ms.add_argument("--breakdown", action="store_true",
+                    help="counts per metric x area x metadata.outcome (read-only; what the R8 meta-monitor reads)")
     ms.add_argument("--metric"); ms.add_argument("--since"); ms.add_argument("--loop-id")
     ms.add_argument("--ticket"); ms.add_argument("--area")
     ms.add_argument("--project", help="filter to one project (default: every project — metrics are loop health)")

@@ -43,7 +43,7 @@ if [ ! -f "$PRR" ]; then
   exit 0
 fi
 
-W="$(mktemp -d -t pr-review-runner)" || { echo "  pr_review_runner: SKIPPED (mktemp failed)"; exit 0; }
+W="$(mktemp -d "${TMPDIR:-/tmp}/pr-review-runner.XXXXXX")" || { echo "  pr_review_runner: SKIPPED (mktemp failed)"; exit 0; }
 cleanup(){ rm -rf "$W"; }
 trap cleanup EXIT
 mkdir -p "$W/bin" "$W/worktrees" "$W/brain"
@@ -76,7 +76,8 @@ if a and a[0] == "unreviewed":
     if q == "empty":
         print(json.dumps({"status": "ok", "backend": "file", "count": 0, "unreviewed": [],
                           "already_reviewed": cur, "loop_prs_skipped": [{"pr_id": 5594, "title": "t"}],
-                          "too_large": []}, indent=2)); raise SystemExit(0)
+                          "too_large": [], "round_capped": [{"pr_id": 5590, "rounds": 3, "cap": 3}],
+                          "max_review_rounds_per_pr": 3}, indent=2)); raise SystemExit(0)
     if q == "prs":
         print(json.dumps({"status": "ok", "backend": "file", "count": 1,
                           "unreviewed": [{"pr_id": 5600, "head_commit": "bb"}],
@@ -86,6 +87,25 @@ if a and a[0] == "unreviewed":
         print(json.dumps({"status": "failed", "failure_class": fc, "message": "fake " + fc}, indent=2))
         raise SystemExit(2)
     print(json.dumps({"ok": True, "candidates": []})); raise SystemExit(0)
+if a and a[0] == "dispositions":
+    with open("$W/disp_calls.log", "a") as fh: fh.write(" ".join(a) + "\n")
+    if os.environ.get("FAKE_DISP") == "fail":
+        print(json.dumps({"status": "failed", "failure_class": "api-unavailable", "message": "fake"})); raise SystemExit(2)
+    print(json.dumps({"status": "ok", "enumerable": True, "checked": ["5586"], "pending": 1,
+                      "newly_settled": {"fixed": 1, "wrong": 1, "intentional": 0, "no-action": 0, "unclassified": 0},
+                      "noise_rate": 0.5, "emitted": [{"class": "fixed", "value": 1}, {"class": "wrong", "value": 1}],
+                      "emit_failed": []}, indent=2)); raise SystemExit(0)
+if a and a[0] in ("rounds", "step-back"):
+    with open("$W/conv_calls.log", "a") as fh: fh.write(" ".join(a) + "\n")
+    if os.environ.get("FAKE_CONV") == "fail":
+        print(json.dumps({"status": "failed", "failure_class": "api-unavailable", "message": "fake"})); raise SystemExit(2)
+    if a[0] == "rounds":
+        print(json.dumps({"status": "ok", "enumerable": True, "cap": 3, "capped": ["5590"],
+                          "prs": [{"pr_id": "5590", "open": 3, "capped": True}],
+                          "emitted": [{"pr_id": "5590", "name": "pr_review_round_cap_hit", "value": 1}],
+                          "emit_failed": []}, indent=2)); raise SystemExit(0)
+    print(json.dumps({"status": "ok", "mode": "dry-run", "posted": [],
+                      "previewed": [{"pr_id": "5590"}], "skipped": [], "enumerable": True}, indent=2)); raise SystemExit(0)
 if a and a[0] == "health":
     h = os.environ.get("FAKE_HEALTH", "attention")
     if h == "fail":
@@ -328,6 +348,72 @@ ckout "…and the report has no health section" "PR health" "$W/gx.md"
 RC="$(gate_tick gy prs --health)"
 ck    "--health never replaces a review: a queue with PRs still starts the session" "$(ran)" "yes"
 ckout "…and the sweep does not run on that tick" "health=on" "$W/gy.log"
+
+# ══ 8. THREAD DISPOSITIONS: ONCE PER REAL TICK, BEFORE THE GATE, NEVER CHANGING THE OUTCOME ═══
+nlines(){ grep -c "event=dispositions" "$1" 2>/dev/null || echo 0; }
+: > "$W/disp_calls.log"
+RC="$(gate_tick dq empty)"
+ck    "an empty-queue tick logs exactly one dispositions line" "$(nlines "$W/dq.log")" "1"
+ckin  "…with the counts the feed returned" "event=dispositions status=ok checked=1 pending=1 fixed=1 wrong=1 intentional=0 no_action=0 unclassified=0 emitted=2 noise_rate=0.5" "$W/dq.log"
+ckin  "…passes --emit when the brain is on" "dispositions --emit" "$W/disp_calls.log"
+ckin  "…and the empty-queue report gains the dispositions line" "Thread dispositions — 1 PR(s) read" "$W/dq.md"
+ckin  "…outcome is still empty-queue" "outcome=empty-queue" "$W/dq.log"
+: > "$W/disp_calls.log"
+RC="$(gate_tick ds prs)"
+ck    "a tick that reaches the session also logs exactly one dispositions line" "$(nlines "$W/ds.log")" "1"
+ck    "…and the session still starts" "$(ran)" "yes"
+: > "$W/disp_calls.log"
+RC="$(run_tick dn claude-quick)"
+ck    "a --no-brain tick logs one dispositions line" "$(nlines "$W/dn.log")" "1"
+ckout "…and never passes --emit" "--emit" "$W/disp_calls.log"
+ckin  "…but did call the verb" "dispositions" "$W/disp_calls.log"
+RC="$(FAKE_DISP=fail gate_tick df empty)"
+ck    "a failing dispositions call leaves the exit code alone" "$RC" "0"
+ckin  "…and the outcome" "outcome=empty-queue" "$W/df.log"
+ckin  "…and logs its failure class, not zero counts as success" "event=dispositions status=api-unavailable" "$W/df.log"
+ck    "…still exactly one dispositions line" "$(nlines "$W/df.log")" "1"
+RC="$(FAKE_DISP=fail gate_tick dg prs)"
+ck    "a failing dispositions call never stops a session tick" "$(ran)" "yes"
+: > "$W/disp_calls.log"
+LOOP_CLAUDE_BIN="$W/bin/claude-quick" bash "$PRR" --dry-run --no-brain >/dev/null 2>&1
+ck    "--dry-run never runs dispositions" "$(wc -c < "$W/disp_calls.log" | tr -d ' ')" "0"
+
+# ══ 9. REVIEW CONVERGENCE: ONE LINE PER REAL TICK, NEVER CHANGING THE OUTCOME ═══════════════
+nconv(){ grep -c "event=convergence" "$1" 2>/dev/null || echo 0; }
+: > "$W/conv_calls.log"
+RC="$(gate_tick cq empty)"
+ck    "an empty-queue tick logs exactly one convergence line" "$(nconv "$W/cq.log")" "1"
+ckin  "…with the counts the feed returned" "event=convergence status=ok capped=1 passed_emitted=0 cap_emitted=1 step_back_posted=0 step_back_previewed=1" "$W/cq.log"
+ckin  "…passes --emit to rounds when the brain is on" "rounds --emit" "$W/conv_calls.log"
+ckin  "…and step-back --due" "step-back --due" "$W/conv_calls.log"
+ckout "…never --live on a dry-run tick" "--live" "$W/conv_calls.log"
+ckin  "…the gate report names the round-capped PR" "Round-capped (no further automatic review; a maintainer runs ledger --reset-rounds): 5590 (3 rounds)" "$W/cq.md"
+ckin  "…outcome is still empty-queue" "outcome=empty-queue" "$W/cq.log"
+RC="$(gate_tick cs prs)"
+ck    "a tick that reaches the session also logs exactly one convergence line" "$(nconv "$W/cs.log")" "1"
+RC="$(FAKE_CONV=fail gate_tick cf empty)"
+ck    "a failing convergence call leaves the exit code alone" "$RC" "0"
+ckin  "…and the outcome" "outcome=empty-queue" "$W/cf.log"
+ckin  "…and logs its failure class" "event=convergence status=api-unavailable" "$W/cf.log"
+ck    "…still exactly one convergence line" "$(nconv "$W/cf.log")" "1"
+stuckn(){ python3 -c "import json; print(json.load(open('$LOOP_PR_REVIEW_STATE')).get('stuck_count'))" 2>/dev/null; }
+ck    "…leaves the stuck counter cleared (a failing sweep is not a stuck tick)" "$(stuckn)" "0"
+ckin  "…and books no consumption for the gated tick" "spend_usd=0 spend_basis=no-model-call" "$W/cf.log"
+unstick(){ python3 -c "
+import json; p='$LOOP_PR_REVIEW_STATE'; s=json.load(open(p)); s['stuck_count']=0; s['stuck_reason']=''; json.dump(s, open(p,'w'))"; }
+unstick; RC="$(gate_tick cs2 prs)"; S_OK="$(stuckn)"
+ckin  "a session tick books its measured consumption" "spend_basis=" "$W/cs2.log"
+unstick; RC="$(FAKE_CONV=fail gate_tick cs3 prs)"
+ck    "a failing convergence call on a session tick changes neither the stuck counter…" "$(stuckn)" "$S_OK"
+ck    "…nor the spend line the same tick books without it" \
+      "$(grep -o 'event=end.*' "$W/cs3.log" | grep -o 'spend_usd=[^ ]* spend_basis=[^ ]*')" \
+      "$(grep -o 'event=end.*' "$W/cs2.log" | grep -o 'spend_usd=[^ ]* spend_basis=[^ ]*')"
+: > "$W/conv_calls.log"
+RC="$(run_tick cn claude-quick)"
+ckout "a --no-brain tick never passes --emit to rounds" "rounds --emit" "$W/conv_calls.log"
+: > "$W/conv_calls.log"
+LOOP_CLAUDE_BIN="$W/bin/claude-quick" bash "$PRR" --dry-run --no-brain >/dev/null 2>&1
+ck    "--dry-run never runs the convergence sweep" "$(wc -c < "$W/conv_calls.log" | tr -d ' ')" "0"
 
 # ══ NO RESIDUE ═══════════════════════════════════════════════════════════════
 ck "this test left no runner lock in the repo" \

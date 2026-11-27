@@ -58,7 +58,7 @@ Schema version of this file, `"1.0.0"`. Bump only when keys change meaning.
 | `unit_test_command` | `null` | Same. |
 | `test_report.format` | `"junit"` | Format of the machine-readable results `qa-regression` reads after `unit_test_command`. |
 | `test_report.glob` | `"**/test-results/*.xml"` | Where to find them, relative to `app.repo_dir`. |
-| `conventions_file` | `".claude/loops/conventions.json"` | The standards ruleset `dev-pre-pr` scans added lines with (format: `examples/conventions/README.md`). |
+| `conventions_file` | `".claude/loops/conventions.json"` | The standards ruleset `dev-pre-pr` scans added lines with (format: `examples/conventions/README.md`). It also holds the optional per-area reviewer brief `dev-code-review` reads (`review_brief`, beside `rules`); that is a conventions key, not a stack.config key, and no stack.config key was added for it. |
 | `repo_guidelines_file` | `"CLAUDE.md"` | The target repo's own working agreement; `dev-fix` and `dev-code-review` read it for constraints. Relative to `app.repo_dir`. |
 
 ## `adapters` — one provider per role
@@ -119,7 +119,8 @@ that needs it emits `blocked` with reason `adapter-unavailable:<role>`. The role
 ## `limits_file`
 
 Default `".claude/loops/loop-limits.json"`: the per-loop budget (USD and token caps, R5) and
-per-tier retry caps the recipe router enforces.
+per-tier retry caps the recipe router enforces. Read through the config loader (env override
+`LOOPS_CFG__LIMITS_FILE`) by `recipe_router.py`, `meta_monitor.py`, `dream.sh` and `pr_review.sh`.
 
 ## `models` — which model does which job
 

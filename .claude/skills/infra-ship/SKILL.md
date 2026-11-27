@@ -35,10 +35,13 @@ fix in prod (`infra-prod-verify`). It ships the PR and hands the prod-confirmati
 
 ## Inputs / Outputs
 **Inputs:** a verified change on a loop branch (`project.branch_prefixes`) + the loop's artifacts (for
-the PR body + media).
+the PR body + media): `verify.json`, `regression.json`, `pre-pr.json`, `intake.json`, `fix.json`, and the
+`deploy` adapter's `rollback_hint(env)` for the How to revert section.
 **Output:** `ship.json`, written to **`<EVID_ROOT>/<KEY>/ship.json`** (EVID_ROOT = stack.config
 `evidence.root`, default `runs/`)
-`{ ok, abort, branch, base, commit_type, commit, pr_id?, pr_url?, pr_dry_run?, draft, media?, media_in_body?, decision_threads?, thread_selection?, thread_audit?, dry_run, paused }`
+`{ ok, abort, branch, base, commit_type, commit, readiness?, pr_sections?, pr_id?, pr_url?, pr_dry_run?, draft, media?, media_in_body?, decision_threads?, thread_selection?, thread_audit?, dry_run, paused }`
+(`readiness` = Step 3b's binding `{bound, commit, change_fingerprint, status, tier, human_approvals_required}`.)
+(`pr_sections` = Step 3c's render plus Step 4's check: `{commit, sources, feature_flag, rollback, body_check}`.)
 (`draft` = `true` only when the invoker passed `--draft` and the PR was opened as a draft; otherwise `false`.)
 (`pr_dry_run` = what the provider reported: the default `git-local` provider writes the PR as a file under
 `<evidence.root>/prs/` and returns `dry_run: true` — record it, so nobody mistakes a file for a review.)
@@ -63,6 +66,7 @@ worktree, not this repo:
 KB="${KB_BIN:-<agents-repo>/.claude/skills/qa-kb/scripts/kb.py}"
 python3 "$KB" <verb> ...        # ≡ the bare `kb <verb> ...` calls below
 CLI="<agents-repo>/lib/adapters/cli.py"   # every adapter call below is `python3 "$CLI" <role> <op> ...`
+S="<agents-repo>/.claude/skills/infra-ship/scripts"   # pr_sections.py, select_pr_threads.py, audit_pr_threads.py
 ```
 
 ### 1. Preflight (run this first — it's the safety gate)
@@ -112,9 +116,52 @@ that creates a component/unit test must ship it — `git add -u` alone silently 
 `plan.md`/`TASK.md`/`*-report.md`. Confirm with `git diff --cached --name-only`.
 
 ### 3. Commit (HEREDOC) + push (rebase-retry)
-Commit with the type from the preflight (`fix`/`feat`/…), the ticket key, and a tight file list. Push
-`git push -u <remote> <branch>` (`remote` from the preflight JSON) — only the branch the preflight
-cleared, never a different or renamed one; on non-fast-forward, `git pull --rebase` then re-push.
+Commit with the type from the preflight (`fix`/`feat`/…), the ticket key, and a tight file list. Then
+run Steps 3b and 3c **before** the push. Push `git push -u <remote> <branch>` (`remote` from the preflight JSON)
+— only the branch the preflight cleared, never a different or renamed one; on non-fast-forward,
+`git pull --rebase`, run Steps 3b and 3c again on the rebased commit, then re-push.
+
+### 3b. Bind the readiness verdict to this commit (after the commit, before the push)
+A readiness verdict covers one specific commit. `dev-pre-pr` judged a working tree and stamped its
+content (`pre-pr.json` `judged`); this proves the commit you are about to push is exactly that content:
+```bash
+python3 "<agents-repo>/.claude/skills/dev-pre-pr/scripts/commit_binding.py" check \
+  --pre-pr "$TASK_DIR/pre-pr.json" --repo . --key "$KEY"      # --base defaults to project.default_branch
+# exit 0 → {ok, bound, commit, change_fingerprint, status, tier, human_approvals_required, human_gate, pr_body_block}
+# exit 1 → abort "stale-readiness" | "readiness-unbound"   ·   exit 2 → git failure, treat as an abort
+```
+On exit 1 or 2 **do not push**: write `ship.json` with `ok: false` and `abort` = the script's `abort`
+(`stale-readiness` when a file changed, was added or was left out after the verdict — a formatter run
+here is the usual cause; `readiness-unbound` when there is no usable verdict) and stop. The recipe
+router escalates both: never re-ship the same commit, and never edit `pre-pr.json` to match.
+On exit 0 record `readiness: {bound, commit, change_fingerprint, status, tier,
+human_approvals_required}` in `ship.json` and keep `pr_body_block` for Step 4. Pass `--no-loop` only for
+the ticketless parity `--draft` ship, which has no `pre-pr.json`: it ships with `readiness.bound: false`
+and a body block that says no readiness verdict covers the commit. Every other ship is loop mode, which
+fails closed.
+
+### 3c. Render Testing / Risk / How to revert from the seam files (after 3b, before the push)
+A reviewer asks how the change was tested, how risky it is, and how to undo it. Written by hand those
+answers drift from the evidence, so they are rendered from the artifacts the loop already wrote:
+```bash
+python3 "$S/pr_sections.py" render --evid-dir "$TASK_DIR" --repo . --key "$KEY" \
+  --out "$TASK_DIR/pr-sections.json"          # --base defaults to project.default_branch
+# exit 0 → {ok, commit, testing_block, risk_block, revert_block, sources, feature_flag, manual_steps, rollback}
+# exit 1 → abort "pr-sections-unsourced" (no pre-pr.json: usually a wrong evidence dir)
+# exit 2 → a seam file present but malformed, an artifact keyed to another ticket, or git failed
+```
+(`S` is the scripts directory set above.) Testing reads `verify.json`, `regression.json` and
+`pre-pr.json`; Risk reads `intake.json` and the same `pre-pr.json` `risk` the Review requirements block
+reads, so the two cannot disagree; How to revert puts a `fix.json` `feature_flag` first, then the code
+revert on the base, the manual steps (`human-action-required` entries), then each environment's
+`deploy` rollback hint. An absent file is stated as absent in its block, never as a pass.
+On exit 1 or 2 **do not push and open no PR**: `ship.json` `ok: false`, `abort` = the script's abort
+(`pr-sections-unsourced`, or `pr-body-incomplete` for exit 2), and stop. Re-run 3c after any
+`git pull --rebase`, because the blocks name the commit. Pass `--no-loop` only for the ticketless parity
+`--draft` ship. **An unavailable deploy adapter does not block the ship here.** Opening a PR does not
+need the deploy role, so with the default provider `none` the revert block says "No rollback
+instructions are configured" and the ship continues; a provider error for one environment is reported
+on that environment's line. Never invent a rollback step the artifacts and the adapter did not supply.
 
 ### 4. Open the PR — live and PUBLISHED; prod deploy still gated
 **Release target (optional).** If the ticket your `issue_tracker` provider returned carries a release
@@ -129,9 +176,18 @@ assemble:
 - **Body**: Summary / Tickets (list the ticket **and its full release target**, e.g.
   `PROJ-123 — Release 1.2.3`) / Changes / a **`## Before → After`** media block (the side-by-side
   before/after GIFs + MP4 download links — assembled in **Step 5**, embedded in the BODY, never a comment)
-  / Testing (a caveat about what could not be verified is **one line** here; so is each `dev-pre-pr`
-  warning worth keeping) / then the funnel's `noticed_block` verbatim — the `## Noticed, not changed`
-  section, empty on most PRs.
+  / then Step 3c's `testing_block`, `risk_block` and `revert_block` **verbatim**, in that order / then the
+  funnel's `noticed_block` verbatim — the `## Noticed, not changed` section, empty on most PRs. The full
+  order is: description_top / Review requirements / Summary / Tickets / Changes / media block /
+  Testing / Risk / How to revert / Noticed, not changed. A caveat the artifacts do not carry (a
+  test-environment limit, say), and each `dev-pre-pr` warning worth keeping, is **one line appended
+  directly under the Testing block**. Never write a second `## Testing`, `## Risk` or `## How to
+  revert` heading and never edit a rendered line: the check below refuses both.
+- **Review requirements.** Place Step 3b's `pr_body_block` verbatim directly under `description_top`:
+  the risk tier, how many human approvals the PR needs before merge, that the loop's own review verdict
+  (approve) is an agent verdict that fills none of them, and the one commit the readiness verdict
+  covers. Never edit the number. On a re-ship of an existing PR the body cannot be updated (no update
+  op), so the new binding goes in `ship.json` and the run report.
 - **Run the thread funnel now, so the top and bottom of the body are known up front** (command and rules
   in Step 6). Prepend its `description_top` verbatim — the banner when a thread will be posted, plus a
   `## ⚠️ Before merging` section for any must-read item past the cap — and append its `noticed_block`.
@@ -139,6 +195,23 @@ assemble:
 - **Assemble the whole body before the create.** The adapter contract has no "update PR body" op, so the
   media block (Step 5 uploads first, the PR is opened second) and the funnel's blocks must be in the body
   that goes into `open_pr`.
+- **Check the body, then create.** Write the assembled body to `$TASK_DIR/pr-body.md`, save Step 3b's
+  `pr_body_block` to `$TASK_DIR/review-requirements.md`, and run:
+  ```bash
+  python3 "$S/pr_sections.py" check --sections "$TASK_DIR/pr-sections.json" \
+    --body-file "$TASK_DIR/pr-body.md" --repo . --require-block "$TASK_DIR/review-requirements.md"
+  # exit 0 → {ok, body_check: "pass"}   ·   exit 1 → {abort: "pr-body-incomplete", missing, duplicated, stale}
+  ```
+  It passes only when each rendered block and the Review requirements block occur verbatim, each of the
+  three headings is a line exactly once, and the sections were rendered for the commit at HEAD. On exit
+  1, rebuild the body once from the rendered blocks (a changed action, not a blind retry) and check
+  again; if `stale` is true, re-run Step 3c first. A second non-zero exit (or any exit 2) → **do not
+  call `open_pr`**: `ship.json` `ok: false`, `abort: "pr-body-incomplete"`, and stop — the branch is
+  pushed with no PR, the same end state an unavailable `vcs_host` leaves, and the recipe escalates.
+  On exit 0 pass exactly that file's content as `body`, and record `pr_sections: {commit, sources,
+  feature_flag, rollback, body_check: "pass"}` in `ship.json`. On a re-ship of an existing PR the body
+  cannot be updated (no update op), so the refreshed blocks go in `ship.json` and the run report, the
+  same rule as the Review requirements block.
 
 **Open the PR published by default.** Pass `draft=false`. A draft is not a state the loop uses, and a
 draft-then-publish two-step bought nothing while giving a run a way to stop halfway and leave a PR parked
@@ -177,7 +250,9 @@ branch protection** — by any tool. Queueing pipeline runs, approving stages, a
 
 **Capture the create result as JSON** so Steps 5–6 can address the PR:
 ```bash
-# BODY already holds description_top + Summary/Tickets/Changes + the media block + Testing + noticed_block
+# BODY = the content of the checked $TASK_DIR/pr-body.md (description_top, Review requirements, Summary,
+# Tickets, Changes, media, the three rendered blocks, noticed_block)
+BODY=$(cat "$TASK_DIR/pr-body.md")
 PR_JSON=$(python3 "$CLI" vcs_host open_pr --json "$(jq -n --arg b "$BRANCH" --arg base "$BASE" \
             --arg t "$TITLE" --arg body "$BODY" --argjson draft "${DRAFT:-false}" \
             '{branch:$b, base:$base, title:$t, body:$body, draft:$draft, labels:["agent-loop"]}')"); RC=$?
@@ -285,7 +360,8 @@ gates are verified.
 
 ## Success criteria & failure categories (declared up front)
 **Success:** kill-switch clear, source-only commit on a non-base, non-protected, non-prod-lane branch,
-pushed, PR assembled and opened **published** (a draft only when the invoker passed `--draft`, recorded
+bound to the readiness verdict (Step 3b), pushed, PR assembled with the rendered Testing / Risk / How to
+revert blocks verbatim (Step 3c, checked by `pr_sections.py check`) and opened **published** (a draft only when the invoker passed `--draft`, recorded
 as `draft: true`), and the PR's threads are exactly `select_pr_threads.py`'s selection — usually none.
 No prod deploy unless the gates enabled it.
 **Failure categories:**
@@ -300,6 +376,15 @@ No prod deploy unless the gates enabled it.
 - `r6-denylist` / `r6-scan-failed` — the change set touches the blast-radius denylist, or the scan could
   not run → forced human gate.
 - `nothing-to-ship` — no source change and no unpushed commit.
+- `stale-readiness` — `commit_binding.py check` exit 1: the commit is not the content `dev-pre-pr`
+  judged. Nothing pushed; escalate (deterministic — never re-ship the same commit).
+- `readiness-unbound` — no usable readiness verdict for this commit (missing, malformed, blocked,
+  for another key, or without `judged` / `risk`). Nothing pushed; escalate.
+- `pr-sections-unsourced` — `pr_sections.py render` exit 1: no `pre-pr.json` in the evidence directory
+  (usually a wrong `--evid-dir`). Nothing pushed; escalate.
+- `pr-body-incomplete` — `pr_sections.py check` failed twice (a rendered block missing or edited, a
+  heading written twice, the sections rendered for another commit, or the Review requirements block
+  missing), or render exit 2 (a malformed or cross-wired seam file). No PR opened; escalate.
 - `blocked` — `adapter-unavailable:vcs_host` (provider `none`, CLI exit 3) → escalate; never fall back to
   a host CLI.
 - `auth-failure` — the vcs_host adapter / remote not ready (CLI exit 1) → escalate, don't prompt.
@@ -322,12 +407,16 @@ quieter?" is answerable from the brain.
 
 ## Key principles
 1. **Kill-switch first.** Check `qa-kb` `global_pause` before anything leaves the machine.
-2. **Flag over redeploy.** Prefer shipping behind a feature flag so revert is a flag flip.
+2. **Flag over redeploy.** Prefer shipping behind a feature flag so revert is a flag flip. The PR body's
+   `## How to revert` block (Step 3c) names the flag first when `fix.json` records one, then the code
+   revert, the manual steps and the deploy adapter's rollback hint — never a step nobody supplied.
 3. **Never auto-prod until the gates exist.** No prod deploy until R2/R5/R6/R9 are verified — and a push
    to a `deploy.prod_lane_branch_patterns` branch *is* a prod deploy, so the preflight refuses it.
 4. **PRs by one route, and the merge is human.** Only `vcs_host open_pr` with the `agent-loop` label
    (never a host CLI or an MCP PR tool); never auto-merge, approve, or bypass branch protection; pipeline
-   runs, stage approvals, and deploy reverts are human-only.
+   runs, stage approvals, and deploy reverts are human-only. The loop's own review `approve` is not an
+   approval on the host: the PR body states how many humans must approve, and branch protection
+   enforces it.
 5. **Source only.** Never commit pipeline artifacts; never `git add -A`.
 6. **Threads are earned.** The description explains the change; a thread is only for what the reviewer
    must act on before merge and would miss otherwise. Zero is the usual count, two is the cap, and every

@@ -18,13 +18,17 @@ URLs come from the `evidence_store` adapter, and the evidence root is `evidence.
 | `context-pack.json` | 1.0.0 | `dev-intake` (+ `infra-worktree` fills `environment`) | `<evid_root>/<key>/context.json` | read by every downstream skill | — |
 | `qa-repro.json` | 1.5.0 | `qa-repro` | `<evid_root>/<key>/repro.json` | `repro_evidence` (stored verbatim) | `status` |
 | `qa-verify.repro-judge.json` | 1.2.0 | `qa-verify` mode=`repro-judge` | `<repro_dir>/judge.json` | `judge_evidence` | `verdict` |
-| `dev-fix.json` | 1.4.0 | `dev-fix` | `<evid_root>/<key>/fix.json` | router: `status`; ship: `design_decisions` with `must_read: true` | `status` |
+| `dev-fix.json` | 1.5.0 | `dev-fix` | `<evid_root>/<key>/fix.json` | router: `status`; ship: `design_decisions` with `must_read: true`; `pr_sections.py` reads `feature_flag` | `status` |
 | `qa-verify.json` | 1.0.0 | `qa-verify` mode=`fix-verify` (default) | `<evid_root>/<key>/verify.json` | the checker node; `dev-pre-pr` fails closed on it | `verdict` |
 | `qa-verify.collateral.json` | 1.0.0 | `qa-verify` fix-verify step 2b | `<repro_dir>/collateral.json` | the `no_collateral` must-have | `status` |
 | `qa-regression.json` | 2.1.0 | `qa-regression` | `<evid_root>/<key>/regression.json` | router | `status` + `next_action` |
-| `dev-code-review.json` | 1.2.0 | `dev-code-review` | `<evid_root>/<key>/review.json` | router; `dev-harden` reads findings' `harden` blocks | `verdict` |
-| `dev-harden.json` | 1.0.0 | `dev-harden` | `<evid_root>/harden/<fingerprint>/harden.json` | `collect_candidates.py` (decided skip); a human `--apply` | `status` |
-| `dev-pre-pr.json` | 1.2.0 | `dev-pre-pr` | `<evid_root>/<key>/pre-pr.json` | router | `status` |
+| `dev-code-review.json` | 1.8.0 | `dev-code-review` | `<evid_root>/<key>/review.json` | router; `dev-harden` reads findings' `harden` blocks; `reviewer_eval.py score` locates findings by `file` + `line`; `review_rounds.py record` fingerprints findings by `file` + `bug_class`; `review_brief.py finalize` / `check` write and re-check `headline` + `brief`; `finding_votes.py tally` / `check` write and re-check `validation` + `findings[].votes`; `review_depth.py record` / `check` write and re-check `depth` | `verdict` |
+| `dev-loop-defect.review-rounds.json` | 1.1.0 | `review_rounds.py record` (proposed) | `<evid_root>/<key>/review-rounds.json` | `recipe_router.py --review-rounds` (stagnation); the recipe reads `rounds_to_pass` for the `review_rounds_to_pass` metric | none |
+| `dev-loop-defect.meta-monitor.json` | 1.0.0 | `meta_monitor.py` (proposed) | a caller-chosen path (`--out`), or stdout | a person or a runner deciding whether loops are healthy; report-only unless `r8_meta_monitor.trip_mode` is armed | `decision` |
+| `dev-code-review.eval-case.json` | 1.0.0 | a human (seed cases: the kit), checked by `reviewer_eval.py check` (proposed) | `.claude/skills/dev-code-review/evals/cases/<id>/case.json` | `reviewer_eval.py` check / score; never the reviewer | `kind` |
+| `dev-code-review.eval-score.json` | 1.0.0 | `reviewer_eval.py score` (proposed) | a caller-chosen path (`--out`), or stdout | a person or a later job comparing reviewer versions | `status` |
+| `dev-harden.json` | 1.1.0 | `dev-harden` | `<evid_root>/harden/<fingerprint>/harden.json` | `collect_candidates.py` and `collect_misses.py` (decided skip); a human `--apply`; validate.py DEV-HARDEN-L1 (ladder) + DEV-HARDEN-M1 (a review miss says what the reviewer lacked, v1.1.0) | `status` |
+| `dev-pre-pr.json` | 1.3.0 | `dev-pre-pr` | `<evid_root>/<key>/pre-pr.json` | router; infra-ship `commit_binding.py check` | `status` |
 | `qa-run-case.json` | 1.0.0 | `qa-run-case` (`DRIVER=cli` default · `chrome`) | `<evid_root>/<key>/case-run.json` | grade + drift (stored verbatim); `steps` → per-step rows | `status` |
 | `qa-run-chatbot.json` | 1.0.0 | `qa-run-chatbot` | `<evid_root>/<key>/chatbot-run.json` | per-case rows | `status` |
 | `qa-diagnose.json` | 1.0.0 | `qa-diagnose` | `<evid_root>/<key>/diagnose.json` | the run record's diagnosis (propose-only) | `failure_layer` |
@@ -113,12 +117,96 @@ must-read items can become PR comment threads, capped by `.claude/loops/loop-lim
 *reads* the brain: `lessons_consulted` names what it recalled and `pending_fix_lesson` is the lesson the
 recipe writes after a green verify — never before.
 
+fix.json v1.5.0 adds OPTIONAL `feature_flag` `{name, off_restores_previous, how_to_turn_off?} | null`,
+recorded only when the change itself is gated by a flag the fixer added or reused. `infra-ship`'s
+`pr_sections.py` renders it first under the PR body's `## How to revert` (a flag flip before a code
+revert; `off_restores_previous: false` says the flip is partial). **DEV-FIX-FF1:** a recorded name is a
+non-blank single line, and `how_to_turn_off` is one line. Additive: every older fix sample validates
+unchanged.
+
 ### `qa-regression.json` — the build + unit-test gate
 
 Required `{status, area, results, next_action}`. **QA-REGRESSION-C1:** `green` / `ship-ok` require
 `results.total >= 1` and a non-empty `area_slice_run` — a cross-field rule in `validate.py`, not only prose,
 because a zero-test green once shipped. Counts are integers; `'n/a'` fails by construction. The gate drives
 no browser and runs no spec files.
+
+### `dev-code-review.json` and the reviewer eval set
+
+`review.json` v1.3.0 adds an OPTIONAL integer `findings[].line`: the new-file line of the added or
+changed line the finding is about. It stays optional so every older artifact validates, but a finding
+without an integer line (or with a range string, `EXAMPLE-bad-review-line`, which fails) is
+unlocatable and can never count as a catch when the reviewer is scored.
+
+`review.json` v1.4.0 adds OPTIONAL `findings[].bug_class` (a closed vocabulary of 19 words, `other`
+last; one line per class in `dev-code-review/references/specialists.md`) and `findings[].instances`
+(`[{file, line}]`, the other places in the diff where the same class occurs), so one finding covers
+the class and every instance gets fixed. `EXAMPLE-bad-review-bug-class` (a free-text class) fails.
+`review_rounds.py record` turns each distinct review.json into one round of
+`dev-loop-defect.review-rounds.json`, fingerprinting every open finding by normalised `file` +
+`bug_class` (line excluded on purpose; normalised issue text when the class is absent or `other`).
+`recipe_router.py --review-rounds` escalates with `failure_class: review-stagnation` when one
+fingerprint is open in the last `review_convergence.stagnation_fix_cycles` + 1 rounds.
+
+`review.json` v1.5.0 adds OPTIONAL `headline` and `brief`, both written by
+`dev-code-review/scripts/review_brief.py finalize`, never by hand. `headline` is the count lead
+(`0 findings: nothing needs fixing.` or `N finding(s) (<c> critical, ...).`, open findings only) and
+`summary` starts with it. `brief` records the per-area reviewer brief (conventions `review_brief`):
+the changed files a `skip_paths` glob skipped, the skips refused because the file is R6-denylisted
+or shared core (`skip_refused`, reason `blast-radius` | `shared-core`), the areas that matched, and
+how many low findings the nit cap withheld (`findings[].withheld` / `withheld_reason`, now
+documented). `validate.py` adds **DEV-REVIEW-H1** (the headline's integer equals the open findings,
+not resolved and not withheld, and `summary` starts with the headline) and **DEV-REVIEW-B1** (with
+`brief.status` applied, open lows never exceed `brief.max_nits` and no file is both skipped and
+refused; with `unavailable`, nothing is skipped or withheld). Both fire only when the fields are
+present, so every older review validates. `EXAMPLE-bad-review-brief` fails on both.
+
+`review.json` v1.6.0 adds OPTIONAL `validation` and documents `findings[].finding_id` and
+`findings[].votes`, all written by `dev-code-review/scripts/finding_votes.py tally`, never by hand.
+The specialists only propose candidates; `loop-limits.json review_validation.validators` fresh Agent
+validators vote on each one, and a finding is reported only when the specialist's confidence and at
+least `quorum` confirms are at or above `confidence_floor`. `validation` records the counts
+(`status` independent | no-candidates, `validators`, `validators_returned`, `quorum`,
+`confidence_floor`, `candidates`, `kept`, `rejected`, `split`, `source`); a rejected candidate is
+still recorded nowhere as a finding. `validate.py` adds **DEV-REVIEW-V1**: with `independent`,
+`quorum <= validators_returned <= validators`, `kept + rejected == candidates`, every open finding
+carries `votes.confirm >= quorum` with `cast == validators_returned`, and the open findings number
+`kept`; with `no-candidates`, nothing is kept or open. It fires only when `validation` is present,
+so every older review validates. `EXAMPLE-bad-review-validation` fails it.
+
+`review.json` v1.8.0 (owner decision) adds the verdict `needs-human`, OPTIONAL top-level
+`human_gate`, `findings[].human_gate` / `human_gate_reason` and `validation.human_gated`, all
+written by `finding_votes.py tally`. A protected finding (the R3 masking-class finding, or any finding with severity critical) is outside the quorum: it goes on the ballot whatever its specialist confidence, only a unanimous reject among the returned ballots drops it, a unanimous confirm keeps it as a plain block, and any split (one confirm, a pre-existing vote, a below-floor confirm, an abstain or an unusable vote) keeps it with `human_gate: true` and a `human_gate_reason`, sets the review's `human_gate`, and makes the verdict `needs-human`, which the router escalates (`review-needs-human`), never re-fixes. Owner decision, not a loop-limits number: nothing turns it off. `validate.py` adds **DEV-REVIEW-G1**: only a
+protected finding carries `human_gate`, with a reason, never withheld, and only on a split (not a
+unanimous confirm or reject); with `independent` validation an open protected finding whose votes
+are not a unanimous confirm must carry it; an open gated finding means `human_gate: true` and
+verdict `needs-human`, and `needs-human` means a gated finding; `masking: true` or `human_gate`
+never sits under `approve`. DEV-REVIEW-V1 accepts a gated finding below quorum.
+`EXAMPLE-review-human-gate` passes; `EXAMPLE-bad-review-human-gate` fails it.
+`dev-loop-defect.review-rounds.json` 1.1.0 accepts a `needs-human` round (never a pass).
+
+`review.json` v1.7.0 adds OPTIONAL `depth`, the risk-based review depth, written by
+`dev-code-review/scripts/review_depth.py record`, never by hand: `level` quick | standard | deep,
+`status` decided | unavailable, the closed `reasons` that decided it, `files`, `changed_lines`,
+`risk_files` (`{file, reason: blast-radius | shared-core}`), the `passes` spawned
+(`{name, specialists, files: review | risk}`), `source` and, when unavailable, `error`. quick is one
+combined pass carrying all six specialist lenses, standard six passes, deep six plus a
+`security-risk-paths` pass over the risk files. `validate.py` adds **DEV-REVIEW-D1**: at every level
+the passes cover frontend, backend, data, security, tests and perf; quick only with status decided,
+reasons exactly `[small-diff]`, no risk file, an integer `changed_lines` and one pass; a risk file,
+status unavailable or a risk/unknown reason means deep; deep has a security pass over the risk
+files; standard and deep give each specialist its own pass. It fires only when `depth` is present,
+so every older review validates. `EXAMPLE-bad-review-depth` fails it.
+
+`dev-code-review.eval-case.json` is the answer key of one eval case (diff + base tree + optional
+fix.json beside it). **DEV-REVIEW-EVAL-K1** (`validate.py`): `kind: bad` needs at least one bug with
+`line_end >= line_start`, `kind: clean` names none, and any case whose `source.origin` is not `seed`
+carries `source.ref` and `source.confirmed_by`, a person's signature on the location or on "clean".
+`dev-code-review.eval-score.json` is the scorer's output: recall, false-flag rate, per-case results.
+It is a pure function of the case set, the reviews and `loop-limits.json reviewer_eval`: no timing
+stamp, no model field, sorted keys, so it is not written through `emit.py`; the scorer validates it
+itself before printing. Compare two scores only at equal `case_set.sha256`. See
+`.claude/skills/dev-code-review/references/eval-set.md`.
 
 ### `dev-pre-pr.json` — the readiness verdict
 
@@ -128,6 +216,19 @@ than a changed source file is `stale` and re-run, never trusted. `checks.fix_ver
 `not-applicable`, which a loop run may never use) or the verdict is `blocked` — at every tier. `skipped` is not
 `pass`. Heuristic violations block only when `confirmed: true`. The scanner's rules come from
 `.claude/loops/conventions.json`; the samples cite its generic default rule ids.
+
+v1.3.0 (additive) adds two optional blocks. `risk` is `scripts/risk_reclass.py`'s output copied verbatim:
+`triage_tier` (null = untiered, behaves as T1), `diff_tier`, `tier`, `escalated`, `reasons`, `facts`,
+`human_gate {demanded, triggers}` (closed vocabulary `symptom-only-fix | tests-weakened | blast-radius |
+sensitive-area`), `human_approvals_required` (integer ≥ 1) and `agent_approval_counts_as_human` (pinned
+`false` with `enum: [false]` — an agent approve never fills a human slot). `judged` is
+`scripts/commit_binding.py stamp`'s content fingerprint (`head_commit`, `change_fingerprint`, plus
+`merge_base`, `dirty`, `files`). `validate.py` adds three cross-field rules: **DEV-PRE-PR-T1** the tier is
+never below `triage_tier` or `diff_tier`; **DEV-PRE-PR-T2** `escalated` equals tier > (`triage_tier` or
+T1); **DEV-PRE-PR-R1** `ready` is invalid while `escalated` or `human_gate.demanded` is true. Both blocks
+are optional in the contract so older artifacts stay valid; inside a loop `infra-ship`'s
+`commit_binding.py check` is what requires them (`readiness-unbound`) and proves the commit matches
+`judged` (`stale-readiness`).
 
 ### `qa-run-case.json`, `qa-run-chatbot.json`, `qa-diagnose.json` — the control plane's QA lane
 
@@ -289,13 +390,40 @@ Every sample validates against its contract (or is a named negative that must fa
 | `EXAMPLE-inconclusive/`, `EXAMPLE-judge-inconclusive/` | qa-repro · qa-verify.repro-judge | pass — the three-value *could not tell* cases |
 | `EXAMPLE-fix-must-read/` | dev-fix | pass — a must-read item beside a recorded decision and a legacy string |
 | `EXAMPLE-bad-must-read-reason/`, `EXAMPLE-bad-must-read-no-ask/` | dev-fix | **fail** — off-enum reason / missing reviewer ask |
+| `EXAMPLE-fix-feature-flag/` | dev-fix | pass — a flag-gated fix (`off_restores_previous: true`) beside its human-action-required must-read item (v1.5.0) |
+| `EXAMPLE-bad-fix-feature-flag/` | dev-fix | **fail** — a blank `feature_flag.name` (DEV-FIX-FF1) |
 | `EXAMPLE-blocked-slice-empty/` | qa-regression | pass — zero tests reported honestly as `blocked-slice-empty` |
 | `EXAMPLE-bad-green-zero-tests/` | qa-regression | **fail** — the incident shape (QA-REGRESSION-C1) |
-| `EXAMPLE-pre-pr-blocked/`, `EXAMPLE-pre-pr-warnings/` | dev-pre-pr | pass — fail-closed on `fix_verified`; heuristics cleared by reading |
+| `EXAMPLE-pre-pr-blocked/`, `EXAMPLE-pre-pr-warnings/` | dev-pre-pr | pass — fail-closed on `fix_verified`; heuristics cleared by reading; `warnings` carries a held T1 `risk` + `judged`, `blocked` carries neither (v1.3.0 blocks are optional) |
+| `EXAMPLE-pre-pr-risk-escalated/` | dev-pre-pr | pass — triage T0, diff T2, human gate `tests-weakened`, 2 human approvals, `warnings` (v1.3.0) |
+| `EXAMPLE-bad-pre-pr-deescalated/`, `EXAMPLE-bad-pre-pr-agent-approval/`, `EXAMPLE-bad-pre-pr-ready-escalated/` | dev-pre-pr | **fail** — tier below triage (DEV-PRE-PR-T1) / agent approval counted as human (enum) / `ready` while escalated (DEV-PRE-PR-R1) |
 | `case-4012-run-9001/`, `case-4055-run-9007/` | qa-run-case | pass — a PASS with drift + media, and a BLOCKED auth failure |
 | `EXAMPLE-bad-enum/` | qa-run-case | **fail** — off-enum grade and step status |
 | `diag-app-bug/`, `diag-inconclusive/` | qa-diagnose | pass — a proposed diff, and the empty-diff give-up path |
 | `EXAMPLE-bad-layer/` | qa-diagnose | **fail** — off-enum `failure_layer` |
+| `EXAMPLE-harden-rule/`, `EXAMPLE-harden-prose/` | dev-harden | pass — a probed rule, and a guideline that justifies every higher band (DEV-HARDEN-L1) |
+| `EXAMPLE-bad-harden-band/`, `EXAMPLE-bad-harden-prose-skip/` | dev-harden | **fail** — off-enum band / a guideline that skips bands without a reason (DEV-HARDEN-L1) |
+| `EXAMPLE-harden-miss/`, `EXAMPLE-harden-miss-declined/` | dev-harden | pass — a prod review miss that lacked `context`, ticket drafted; an eval miss that lacked `nothing`, declined with a reason (v1.1.0, DEV-HARDEN-M1) |
+| `EXAMPLE-bad-harden-miss-no-lacked/`, `EXAMPLE-bad-harden-miss-nothing-ruled/` | dev-harden | **fail** — a miss placed with `lacked: null` / a rule proposed for a miss that lacked `nothing` (DEV-HARDEN-M1) |
+| `EXAMPLE-review-harden/` | dev-code-review | pass — a drafted `harden` block and an integer `line` (v1.3.0) |
+| `EXAMPLE-bad-review-line/` | dev-code-review | **fail** — `line` written as a range string |
+| `EXAMPLE-review-bug-class/` | dev-code-review | pass — one finding with a `bug_class` and two `instances` (v1.4.0) |
+| `EXAMPLE-bad-review-bug-class/` | dev-code-review | **fail** — `bug_class` off the closed vocabulary |
+| `EXAMPLE-review-brief/` | dev-code-review | pass — real `review_brief.py finalize` output (v1.5.0): one file skipped, a migration refused as `blast-radius`, one nit withheld, the count lead |
+| `EXAMPLE-review-clean-headline/` | dev-code-review | pass — a clean approve whose summary leads with `0 findings: nothing needs fixing.` (v1.5.0) |
+| `EXAMPLE-bad-review-brief/` | dev-code-review | **fail** — headline says 0 with two open findings (DEV-REVIEW-H1) and two open lows over `brief.max_nits` 1 (DEV-REVIEW-B1) |
+| `EXAMPLE-review-validated/` | dev-code-review | pass — real `finding_votes.py tally` + `review_brief.py finalize` output (v1.6.0): three validators, quorum 2, two findings kept (3/3 and 2/3), one rejected (1/3) |
+| `EXAMPLE-bad-review-validation/` | dev-code-review | **fail** — an open finding with 1 confirm under quorum 2 (DEV-REVIEW-V1) |
+| `EXAMPLE-review-human-gate/` | dev-code-review | pass — real `finding_votes.py tally --derive-verdict` output (v1.8.0): the masking finding (specialist confidence 72, below the floor, on the ballot anyway) split 1 confirm / 2 reject and is kept with `human_gate`, verdict `needs-human`; a 3/3 critical and a 2/3 medium beside it |
+| `EXAMPLE-bad-review-human-gate/` | dev-code-review | **fail** — the same split mask carried as a plain finding under `request-changes` with no human gate (DEV-REVIEW-G1, DEV-REVIEW-V1) |
+| `EXAMPLE-review-depth-quick/` | dev-code-review | pass — real `review_depth.py record` + `review_brief.py finalize` output (v1.7.0): a one-line copy change, depth quick (small-diff), one combined pass naming all six specialists, approve, `no-candidates` |
+| `EXAMPLE-review-depth-deep/` | dev-code-review | pass — real `finding_votes.py tally` + `review_depth.py record` + `review_brief.py finalize` output (v1.7.0): a one-line migration, `risk_files` blast-radius, depth deep with seven passes, the migration a CRITICAL validated 3/3, request-changes |
+| `EXAMPLE-bad-review-depth/` | dev-code-review | **fail** — depth quick with a blast-radius risk file and a combined pass lacking security (DEV-REVIEW-D1) |
+| `EXAMPLE-review-rounds/` | dev-loop-defect.review-rounds | pass — three request-changes rounds sharing one fingerprint (stagnation) |
+| `EXAMPLE-bad-review-rounds/` | dev-loop-defect.review-rounds | **fail** — a round verdict off the enum |
+| `EXAMPLE-reviewer-eval-bad/`, `EXAMPLE-reviewer-eval-clean/` | dev-code-review.eval-case | pass — a signed re-fix bad case and a signed clean case |
+| `EXAMPLE-bad-reviewer-eval-case/` | dev-code-review.eval-case | **fail** — a bad case naming no bug (DEV-REVIEW-EVAL-K1) |
+| `EXAMPLE-reviewer-eval/` | dev-code-review.eval-score | pass — real `reviewer_eval.py score` output over the seed set |
 | `EXAMPLE-chatbot/` | qa-run-chatbot | pass |
 
 ## Versioning

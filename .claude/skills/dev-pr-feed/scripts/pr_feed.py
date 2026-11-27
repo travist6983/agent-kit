@@ -20,7 +20,14 @@ Design notes worth knowing before you change anything:
 * **Fail closed on the ledger.** If we cannot read the ledger we do NOT fall back to "review
   everything" — that would spam real colleagues' pull requests with duplicate comments.
 
-Verbs: list · unreviewed · health · checkout · post · mark · teardown · ledger · lock
+Verbs: list · unreviewed · health · checkout · post · mark · teardown · ledger · lock · dispositions
+       · step-back · rounds · scope
+Review convergence (references/seen-ledger.md): the ledger entry carries `rounds`, the count of
+CONSECUTIVE reviewed head commits that did not pass. At pr_review_loop.max_review_rounds_per_pr
+`unreviewed` stops queueing the PR (listed under `round_capped`) and `step-back` posts one PR-level
+comment asking the author to reconsider the approach. A re-review is an interdiff: `checkout`
+returns `review_scope` + `interdiff_command`, and `post` / `scope` withhold non-critical findings
+outside the lines changed since the previously reviewed commit.
 Every candidate-filtering verb takes `--base` (default: LOOP_PR_TARGET, else project.default_branch).
 Exit codes: 0 ok · 1 usage · 2 recoverable failure (class in JSON) · 3 fail-closed refusal
             4 tick lock busy
@@ -94,6 +101,12 @@ KB_CLI = os.environ.get(
 # Stamped into every comment we post, and the way we recognise our own comments on a later tick.
 BOT_MARKER = "Posted by the PR-review loop (`dev-pr-feed`)"
 
+# Stamped into the one PR-level step-back comment. It must NOT contain BOT_MARKER as a substring:
+# existing_bot_anchors() treats every BOT_MARKER thread as a finding anchor, and a step-back is
+# unanchored (path None, line None), so it would swallow a later unanchored finding as a duplicate.
+STEP_BACK_MARKER = "Posted by the PR-review loop (`dev-pr-feed` step-back)"
+DEFAULT_LIMITS = os.path.join(FRAMEWORK_ROOT, ".claude", "loops", "loop-limits.json")
+
 # The local ref namespace a review checkout fetches into (never a branch the developer uses).
 REF_NAMESPACE = "refs/loops/pr-"
 
@@ -111,7 +124,9 @@ FAILURE_CLASSES = (
     "pr-closed",          # the PR merged/closed mid-run — drop it, never retry
     "config-invalid",     # LOOP_PR_AUTHOR_SCOPE / LOOP_PR_LEDGER_BACKEND is not a value this
                           # script knows, or a required adapter/config value is absent — refuse
-                          # rather than silently widen scope, switch store or guess a repo
+                          # rather than silently widen scope, switch store or guess a repo;
+                          # also a required input file (`scope --findings`) that is missing,
+                          # empty or not JSON
     "already-posted",     # the ledger says this PR was already posted LIVE at its current head —
                           # a second live post would duplicate comments on a real person's PR
 )
@@ -939,8 +954,11 @@ def cmd_health(a):
 # --- Unreviewed ----------------------------------------------------------------------------
 
 def cmd_unreviewed(a):
+    # The round cap is read BEFORE any candidate is classified: a missing number stops the tick
+    # loudly (config-invalid, exit 3) instead of running uncapped.
+    round_cap = review_limits(getattr(a, "limits", None) or DEFAULT_LIMITS)
     rows = candidates()
-    unreviewed, skipped, loop_skipped = [], [], []
+    unreviewed, skipped, loop_skipped, round_capped = [], [], [], []
     for r in rows:
         if r.get("loop_pr") and not INCLUDE_LOOP_PRS:
             loop_skipped.append({"pr_id": r["pr_id"], "title": r["title"],
@@ -961,11 +979,39 @@ def cmd_unreviewed(a):
                  code=3, backend=LEDGER_BACKEND)
         if entry is None:
             r["reason"] = "never-reviewed"
+            r["review_round"] = 1
             unreviewed.append(r)
         elif not same_commit(entry.get("head_commit"), r["head_commit"]):
+            st = _rounds_of(entry)
+            if st["open"] >= round_cap:
+                sb = st.get("step_back") if isinstance(st.get("step_back"), dict) else None
+                round_capped.append({
+                    "pr_id": r["pr_id"], "title": r.get("title"), "head_commit": r["head_commit"],
+                    "previously_reviewed_commit": entry.get("head_commit"), "rounds": st["open"],
+                    "cap": round_cap, "step_back": (sb or {}).get("mode"),
+                    "reason": (f"{st['open']} consecutive reviewed head commits did not pass "
+                               f"(pr_review_loop.max_review_rounds_per_pr={round_cap}): NOT reviewed "
+                               "again automatically; the step-back comment asks the author to "
+                               "reconsider the approach. A maintainer re-admits it with "
+                               "`ledger --reset-rounds <pr>`.")})
+                continue
             r["reason"] = "new-commits-since-review"
             r["previously_reviewed_commit"] = entry.get("head_commit")
+            r["review_round"] = st["open"] + 1
             unreviewed.append(r)
+        elif _rounds_of(entry)["open"] >= round_cap:
+            # Capped at the head it was last reviewed on: name it as capped NOW, not only after the
+            # author's next push, so the tick report says the PR has stopped converging.
+            st = _rounds_of(entry)
+            sb = st.get("step_back") if isinstance(st.get("step_back"), dict) else None
+            round_capped.append({
+                "pr_id": r["pr_id"], "title": r.get("title"), "head_commit": r["head_commit"],
+                "previously_reviewed_commit": entry.get("head_commit"), "rounds": st["open"],
+                "cap": round_cap, "step_back": (sb or {}).get("mode"), "awaiting_push": True,
+                "reason": (f"{st['open']} consecutive reviewed head commits did not pass "
+                           f"(pr_review_loop.max_review_rounds_per_pr={round_cap}); this head is "
+                           "already reviewed and the next push will NOT be reviewed automatically. "
+                           "A maintainer re-admits it with `ledger --reset-rounds <pr>`.")})
         else:
             skipped.append({"pr_id": r["pr_id"], "head_commit": r["head_commit"],
                             "reviewed_at": entry.get("reviewed_at"),
@@ -1017,7 +1063,8 @@ def cmd_unreviewed(a):
         unreviewed = unreviewed[: a.limit]
     out({"status": "ok", "backend": LEDGER_BACKEND, "count": len(unreviewed),
          "unreviewed": unreviewed, "already_reviewed": skipped, "loop_prs_skipped": loop_skipped,
-         "too_large": too_large, "max_changed_files": max_files or None})
+         "too_large": too_large, "max_changed_files": max_files or None,
+         "round_capped": round_capped, "max_review_rounds_per_pr": round_cap})
 
 
 # --- Checkout / teardown -------------------------------------------------------------------
@@ -1066,7 +1113,8 @@ def cmd_checkout(a):
         p = run(["git", "rev-parse", "HEAD"], cwd=path, check=False)
         if p.returncode == 0 and pr.get("head_commit") and same_commit(p.stdout.strip(), pr["head_commit"]):
             out({"status": "ok", "reused": True, "worktree": path, "pr_id": a.pr,
-                 "head_commit": pr["head_commit"], "diff_base": pr.get("merge_base_commit")})
+                 "head_commit": pr["head_commit"], "diff_base": pr.get("merge_base_commit"),
+                 **_scope_fields(a.pr, pr["head_commit"], root, path)})
         run(["git", "worktree", "remove", "--force", path], cwd=root, check=False)
 
     fetched = None
@@ -1102,6 +1150,7 @@ def cmd_checkout(a):
     out({"status": "ok", "reused": False, "worktree": path, "pr_id": a.pr,
          "fetched_ref": fetched, "head_commit": pr.get("head_commit"), "diff_base": base,
          "diff_command": f"git -C {path} diff {base}...HEAD" if base else f"git -C {path} diff {fallback_base}...HEAD",
+         **_scope_fields(a.pr, pr.get("head_commit"), root, path),
          "note": "read-only review checkout; the developer's own checkout was not touched"})
 
 
@@ -1149,13 +1198,26 @@ def build_comment(f):
     """ONE finding -> ONE host comment payload {path, line, body}."""
     sev = (f.get("severity") or "").upper()
     body = [f"**{sev or 'FINDING'}: {f.get('title') or f.get('summary', 'Finding')}**", ""]
+    if f.get("human_gate") is True:
+        # dev-code-review v1.8.0: a masking or critical finding the validators split on. It is
+        # posted as an open question for a person, never withheld and never stated as settled.
+        body += ["**Needs a human decision:** the independent validators disagreed on this "
+                 "masking or critical finding, and only a unanimous reject drops one. "
+                 + str(f.get("human_gate_reason") or ""), ""]
     if f.get("summary") and f.get("title"):
         body.append(f["summary"])
     if f.get("failure_scenario"):
         body += ["", f"**How it fails:** {f['failure_scenario']}"]
     if f.get("recommendation"):
         body += ["", f"**Suggested fix:** {f['recommendation']}"]
-    body += ["", f"_{BOT_MARKER} · reply here or resolve the thread._"]
+    if isinstance(f.get("bug_class"), str) and f["bug_class"]:
+        body += ["", f"**Class:** `{f['bug_class']}` - fix every instance, not only this line."]
+        inst = [i for i in (f.get("instances") or []) if isinstance(i, dict) and i.get("file")]
+        if inst:
+            shown = ", ".join(f"`{norm_path(i.get('file'))}:{i.get('line')}`" for i in inst[:10])
+            more = f", +{len(inst) - 10} more" if len(inst) > 10 else ""
+            body += [f"**Also at:** {shown}{more}"]
+    body += ["", f"_{BOT_MARKER} · reply `fixed`, `wrong` or `intentional`, or resolve the thread._"]
     path_ = norm_path(f.get("file"))
     line = f.get("line")
     try:
@@ -1243,6 +1305,11 @@ def cmd_post(a):
              "during the review — abandoning the post so nothing anchors to replaced code",
              reviewed_commit=a.reviewed_commit, current_commit=pr["head_commit"])
 
+    # Interdiff scope, BEFORE dedup and the volume cap: on a re-review only the lines changed since
+    # the previously reviewed commit are commented on (criticals exempt). Degrades to a full review
+    # with the reason named; never an error.
+    scope_summary = apply_interdiff_scope(findings, a.pr, pr["head_commit"], app_root(required=False))
+
     pairs = [(f, build_comment(f)) for f in findings if not f.get("withheld")]
 
     # Drop anything we have already said on this PR.
@@ -1254,10 +1321,15 @@ def cmd_post(a):
     # severe first. Applied to previews too: a preview is byte-for-byte the live call.
     capped, cap = [], env_int("LOOP_PR_MAX_THREADS")
     if cap and len(fresh) > cap:
+        # a human-gated finding (dev-code-review v1.8.0) ranks first and is never withheld: it is a
+        # question for a person, and a capped one would be the silent drop the gate exists to stop
         order = sorted(range(len(fresh)),
-                       key=lambda i: (SEVERITY_RANK.get(str(fresh[i][0].get("severity", "")).lower(), 4), i))
-        keep = set(order[:cap])
+                       key=lambda i: (0 if fresh[i][0].get("human_gate") is True else 1,
+                                      SEVERITY_RANK.get(str(fresh[i][0].get("severity", "")).lower(), 4), i))
+        keep = set(order[:cap]) | {i for i in range(len(fresh)) if fresh[i][0].get("human_gate") is True}
         for i in order[cap:]:
+            if i in keep:
+                continue
             f = fresh[i][0]
             f["withheld"] = True
             f["withheld_reason"] = (f"volume cap (max_threads_per_pr={cap}): this PR had {len(fresh)} "
@@ -1275,6 +1347,7 @@ def cmd_post(a):
                             for f in withheld]}
     if capped:
         summary["volume_cap"] = {"max_threads_per_pr": cap, "withheld_for_volume": capped}
+    summary.update(scope_summary)
     if posture_note:
         summary["runner_posture"] = posture_note
 
@@ -1323,6 +1396,11 @@ def cmd_post(a):
              "reviewer": "dev-pr-feed", "write_ahead": True,
              "run_id": os.environ.get("LOOP_RUN_ID") or None,
              "reviewed_commit_verified": bool(a.reviewed_commit)}
+    # Per-thread disposition state rides in the entry (see references/dispositions.md). A re-review
+    # at a new head must not wipe the threads posted at the old one.
+    entry["threads"] = dict(prior.get("threads") or {}) if isinstance(prior, dict) else {}
+    # A live post is a reviewed round that did not pass (it has something to say).
+    _carry_rounds(prior, entry, passed=False)
     try:
         ledger_put(a.pr, entry)
     except Exception as e:
@@ -1330,7 +1408,7 @@ def cmd_post(a):
              "post comments that nothing would remember. Nothing was posted.", code=3, entry=entry)
 
     posted, err = [], None
-    for c in comments:
+    for f, c in fresh:
         try:
             r = _host("post_review_comment", str(a.pr), c["path"], c["line"], c["body"])
         except HostError as e:
@@ -1339,7 +1417,12 @@ def cmd_post(a):
         except Exception as e:                    # never exit with posted comments unrecorded
             err = HostError("api-unavailable", f"unexpected error posting a comment: {type(e).__name__}: {e}")
             break
-        posted.append((r or {}).get("thread_id") if isinstance(r, dict) else None)
+        tid = (r or {}).get("thread_id") if isinstance(r, dict) else None
+        posted.append(tid)
+        entry["threads"][str(tid) if tid not in (None, "") else f"{c['path']}:{c['line']}"] = {
+            "path": c["path"], "line": c["line"], "posted_commit": pr["head_commit"],
+            "posted_at": now(), "severity": f.get("severity"), "dimension": f.get("dimension"),
+            "bug_class": f.get("bug_class"), "disposition": "pending", "counted": False}
 
     base = {"mode": "live", "thread_ids": posted, "thread_count": len(posted), "url": pr["url"],
             **summary}
@@ -1403,6 +1486,22 @@ def cmd_mark(a):
     entry = {"pr_id": a.pr, "head_commit": a.commit,
              "reviewed_at": now(), "verdict": a.verdict, "findings": a.findings_count,
              "mode": a.mode, "reviewer": "dev-pr-feed"}
+    # `mark` replaces the entry, so it must carry the per-thread disposition state forward:
+    # the recipe marks right after a live post, and that used to wipe what `post` recorded.
+    try:
+        prior = ledger_get(a.pr)
+    except Exception as e:
+        fail("ledger-unreadable", f"seen-ledger unreadable ({e}) — refusing to overwrite an entry "
+             "whose thread records could not be read", code=3, entry=entry)
+    if isinstance(prior, dict) and isinstance(prior.get("threads"), dict) and prior["threads"]:
+        entry["threads"] = prior["threads"]
+    # Review rounds: one per reviewed head commit, idempotent per head. A pass is an explicit
+    # approve, or an EXPLICIT --findings-count 0; `posted` (the runner's auto-mark after a live
+    # post) is never one. An omitted count is unknown, and unknown is never a pass: the cap must
+    # not fail open because a hand-typed recovery `mark` left the flag off.
+    passed = a.verdict == "approve" or (a.findings_count is not None and a.findings_count == 0
+                                        and a.verdict not in ("posted", "posting"))
+    _carry_rounds(prior, entry, passed=passed)
     try:
         ledger_put(a.pr, entry)
     except Exception as e:
@@ -1410,13 +1509,40 @@ def cmd_mark(a):
         # re-posts the same findings on a real person's PR.
         fail("ledger-unreadable", f"could not record the review ({e}) — the next run would "
              "re-review this PR; fix the ledger before the next tick", code=3, entry=entry)
-    out({"status": "ok", "backend": LEDGER_BACKEND, "recorded": entry})
+    cap, cap_err = None, None
+    try:
+        cap = _review_cap_soft(DEFAULT_LIMITS)
+    except ValueError as e:
+        cap_err = str(e)
+    out({"status": "ok", "backend": LEDGER_BACKEND, "recorded": entry, "rounds": entry["rounds"],
+         "round_cap_reached": (entry["rounds"]["open"] >= cap) if cap else None,
+         **({"round_cap_unreadable": cap_err} if cap_err else {})})
 
 
 def cmd_ledger(a):
     if a.forget is not None:
         ledger_forget(a.forget)
         out({"status": "ok", "forgot": a.forget})
+    if a.reset_rounds is not None:
+        try:
+            entry = ledger_get(a.reset_rounds)
+        except Exception as e:
+            fail("ledger-unreadable", f"seen-ledger unreadable ({e}) — nothing was reset", code=3)
+        if not isinstance(entry, dict):
+            fail("ledger-unreadable", f"no seen-ledger entry (object) for PR {a.reset_rounds} — nothing to reset",
+                 code=3)
+        st = _rounds_of(entry)
+        st["open"] = 0
+        st.pop("step_back", None)
+        st.pop("cap_counted", None)
+        st["reset_at"] = now()
+        entry["rounds"] = st
+        try:
+            ledger_put(a.reset_rounds, entry)
+        except Exception as e:
+            fail("ledger-unreadable", f"could not write the reset ({e})", code=3)
+        out({"status": "ok", "reset_rounds": a.reset_rounds, "entry": entry,
+             "note": "the PR re-enters the review queue at its next new head commit; thread records kept"})
     try:
         allrec = ledger_read_all()
     except Exception as e:
@@ -1426,6 +1552,793 @@ def cmd_ledger(a):
              "note": "the kb backend has no prefix scan; query a specific PR via `unreviewed`"})
     out({"status": "ok", "backend": LEDGER_BACKEND, "path": _file_path() if LEDGER_BACKEND == "file" else None,
          "count": len(allrec), "entries": allrec})
+
+
+# --- Dispositions --------------------------------------------------------------------------
+# What happened to the threads this loop posted LIVE: fixed, said wrong, said intentional, or
+# did not matter. Read-only on the host (get_pr + list_review_threads), mechanical, lossy by
+# design, and measured — nothing here gates or suppresses anything. references/dispositions.md
+# is the full rule set; keep the two in step.
+
+SETTLED = ("fixed", "wrong", "intentional", "no-action", "unclassified")
+METRIC_SUFFIX = {"fixed": "fixed", "wrong": "wrong", "intentional": "intentional",
+                 "no-action": "no_action", "unclassified": "unclassified"}
+OPEN_STATUSES = ("active", "pending", "open")
+FIXED_STATUSES = ("fixed",)
+CLOSED_STATUSES = ("resolved", "closed")
+DECLINED_STATUSES = ("wontfix", "bydesign")
+# The FIRST word of the latest human reply, after stripping markdown and punctuation.
+REPLY_TOKENS = {"fixed": "fixed", "wrong": "wrong", "fp": "wrong",
+                "intentional": "intentional", "wontfix": "intentional", "bydesign": "intentional"}
+# Fallback: a phrase anywhere in that reply (case-insensitive; the earliest match wins).
+REPLY_PHRASES = (
+    ("wrong", ("false positive", "not a bug", "not an issue", "incorrect", "does not apply",
+               "doesn't apply", "not applicable")),
+    ("intentional", ("intentional", "by design", "as designed", "on purpose", "deliberate",
+                     "won't fix", "wontfix")),
+)
+DISPOSITION_LIMIT_KEYS = ("disposition_line_tolerance", "disposition_budget_s")
+
+
+def norm_status(s):
+    return re.sub(r"[^a-z0-9]+", "", str(s or "").lower())
+
+
+def reply_disposition(body):
+    """(disposition, evidence) from ONE human reply, or (None, None). The text is matched against
+    fixed word lists and never stored, printed or acted on (R6): it is data, not instructions."""
+    text = str(body or "").lower().replace("’", "'").replace("‘", "'")
+    m = re.search(r"[a-z0-9]+", text)
+    if m and m.group(0) in REPLY_TOKENS:
+        return REPLY_TOKENS[m.group(0)], f"reply-token:{m.group(0)}"
+    best = None
+    for disp, phrases in REPLY_PHRASES:
+        for ph in phrases:
+            i = text.find(ph)
+            if i >= 0 and (best is None or i < best[0]):
+                best = (i, disp, ph)
+    if best:
+        return best[1], f"reply-phrase:{best[2]}"
+    return None, None
+
+
+def anchor_changed(root, posted_commit, head, path_, line, tol):
+    """True: the flagged line (± tol) changed between the commit the comment was posted at and the
+    PR's head, or the file went away. False: measured, untouched. None: cannot be measured (no
+    checkout, a commit not present locally, no anchor). Never fetches."""
+    if not path_ or not line:
+        return None
+    if posted_commit and head and same_commit(posted_commit, head):
+        return False
+    if not root or not posted_commit or not head:
+        return None
+    if not (local_commit(root, posted_commit) and local_commit(root, head)):
+        return None
+    p = _git(["diff", "-U0", "--no-color", "--no-ext-diff", str(posted_commit), str(head), "--", str(path_)], root)
+    if p is None or p.returncode != 0:
+        return None
+    diff = p.stdout or ""
+    if not diff.strip():
+        return False
+    if re.search(r"^\+\+\+ /dev/null$", diff, re.M) or re.search(r"^deleted file mode", diff, re.M):
+        return True
+    line = int(line)
+    for m in re.finditer(r"^@@ -(\d+)(?:,(\d+))? \+", diff, re.M):
+        a = int(m.group(1))
+        b = int(m.group(2)) if m.group(2) is not None else 1
+        lo, hi = a, a + max(b, 1) - 1
+        if hi >= line - tol and lo <= line + tol:
+            return True
+    return False
+
+
+def classify_thread(rec, thread, pr_open, head, root, tol):
+    """(disposition, evidence) for one UNSETTLED thread. Precedence, first match wins:
+    reply word -> host status -> anchor changed -> closed unchanged -> PR closed -> pending."""
+    replies = (thread or {}).get("replies") or []
+    human = [r for r in replies if isinstance(r, dict) and BOT_MARKER not in str(r.get("body") or "")]
+    latest = human[-1] if human else None
+    if latest is not None:
+        d, ev = reply_disposition(latest.get("body"))
+        if d:
+            return d, ev
+    status = norm_status((thread or {}).get("status"))
+    if status in FIXED_STATUSES:
+        return "fixed", f"status:{status}"
+    if status in DECLINED_STATUSES:
+        return "intentional", f"status:{status}"
+    changed = anchor_changed(root, rec.get("posted_commit"), head, rec.get("path"), rec.get("line"), tol)
+    if changed is True:
+        return "fixed", "anchor-changed"
+    if thread is not None and status in CLOSED_STATUSES:
+        if changed is False:
+            return "no-action", "closed-unchanged"
+        if pr_open:
+            return "pending", "anchor-unmeasured"
+    if not pr_open:
+        if latest is not None:
+            return "unclassified", "pr-closed-reply-unrecognized"
+        if changed is None:
+            return "unclassified", "pr-closed-anchor-unmeasured"
+        return "no-action", "pr-closed-unanswered"
+    if thread is None:
+        return "pending", "thread-not-on-host"
+    return "pending", ("reply-unrecognized" if latest is not None else "awaiting-reply")
+
+
+def disposition_limits(path_):
+    try:
+        with open(path_) as fh:
+            block = json.load(fh).get("pr_review_loop")
+    except Exception as e:
+        fail("config-invalid", f"could not read {path_}: {type(e).__name__}: {e}", code=3)
+    if not isinstance(block, dict):
+        fail("config-invalid", f"{path_} has no pr_review_loop block", code=3)
+    vals = []
+    for k in DISPOSITION_LIMIT_KEYS:
+        v = block.get(k)
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0:
+            fail("config-invalid", f"pr_review_loop.{k} in {path_} is missing or not a non-negative "
+                 f"number ({v!r}) — refusing to guess a default", code=3, key=k)
+        vals.append(v)
+    return int(vals[0]), float(vals[1])
+
+
+def _needs_read(entry):
+    th = entry.get("threads")
+    if not isinstance(th, dict):
+        return entry.get("mode") == "live"          # posted before thread records existed
+    return any(isinstance(r, dict) and r.get("disposition") not in SETTLED for r in th.values())
+
+
+def _uncounted(entry):
+    th = entry.get("threads")
+    return isinstance(th, dict) and any(isinstance(r, dict) and r.get("disposition") in SETTLED
+                                        and not r.get("counted") for r in th.values())
+
+
+def _tracked(entry):
+    return isinstance(entry, dict) and (entry.get("mode") == "live" or bool(entry.get("threads")))
+
+
+def _merge_threads(pr_id, records, init=False):
+    """Write changed thread records back into the CURRENT ledger entry, preserving every other key
+    (a concurrent post/mark may have rewritten it since we read it). Returns the entry written."""
+    cur = ledger_get(pr_id)
+    if not isinstance(cur, dict):
+        return None                                  # forgotten meanwhile: nothing to keep
+    th = cur.get("threads") if isinstance(cur.get("threads"), dict) else {}
+    if not records and not init:
+        return cur
+    th.update(records)
+    cur["threads"] = th
+    ledger_put(pr_id, cur)
+    return cur
+
+
+def cmd_dispositions(a):
+    import time
+    tol, budget = disposition_limits(a.limits or os.path.join(FRAMEWORK_ROOT, ".claude", "loops", "loop-limits.json"))
+    if a.budget_s is not None:
+        budget = min(budget, max(float(a.budget_s), 0.0))
+    base_out = {"status": "ok", "backend": LEDGER_BACKEND, "tolerance": tol, "budget_s": budget}
+
+    # Which ledger entries to look at.
+    entries = {}
+    try:
+        if a.pr:
+            for pid in a.pr:
+                entries[str(pid)] = ledger_get(pid)
+        else:
+            allrec = ledger_read_all()
+            if allrec is None:
+                out(dict(base_out, enumerable=False, checked=[], unchecked=[], errors=[], threads=[],
+                         newly_settled={k: 0 for k in SETTLED}, pending=0,
+                         totals={k: 0 for k in SETTLED}, noise_rate=None, metric_calls=[], emitted=[],
+                         emit_failed=[], eval_candidates=[],
+                         note="the kb ledger backend has no prefix scan, so dispositions cannot "
+                              "enumerate PRs; pass --pr <id> for each PR to read"))
+            entries = dict(allrec)
+    except Exception as e:
+        fail("ledger-unreadable", f"seen-ledger unreadable ({e}) — dispositions reads nothing rather "
+             "than guess which threads exist", code=3, backend=LEDGER_BACKEND)
+
+    errors, unchecked, checked, rows = [], [], [], []
+    newly = {k: 0 for k in SETTLED}
+    to_read = []
+    for pid, entry in entries.items():
+        if entry is None and a.pr:
+            errors.append({"pr_id": pid, "failure_class": "untracked",
+                           "message": "no seen-ledger entry for this PR"})
+            continue
+        if entry is not None and not isinstance(entry, dict):
+            fail("ledger-unreadable", f"seen-ledger entry for PR {pid} is {type(entry).__name__}, not an object",
+                 code=3, backend=LEDGER_BACKEND)
+        if _tracked(entry) and _needs_read(entry):
+            to_read.append(pid)
+
+    deadline = time.monotonic() + budget
+    root = None
+    if to_read:
+        root = app_root(required=False)
+    for pid in to_read:
+        if time.monotonic() >= deadline:
+            unchecked.append(pid)
+            continue
+        entry = entries[pid]
+        try:
+            pr = _host("get_pr", str(pid))
+            pr_state, head = None, None
+            if pr is not None:
+                row = pr_row(pr)
+                pr_state, head = (row.get("state") or "open"), row.get("head_commit")
+            else:
+                pr_state = "gone"
+        except HostError as e:
+            low = e.message.lower()
+            if e.http_status == 404 or "no pr" in low or "not found" in low:
+                pr_state, head = "gone", None         # deleted on the host: treated as closed
+            else:
+                errors.append({"pr_id": pid, "failure_class": e.failure_class, "message": e.message[:240]})
+                continue
+        host_threads = []
+        if pr_state != "gone":
+            try:
+                host_threads = _host("list_review_threads", str(pid)) or []
+            except HostError as e:
+                errors.append({"pr_id": pid, "failure_class": e.failure_class, "message": e.message[:240]})
+                continue
+        checked.append(pid)
+        pr_open = (str(pr_state).lower() == "open")
+        records = {k: dict(v) for k, v in (entry.get("threads") or {}).items() if isinstance(v, dict)} \
+            if isinstance(entry.get("threads"), dict) else {}
+        by_anchor = {(norm_path(r.get("path")), r.get("line")): k for k, r in records.items()}
+        seen_keys, pairs = set(), []
+        for t in host_threads:
+            if not isinstance(t, dict) or BOT_MARKER not in str(t.get("body") or ""):
+                continue
+            tid = t.get("thread_id")
+            key = str(tid) if tid not in (None, "") and str(tid) in records else None
+            if key is None:
+                key = by_anchor.get((norm_path(t.get("path")), t.get("line")))
+            if key is None or key in seen_keys:
+                key = str(tid) if tid not in (None, "") else f"{norm_path(t.get('path'))}:{t.get('line')}"
+                records[key] = {"path": norm_path(t.get("path")), "line": t.get("line"),
+                                "posted_commit": None, "posted_at": t.get("at"), "severity": None,
+                                "dimension": None, "disposition": "pending", "counted": False,
+                                "discovered": True}
+            seen_keys.add(key)
+            pairs.append((key, t))
+        for key in records:
+            if key not in seen_keys:
+                pairs.append((key, None))            # recorded, no longer on the host
+        changed = {}
+        known = entry.get("threads") if isinstance(entry.get("threads"), dict) else {}
+        for key, t in pairs:
+            rec = records[key]
+            if rec.get("disposition") in SETTLED:     # first settled disposition wins, forever
+                rows.append({"pr_id": pid, "thread_id": key, "path": rec.get("path"), "line": rec.get("line"),
+                             "disposition": rec["disposition"], "evidence": rec.get("evidence"),
+                             "newly_settled": False})
+                continue
+            d, ev = classify_thread(rec, t, pr_open, head, root, tol)
+            settled = d in SETTLED
+            if rec.get("disposition") != d or rec.get("evidence") != ev or key not in known:
+                rec.update(disposition=d, evidence=ev)
+                if settled:
+                    rec["settled_at"] = now()
+                changed[key] = rec
+            if settled:
+                newly[d] += 1
+            rows.append({"pr_id": pid, "thread_id": key, "path": rec.get("path"), "line": rec.get("line"),
+                         "disposition": d, "evidence": ev, "newly_settled": settled})
+        try:
+            written = _merge_threads(pid, changed, init=not isinstance(entry.get("threads"), dict))
+        except Exception as e:
+            fail("ledger-unreadable", f"could not record dispositions for PR {pid} ({e})", code=3)
+        if written is not None:
+            entries[pid] = written
+
+    # Count once: every settled, not-yet-counted record across the entries seen.
+    pending_n = 0
+    totals = {k: 0 for k in SETTLED}
+    by_class = {k: [] for k in SETTLED}          # [(pr_id, key, record)]
+    eval_candidates = []
+    for pid, entry in entries.items():
+        if not _tracked(entry) or not isinstance(entry.get("threads"), dict):
+            continue
+        for key, rec in entry["threads"].items():
+            if not isinstance(rec, dict):
+                continue
+            d = rec.get("disposition")
+            if d in SETTLED:
+                totals[d] += 1
+                if not rec.get("counted"):
+                    by_class[d].append((pid, key, rec))
+                if d in ("wrong", "intentional"):
+                    eval_candidates.append({"pr_id": pid, "thread_id": key, "path": rec.get("path"),
+                                            "line": rec.get("line"), "posted_commit": rec.get("posted_commit"),
+                                            "disposition": d})
+            else:
+                pending_n += 1
+
+    metric_calls = []
+    for d in SETTLED:
+        items = by_class[d]
+        if not items:
+            continue
+        dims = {}
+        for _, _, rec in items:
+            dim = rec.get("dimension") or "unknown"
+            dims[dim] = dims.get(dim, 0) + 1
+        meta = {"pr_ids": sorted({str(p) for p, _, _ in items}), "by_dimension": dims}
+        metric_calls.append({"class": d, "argv": [
+            "metric", "--name", f"pr_review_threads_{METRIC_SUFFIX[d]}", "--value", str(len(items)),
+            "--unit", "threads", "--area", "pr-review", "--source", "dev-pr-feed",
+            "--loop-id", "dev-loop-pr-review", "--metadata", json.dumps(meta, sort_keys=True)]})
+
+    emitted, emit_failed = [], []
+    if a.emit and metric_calls:
+        kb = os.path.abspath(KB_CLI)
+        for call in metric_calls:
+            d = call["class"]
+            if not os.path.exists(kb):
+                emit_failed.append({"class": d, "reason": f"kb CLI not found at {kb}"})
+                continue
+            p = run_bounded([sys.executable, kb] + call["argv"], PAUSE_TIMEOUT)
+            okay = False
+            if p is not None and p.returncode == 0:
+                try:
+                    okay = json.loads((p.stdout or "").strip().splitlines()[-1]).get("ok") is True
+                except Exception:
+                    okay = False
+            if not okay:
+                why = "timed out" if p is None else f"rc {p.returncode}: {((p.stderr or p.stdout) or '').strip()[:200]}"
+                emit_failed.append({"class": d, "reason": why})
+                continue
+            stamp = now()
+            per_pr = {}
+            for pid, key, rec in by_class[d]:
+                rec.update(counted=True, counted_at=stamp)
+                per_pr.setdefault(pid, {})[key] = rec
+            try:
+                for pid, recs in per_pr.items():
+                    _merge_threads(pid, recs)
+                emitted.append({"class": d, "name": call["argv"][2], "value": len(by_class[d])})
+            except Exception as e:
+                emit_failed.append({"class": d, "reason": f"metric written but the count could not be "
+                                                          f"recorded in the ledger ({e}); it may be emitted again"})
+
+    denom = totals["fixed"] + totals["wrong"] + totals["intentional"] + totals["no-action"]
+    noise = round((totals["wrong"] + totals["intentional"] + totals["no-action"]) / denom, 4) if denom else None
+    out(dict(base_out, enumerable=True, checked=checked, unchecked=unchecked, errors=errors, threads=rows,
+             newly_settled=newly, pending=pending_n, totals=totals, noise_rate=noise,
+             unclassified=totals["unclassified"], metric_calls=metric_calls,
+             emit=bool(a.emit), emitted=emitted, emit_failed=emit_failed,
+             eval_candidates=eval_candidates,
+             note=None if a.emit else "preview: no metric was written; pass --emit to write these "
+                                      "through `kb metric` (each thread is counted once)"))
+
+
+# --- Review convergence: rounds, the cap, step-back, interdiff -----------------------------
+# A round is one reviewed head commit. `rounds.open` counts CONSECUTIVE reviewed heads that did not
+# pass; a pass resets it. The number that caps it lives in loop-limits.json
+# (pr_review_loop.max_review_rounds_per_pr) and is never defaulted here. references/seen-ledger.md
+# holds the field rules; keep the two in step.
+
+def _review_cap_soft(path_):
+    """The cap, or raise ValueError naming what is wrong. Callers decide whether to fail."""
+    try:
+        with open(path_) as fh:
+            block = json.load(fh).get("pr_review_loop")
+    except Exception as e:
+        raise ValueError(f"could not read {path_}: {type(e).__name__}: {e}")
+    if not isinstance(block, dict):
+        raise ValueError(f"{path_} has no pr_review_loop block")
+    v = block.get("max_review_rounds_per_pr")
+    if isinstance(v, bool) or not isinstance(v, int) or v < 1:
+        raise ValueError(f"pr_review_loop.max_review_rounds_per_pr in {path_} is missing or not an "
+                         f"integer >= 1 ({v!r}) — refusing to guess a default")
+    return v
+
+
+def review_limits(path_):
+    try:
+        return _review_cap_soft(path_)
+    except ValueError as e:
+        fail("config-invalid", str(e), code=3, key="max_review_rounds_per_pr")
+
+
+def _rounds_of(entry):
+    st = entry.get("rounds") if isinstance(entry, dict) else None
+    st = dict(st) if isinstance(st, dict) else {}
+    for k in ("open", "total"):
+        v = st.get(k)
+        st[k] = v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else 0
+    st.setdefault("head", None)
+    st.setdefault("prev_head", None)
+    return st
+
+
+def _carry_rounds(prior, entry, passed):
+    """Carry the rounds state from `prior` into `entry` (in place), counting entry's head once."""
+    st = _rounds_of(prior)
+    head = entry.get("head_commit")
+    if not same_commit(st.get("head"), head):
+        st["prev_head"] = st.get("head")
+        st["head"] = head
+        st["open"] += 1
+        st["total"] += 1
+    lp = st.get("last_pass") if isinstance(st.get("last_pass"), dict) else None
+    if passed and (lp is None or not same_commit(lp.get("head"), head)):
+        st["last_pass"] = {"round": st["open"], "head": head, "at": now(), "counted": False}
+        st["open"] = 0
+    entry["rounds"] = st
+    return st
+
+
+def review_scope(pr_id, head_commit, root):
+    """{scope: full|interdiff, base, reason}. Never raises."""
+    try:
+        entry = ledger_get(pr_id)
+    except Exception as e:
+        return {"scope": "full", "base": None, "reason": f"ledger-unreadable: {str(e)[:120]}"}
+    if not isinstance(entry, dict):
+        return {"scope": "full", "base": None, "reason": "first-review"}
+    prev = entry.get("head_commit")
+    if prev and head_commit and not same_commit(prev, head_commit):
+        base = prev
+    else:
+        base = _rounds_of(entry).get("prev_head")
+    if not base or not head_commit:
+        return {"scope": "full", "base": None, "reason": "first-review"}
+    if not root:
+        return {"scope": "full", "base": base, "reason": "previous-commit-unavailable"}
+    if not local_commit(root, base):
+        if has_remote(root):
+            _git(["fetch", "--no-tags", remote_name(), str(base)], root, timeout=300)
+        if not local_commit(root, base):
+            return {"scope": "full", "base": base, "reason": "previous-commit-unavailable"}
+    if not local_commit(root, head_commit):
+        return {"scope": "full", "base": base, "reason": "head-commit-unavailable"}
+    p = _git(["merge-base", "--is-ancestor", str(base), str(head_commit)], root)
+    if p is None or p.returncode != 0:
+        return {"scope": "full", "base": base, "reason": "history-rewritten"}
+    return {"scope": "interdiff", "base": base, "reason": "re-review"}
+
+
+def interdiff_lines(root, base, head):
+    """{path: [(lo, hi), ...]} of NEW-side lines changed between base and head, or None."""
+    p = _git(["diff", "-U0", "--no-color", "--no-ext-diff", str(base), str(head)], root)
+    if p is None or p.returncode != 0:
+        return None
+    ranges, cur = {}, None
+    for ln in (p.stdout or "").splitlines():
+        if ln.startswith("+++ "):
+            t = ln[4:].strip()
+            cur = None if t == "/dev/null" else norm_path(t[2:] if t.startswith("b/") else t)
+            if cur:
+                ranges.setdefault(cur, [])
+            continue
+        m = re.match(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", ln)
+        if m and cur:
+            c = int(m.group(1))
+            d = int(m.group(2)) if m.group(2) is not None else 1
+            ranges[cur].append((c, c + d - 1) if d > 0 else (c, c + 1))
+    return ranges
+
+
+def apply_interdiff_scope(findings, pr_id, head, root):
+    """Stamp non-critical findings outside the interdiff withheld (in place). Returns a summary."""
+    sc = review_scope(pr_id, head, root)
+    summary = {"review_scope": sc["scope"], "review_scope_base": sc.get("base"),
+               "review_scope_reason": sc["reason"], "out_of_scope": []}
+    if sc["scope"] != "interdiff":
+        return summary
+    ranges = interdiff_lines(root, sc["base"], head)
+    if ranges is None:
+        summary.update(review_scope="full", review_scope_reason="interdiff-unreadable")
+        return summary
+    b8 = str(sc["base"])[:8]
+    for f in findings:
+        if f.get("withheld") or str(f.get("severity") or "").lower() == "critical" \
+                or f.get("human_gate") is True:
+            continue
+        path_ = norm_path(f.get("file"))
+        try:
+            line = int(f.get("line"))
+        except (TypeError, ValueError):
+            line = None
+        inside = bool(path_ and line and any(lo <= line <= hi for lo, hi in ranges.get(path_, [])))
+        if inside:
+            continue
+        f["withheld"] = True
+        f["withheld_reason"] = (f"outside the interdiff since {b8}: a re-review comments only on what "
+                                "changed since the last reviewed commit. Kept in review.json and the "
+                                "tick report.")
+        summary["out_of_scope"].append({"file": f.get("file"), "line": f.get("line"),
+                                        "severity": f.get("severity"),
+                                        "title": f.get("title") or f.get("summary") or f.get("issue")})
+    return summary
+
+
+def _scope_fields(pr_id, head, root, worktree):
+    sc = review_scope(pr_id, head, root)
+    fields = {"review_scope": sc["scope"], "previously_reviewed_commit": sc.get("base")}
+    if sc["scope"] == "interdiff":
+        fields["interdiff_command"] = f"git -C {worktree} diff {sc['base']} {head}"
+    else:
+        fields["interdiff_command"] = None
+        if sc["reason"] != "first-review":
+            fields["interdiff_unavailable"] = sc["reason"]
+    return fields
+
+
+def cmd_scope(a):
+    try:
+        with open(a.findings) as fh:
+            review = json.load(fh)
+    except (OSError, ValueError) as e:
+        fail("config-invalid", f"could not read --findings {a.findings} ({e}) — nothing was "
+             "scoped or written; `post` re-applies the scope itself", code=3, findings=a.findings)
+    if not isinstance(review, (dict, list)):
+        fail("config-invalid", f"--findings {a.findings} is neither a review object nor a "
+             "findings list — nothing was scoped or written", code=3, findings=a.findings)
+    findings = review.get("findings", []) if isinstance(review, dict) else review
+    findings = [f for f in (findings or []) if isinstance(f, dict)]
+    head = a.reviewed_commit
+    if not head:
+        try:
+            pr = _host("get_pr", str(a.pr))
+            head = pr_row(pr).get("head_commit") if pr is not None else None
+        except Exception:
+            head = None
+    if not head:
+        summary = {"review_scope": "full", "review_scope_base": None,
+                   "review_scope_reason": "pr-head-unavailable", "out_of_scope": []}
+    else:
+        summary = apply_interdiff_scope(findings, a.pr, head, app_root(required=False))
+    doc = dict(review) if isinstance(review, dict) else {}
+    doc["findings"] = findings
+    res = {"status": "ok", "pr_id": a.pr, "head_commit": head, **summary}
+    if a.out:
+        os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
+        with open(a.out, "w") as fh:
+            json.dump(doc, fh, indent=2)
+        res["out"] = os.path.abspath(a.out)
+    else:
+        res["findings"] = findings
+    out(res)
+
+
+def _step_back_body(st, cap, entry):
+    classes = sorted({r.get("bug_class") for r in (entry.get("threads") or {}).values()
+                      if isinstance(r, dict) and r.get("bug_class")
+                      and r.get("disposition") in (None, "pending")})
+    body = ["**Stepping back on this pull request**", "",
+            f"This PR has been reviewed at {st['open']} consecutive head commits without the review "
+            f"passing (the loop's cap is {cap} rounds). Further pushes are not reviewed automatically.", ""]
+    if classes:
+        body += ["The findings still open fall in these classes: "
+                 + ", ".join(f"`{c}`" for c in classes) + ".", ""]
+    body += ["Rather than another fix on top, it may be worth reconsidering the approach: what the "
+             "open findings have in common usually points at the real change.", "",
+             "A maintainer can re-enable automatic review for this PR.", "",
+             f"_{STEP_BACK_MARKER}_"]
+    return "\n".join(body)
+
+
+def cmd_step_back(a):
+    cap = review_limits(getattr(a, "limits", None) or DEFAULT_LIMITS)
+    live = bool(a.live)
+    posture_note = None
+    posture = (os.environ.get("LOOP_PR_POSTING") or "").strip()
+    if live and posture and posture != "live":
+        live = False
+        posture_note = (f"--live was REFUSED: this process is armed LOOP_PR_POSTING={posture}, so this "
+                        "call wrote a preview and posted nothing.")
+    res = {"status": "ok", "mode": "live" if live else "dry-run", "posted": [], "previewed": [],
+           "skipped": [], "enumerable": True, "cap": cap}
+    if posture_note:
+        res["runner_posture"] = posture_note
+    try:
+        if a.pr:
+            entries = {str(p_): ledger_get(p_) for p_ in a.pr}
+        else:
+            allrec = ledger_read_all()
+            if allrec is None:
+                out(dict(res, enumerable=False,
+                         note="the kb ledger backend cannot enumerate PRs; pass --pr <id>"))
+            entries = dict(allrec)
+    except Exception as e:
+        fail("ledger-unreadable", f"seen-ledger unreadable ({e}) — no step-back considered", code=3)
+
+    due = []
+    for pid, entry in entries.items():
+        if not isinstance(entry, dict):
+            res["skipped"].append({"pr_id": pid, "reason": "untracked"})
+            continue
+        st = _rounds_of(entry)
+        sb = st.get("step_back") if isinstance(st.get("step_back"), dict) else None
+        if st["open"] < cap:
+            if a.pr:
+                res["skipped"].append({"pr_id": pid, "reason": "not-capped"})
+            continue
+        if sb and sb.get("mode") == "live":
+            res["skipped"].append({"pr_id": pid, "reason": "already-posted"})
+            continue
+        if sb and not live:
+            res["skipped"].append({"pr_id": pid, "reason": "already-previewed"})
+            continue
+        due.append((pid, entry, st))
+    if not due:
+        out(res)
+
+    open_ids = {str(r["pr_id"]) for r in candidates()}
+    if live:
+        paused, why = pause_is_on()
+        if paused:
+            fail("paused", f"R9 global pause is on — no step-back posted. {why}", code=3)
+    for pid, entry, st in due:
+        if pid not in open_ids:
+            res["skipped"].append({"pr_id": pid, "reason": "pr-closed"})
+            continue
+        body = _step_back_body(st, cap, entry)
+        if not live:
+            preview = os.path.abspath(a.out or f"pr-{slug(pid)}-step-back.preview.json")
+            if len(due) > 1 and a.out:
+                preview = os.path.abspath(f"{a.out}.{slug(pid)}")
+            os.makedirs(os.path.dirname(preview), exist_ok=True)
+            with open(preview, "w") as fh:
+                json.dump({"pr_id": pid, "target": {"role": "vcs_host", "op": "post_review_comment", "id": pid},
+                           "comments": [{"path": None, "line": None, "body": body}]}, fh, indent=2)
+            st["step_back"] = {"mode": "dry-run", "at": now(), "head_commit": st.get("head"),
+                               "preview_file": preview}
+            entry["rounds"] = st
+            try:
+                ledger_put(pid, entry)
+            except Exception as e:
+                fail("ledger-unreadable", f"could not record the step-back preview ({e})", code=3)
+            res["previewed"].append({"pr_id": pid, "preview_file": preview, "rounds": st["open"]})
+            continue
+        threads = entry.get("threads")
+        if not (isinstance(threads, dict) and threads):
+            res["skipped"].append({"pr_id": pid, "reason": "no-live-rounds"})
+            continue
+        try:
+            on_host = _host("list_review_threads", str(pid)) or []
+        except HostError as e:
+            res["skipped"].append({"pr_id": pid, "reason": f"{e.failure_class}: {e.message[:160]}"})
+            res["status"] = "partial"
+            continue
+        if any(isinstance(t, dict) and STEP_BACK_MARKER in str(t.get("body") or "") for t in on_host):
+            st["step_back"] = {"mode": "live", "at": now(), "head_commit": st.get("head"),
+                               "found_on_host": True}
+            entry["rounds"] = st
+            try:
+                ledger_put(pid, entry)
+            except Exception:
+                pass
+            res["skipped"].append({"pr_id": pid, "reason": "already-on-pr"})
+            continue
+        prior_sb = st.get("step_back")
+        st["step_back"] = {"mode": "live", "at": now(), "head_commit": st.get("head"), "write_ahead": True}
+        entry["rounds"] = st
+        try:
+            ledger_put(pid, entry)
+        except Exception as e:
+            fail("ledger-unreadable", f"could not record the step-back before posting it ({e}) — "
+                 "nothing was posted", code=3)
+        try:
+            r = _host("post_review_comment", str(pid), None, None, body)
+        except HostError as e:
+            if e.not_sent:
+                if prior_sb is None:
+                    st.pop("step_back", None)
+                else:
+                    st["step_back"] = prior_sb
+                entry["rounds"] = st
+                try:
+                    ledger_put(pid, entry)
+                except Exception:
+                    pass
+            res["skipped"].append({"pr_id": pid, "reason": f"{e.failure_class}: {e.message[:160]}",
+                                   "delivery_unknown": not e.not_sent})
+            res["status"] = "partial"
+            continue
+        tid = r.get("thread_id") if isinstance(r, dict) else None
+        st["step_back"] = {"mode": "live", "at": now(), "head_commit": st.get("head"), "thread_id": tid}
+        entry["rounds"] = st
+        try:
+            ledger_put(pid, entry)
+        except Exception:
+            pass                                   # the write-ahead record already protects it
+        res["posted"].append({"pr_id": pid, "thread_id": tid, "rounds": st["open"]})
+    out(res, 0 if res["status"] == "ok" else 2)
+
+
+def _emit_metric(argv):
+    """One `kb metric` call through the bounded runner; (ok, reason)."""
+    kb = os.path.abspath(KB_CLI)
+    if not os.path.exists(kb):
+        return False, f"kb CLI not found at {kb}"
+    p = run_bounded([sys.executable, kb] + argv, PAUSE_TIMEOUT)
+    if p is not None and p.returncode == 0:
+        try:
+            if json.loads((p.stdout or "").strip().splitlines()[-1]).get("ok") is True:
+                return True, "ok"
+        except Exception:
+            pass
+    return False, "timed out" if p is None else f"rc {p.returncode}: {((p.stderr or p.stdout) or '').strip()[:200]}"
+
+
+def cmd_rounds(a):
+    cap = review_limits(getattr(a, "limits", None) or DEFAULT_LIMITS)
+    try:
+        if a.pr:
+            entries = {str(p_): ledger_get(p_) for p_ in a.pr}
+        else:
+            allrec = ledger_read_all()
+            if allrec is None:
+                out({"status": "ok", "enumerable": False, "cap": cap, "prs": [], "emitted": [],
+                     "emit_failed": [], "note": "the kb ledger backend cannot enumerate PRs; pass --pr <id>"})
+            entries = dict(allrec)
+    except Exception as e:
+        fail("ledger-unreadable", f"seen-ledger unreadable ({e})", code=3)
+    rows, emitted, emit_failed = [], [], []
+    for pid, entry in sorted(entries.items()):
+        if not isinstance(entry, dict):
+            continue
+        st = _rounds_of(entry)
+        capped = st["open"] >= cap
+        if a.emit:
+            lp = st.get("last_pass") if isinstance(st.get("last_pass"), dict) else None
+            changed = False
+            if lp and not lp.get("counted"):
+                ok_, why = _emit_metric(["metric", "--name", "pr_review_rounds_to_pass", "--value",
+                                         str(lp.get("round")), "--unit", "rounds", "--area", "pr-review",
+                                         "--source", "dev-pr-feed", "--loop-id", "dev-loop-pr-review",
+                                         "--metadata", json.dumps({"pr_id": pid}, sort_keys=True)])
+                if ok_:
+                    lp["counted"] = True
+                    lp["counted_at"] = now()
+                    changed = True
+                    emitted.append({"pr_id": pid, "name": "pr_review_rounds_to_pass", "value": lp.get("round")})
+                else:
+                    emit_failed.append({"pr_id": pid, "name": "pr_review_rounds_to_pass", "reason": why})
+            if capped and not st.get("cap_counted"):
+                ok_, why = _emit_metric(["metric", "--name", "pr_review_round_cap_hit", "--value", "1",
+                                         "--unit", "prs", "--area", "pr-review", "--source", "dev-pr-feed",
+                                         "--loop-id", "dev-loop-pr-review",
+                                         "--metadata", json.dumps({"pr_id": pid, "rounds": st["open"]},
+                                                                  sort_keys=True)])
+                if ok_:
+                    st["cap_counted"] = now()
+                    changed = True
+                    emitted.append({"pr_id": pid, "name": "pr_review_round_cap_hit", "value": 1})
+                else:
+                    emit_failed.append({"pr_id": pid, "name": "pr_review_round_cap_hit", "reason": why})
+            if changed:
+                # Merge into the CURRENT entry so a concurrent post/mark is not overwritten.
+                try:
+                    cur = ledger_get(pid)
+                    if isinstance(cur, dict):
+                        cst = _rounds_of(cur)
+                        if lp and lp.get("counted") and isinstance(cst.get("last_pass"), dict) \
+                                and same_commit(cst["last_pass"].get("head"), lp.get("head")):
+                            cst["last_pass"].update(counted=True, counted_at=lp.get("counted_at"))
+                        if st.get("cap_counted"):
+                            cst["cap_counted"] = st["cap_counted"]
+                        cur["rounds"] = cst
+                        ledger_put(pid, cur)
+                except Exception as e:
+                    emit_failed.append({"pr_id": pid, "name": "ledger",
+                                        "reason": f"metric written but not recorded ({e}); it may be emitted again"})
+        rows.append({"pr_id": pid, "open": st["open"], "total": st["total"], "cap": cap, "capped": capped,
+                     "last_pass": st.get("last_pass"), "step_back": st.get("step_back")})
+    out({"status": "ok", "enumerable": True, "cap": cap, "prs": rows, "emit": bool(a.emit),
+         "emitted": emitted, "emit_failed": emit_failed,
+         "capped": [r["pr_id"] for r in rows if r["capped"]]})
 
 
 # --- CLI -----------------------------------------------------------------------------------
@@ -1448,6 +2361,7 @@ def main(argv=None):
 
     u = sub.add_parser("unreviewed", parents=[base_opt], help="candidates minus those already reviewed at their head commit")
     u.add_argument("--limit", type=int, default=0)
+    u.add_argument("--limits", default=None, help="loop-limits.json to read (default: the framework's)")
 
     c = sub.add_parser("checkout", parents=[base_opt], help="read-only worktree at the PR head")
     c.add_argument("--pr", required=True, help="the PR id as the vcs_host adapter reports it")
@@ -1467,7 +2381,8 @@ def main(argv=None):
     m.add_argument("--pr", required=True)
     m.add_argument("--commit", required=True)
     m.add_argument("--verdict", default="reviewed")
-    m.add_argument("--findings-count", dest="findings_count", type=int, default=0)
+    m.add_argument("--findings-count", dest="findings_count", type=int, default=None,
+                   help="findings in this review; omitted = unknown, which never counts as a pass")
     m.add_argument("--mode", choices=["dry-run", "live"], default="dry-run")
     m.add_argument("--force", action="store_true",
                    help="record even when the sha doesn't match the PR's current head")
@@ -1480,6 +2395,37 @@ def main(argv=None):
 
     lg = sub.add_parser("ledger", help="inspect or clear the seen-ledger")
     lg.add_argument("--forget", help="PR id to re-queue")
+    lg.add_argument("--reset-rounds", dest="reset_rounds",
+                    help="PR id whose review-round count to reset (re-admits a round-capped PR; keeps threads)")
+
+    sb = sub.add_parser("step-back", parents=[base_opt],
+                        help="one PR-level step-back comment on round-capped PRs (dry-run unless --live)")
+    sbg = sb.add_mutually_exclusive_group(required=True)
+    sbg.add_argument("--pr", action="append", help="PR id (repeatable)")
+    sbg.add_argument("--due", action="store_true", help="every round-capped PR in the file ledger")
+    sb.add_argument("--live", action="store_true")
+    sb.add_argument("--out", help="where to write the dry-run preview")
+    sb.add_argument("--limits", default=None)
+
+    rd = sub.add_parser("rounds", help="read-only review-round state; --emit writes the rounds metrics")
+    rd.add_argument("--pr", action="append")
+    rd.add_argument("--emit", action="store_true")
+    rd.add_argument("--limits", default=None)
+
+    sc = sub.add_parser("scope", help="stamp findings outside the interdiff withheld (no host write)")
+    sc.add_argument("--pr", required=True)
+    sc.add_argument("--findings", required=True)
+    sc.add_argument("--reviewed-commit", dest="reviewed_commit")
+    sc.add_argument("--out")
+
+    dp = sub.add_parser("dispositions",
+                        help="read-only: what people did with the threads we posted live; --emit writes metrics")
+    dp.add_argument("--pr", action="append", help="limit to this PR id (repeatable); required under the kb backend")
+    dp.add_argument("--emit", action="store_true",
+                    help="write the pr_review_threads_* metrics through `kb metric` (default: preview only)")
+    dp.add_argument("--budget-s", dest="budget_s", type=float, default=None,
+                    help="lower the host-read budget below pr_review_loop.disposition_budget_s")
+    dp.add_argument("--limits", default=None, help="loop-limits.json to read (default: the framework's)")
 
     a = p.parse_args(argv)
     global _BASE_OVERRIDE
@@ -1492,7 +2438,8 @@ def main(argv=None):
         fail("config-invalid", f"LOOP_PR_AUTHOR_SCOPE={AUTHOR_SCOPE!r} — expected own, all or others")
     return {"lock": cmd_lock, "list": cmd_list, "unreviewed": cmd_unreviewed, "health": cmd_health,
             "checkout": cmd_checkout, "teardown": cmd_teardown, "post": cmd_post, "mark": cmd_mark,
-            "ledger": cmd_ledger}[a.verb](a)
+            "ledger": cmd_ledger, "dispositions": cmd_dispositions, "step-back": cmd_step_back,
+            "rounds": cmd_rounds, "scope": cmd_scope}[a.verb](a)
 
 
 if __name__ == "__main__":

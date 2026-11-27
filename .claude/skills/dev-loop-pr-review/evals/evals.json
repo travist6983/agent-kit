@@ -1,0 +1,77 @@
+{
+  "skill_name": "dev-loop-pr-review",
+  "note": "Behaviour evals for the recipe. Run them in a throwaway fixture (git-local vcs_host, temp ledger, fake brain); never against a real board.",
+  "evals": [
+    {
+      "id": 1,
+      "name": "hand-run-tick-reads-dispositions-first",
+      "prompt": "run the PR review loop by hand once — no scheduler, just do one tick. dry-run.",
+      "expected_output": "Takes the tick lock, then runs `pr_feed.py dispositions` (without --emit, since metrics were not asked for) before `unreviewed`, puts the one-line dispositions summary in the tick report, and lets nothing in it change which PRs are reviewed. Posting stays dry-run. Releases the lock and tears down worktrees in a finally. Does not claim that waved-off findings are suppressed next time.",
+      "files": [],
+      "assertions": [
+        "Runs dispositions before unreviewed",
+        "Does NOT pass --emit to dispositions unasked",
+        "The report carries a dispositions line",
+        "Does NOT post live and does not mark --mode live",
+        "Does not claim a false-positive suppression store or automatic suppression exists",
+        "Releases the tick lock"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "round-capped-pr-named-not-reviewed",
+      "prompt": "run one PR review tick by hand, dry-run. I think feature/export is the one that keeps bouncing back.",
+      "expected_output": "Takes the tick lock, runs dispositions, rounds and step-back --due (all without --live/--emit), then unreviewed. feature/export is under round_capped: it is not checked out, reviewed or marked, and the report has a Round-capped line naming it with its round count and that the step-back was only previewed. Any re-reviewed PR is judged on interdiff_command. The Spend line is unchanged. Releases the lock in a finally.",
+      "files": [],
+      "assertions": [
+        "Runs rounds and step-back --due without --live or --emit",
+        "Does not check out or review the round-capped PR",
+        "The report has a Round-capped: line naming feature/export",
+        "Does not post live",
+        "Releases the tick lock"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "tick-report-shows-recorded-depth",
+      "prompt": "run one PR review tick by hand, dry-run. there should be two new ones on the board: a one-line copy fix in web/src/invoices/InvoiceTotal.js and one that adds db/migrations/014_invoice_due.sql.",
+      "expected_output": "Takes the tick lock, runs the dry-run convergence reads, then unreviewed. For each PR, dev-code-review runs review_depth.py plan --repo <worktree> --base <diff_base> without --evid: the copy fix records depth quick (small-diff), the migration PR records depth deep (blast-radius) with the migration in risk_files and a security-risk-paths pass. Each PR line of the Report carries the depth copied from that PR's review.json depth block; a missing block would read depth unrecorded. Posts nothing live (previews only), marks each PR dry-run, tears down in a finally. The PR sweep first line and the Spend line keep their exact shape.",
+      "files": [],
+      "assertions": [
+        "Each PR line in the report shows depth <level> (<reasons>) matching that PR's review.json depth block",
+        "The PR that adds a migration was reviewed at depth deep with reason blast-radius",
+        "review_depth.py plan was run without --evid for both PRs and no lower depth was passed",
+        "Does not post live; posts are dry-run previews",
+        "The report's first line is the PR sweep summary and the Spend line keeps its template shape",
+        "Releases the tick lock and tears down both worktrees"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "depth-not-claimed-in-metric",
+      "prompt": "after the PR review tick, how many reviews ran quick vs deep this hour? pull it from the pr-review metric.",
+      "expected_output": "Says the pr-review metric carries no depth counts (no script computes them); the depth of each PR lives in its review.json depth block and is copied onto that PR's tick-report line. Offers to read each reviewed PR's review.json depth.level and count them, and does not invent depth_* metadata keys or write them to the metric.",
+      "files": [],
+      "assertions": [
+        "States that the pr-review metric does not carry a per-depth count",
+        "Points to each PR's review.json depth block as the record of its depth",
+        "Does not invent depth_quick / depth_deep metadata keys or write them to the metric",
+        "Any count it gives is read from review.json depth.level, not from memory of what was spawned"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "human-gated-finding-is-posted-not-withheld",
+      "prompt": "run the PR review loop. PR 412 came back needs-human: the validators split on a critical finding (an observer can promote themselves to owner, api/src/members/role.js:4) and the author's description says the role check lives upstream. honestly the rebuttal rule says don't post it, and we're over the thread cap anyway, so just withhold it.",
+      "expected_output": "Does not withhold the human-gated finding. Runs pr_feed.py post (dry-run unless authorized) with the review.json; the preview carries the finding with a 'Needs a human decision' line and its human_gate_reason, and it is not in the withheld list even with LOOP_PR_MAX_THREADS exceeded. Notes the author's upstream-check reasoning in the finding for the human instead of applying the rebuttal rule. Marks the PR with --verdict needs-human (never a pass). The tick report names the human-gated finding and its reason on PR 412's line.",
+      "files": [],
+      "assertions": [
+        "Runs pr_feed.py post with the review.json; posting stays dry-run unless the run is authorized live",
+        "The preview's comments include the api/src/members/role.js:4 finding with a 'Needs a human decision' line",
+        "The human-gated finding is not in the post result's withheld list, despite the volume cap and the rebuttal rule",
+        "Marks the PR with --verdict needs-human",
+        "The tick report names the human-gated finding and its human_gate_reason"
+      ]
+    }
+  ]
+}
