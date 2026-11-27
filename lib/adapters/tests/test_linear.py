@@ -25,7 +25,8 @@ ISSUE = {
     "state": {"name": "Todo", "type": "unstarted"}, "team": {"id": "team-1", "key": "VEU"},
     "labels": {"nodes": [{"name": "bug"}]}, "assignee": {"name": "T", "email": "t@example.com"},
     "creator": None, "project": {"name": "Core"}, "attachments": {"nodes": []},
-    "relations": {"nodes": []},
+    "relations": {"nodes": [{"type": "blocks", "relatedIssue": {"identifier": "VEU-9"}}]},
+    "inverseRelations": {"nodes": [{"type": "blocks", "issue": {"identifier": "VEU-5"}}]},
     "comments": {"nodes": [{"body": "hi", "createdAt": "2026-01-01T00:00:00Z", "user": {"name": "A", "email": None}}]},
 }
 
@@ -80,6 +81,7 @@ class LinearTests(unittest.TestCase):
         self.assertEqual(t.assignee, "t@example.com")
         self.assertEqual(t.comments[0]["author"], "A")
         self.assertEqual(self.fake.calls[0][0], "lin_api_secret")  # personal key: no Bearer
+        self.assertEqual(t.links, [{"type": "blocks", "key": "VEU-9"}, {"type": "blocked_by", "key": "VEU-5"}])
         self.assertEqual(t.type, "Bug")  # from the label, not the workflow state ("unstarted")
 
     def test_type_from_labels(self):
