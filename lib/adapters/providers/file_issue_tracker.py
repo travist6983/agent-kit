@@ -19,7 +19,7 @@ import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ..base import AdapterError, BaseAdapter, Ticket, now_iso
+from ..base import LINK_TYPES, AdapterError, BaseAdapter, Ticket, now_iso
 
 _COMMENT_HEADER = re.compile(r"^## (?P<at>\S+) — (?P<author>.*)$")
 _KEY_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*-[0-9]+$")
@@ -198,7 +198,7 @@ class FileIssueTracker(BaseAdapter):
                 key = draft.get("key") or self._allocate_key()
                 if self._json_path(key).exists() or self._md_path(key).exists():
                     raise AdapterError("ticket %s already exists" % key, key=key)
-                ticket = Ticket.from_dict(dict(draft, key=key))
+                ticket = Ticket.from_dict(dict(draft, key=key, links=[]))
                 ticket.status = ticket.status or self.config.get("initial_status") or "open"
                 ticket.type = ticket.type or "bug"
                 ticket.raw = dict(ticket.raw or {})
@@ -206,6 +206,22 @@ class FileIssueTracker(BaseAdapter):
                 self._save(ticket)
             finally:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+        for link in draft.get("links") or []:
+            ticket = self.add_link(key, link.get("type"), link.get("key"))
+        return ticket
+
+    def add_link(self, key: str, type: str, target: str) -> Ticket:
+        """Record a relation on `key` (idempotent). The file tracker stores it on `key` only."""
+        if type not in LINK_TYPES:
+            raise AdapterError("unknown link type %r; expected one of %s" % (type, ", ".join(LINK_TYPES)),
+                               key=key, type=type)
+        if not target or str(target).strip() == str(key).strip():
+            raise AdapterError("add_link needs a target other than the ticket itself", key=key)
+        ticket = self._load(key)
+        link = {"type": type, "key": str(target).strip()}
+        if link not in (ticket.links or []):
+            ticket.links = list(ticket.links or []) + [link]
+            self._save(ticket)
         return ticket
 
     # -- key allocation --------------------------------------------------------------------

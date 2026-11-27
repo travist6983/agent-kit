@@ -20,9 +20,15 @@ except ImportError:  # pragma: no cover - 3.7 fallback
 # The role → operations table (spec §3). Keep in sync with the Protocols below.
 # --------------------------------------------------------------------------------------
 
+# issue_tracker link types (Ticket.links[].type). `blocked_by` / `duplicated_by` are the inverse
+# sides of `blocks` / `duplicate`; add_link accepts all five and the provider stores each relation once.
+LINK_TYPES = ("blocks", "blocked_by", "related", "duplicate", "duplicated_by")
+
+
 OPS: Dict[str, List[str]] = {
     "issue_tracker": [
         "fetch_ticket", "search", "add_comment", "transition", "assign", "attach", "create_ticket",
+        "add_link",
     ],
     "vcs_host": [
         "default_branch", "open_pr", "list_prs", "get_pr", "get_pr_diff",
@@ -239,6 +245,7 @@ class IssueTracker(Protocol):
     def assign(self, key: str, user: Optional[str]) -> Ticket: ...
     def attach(self, key: str, path: str) -> Dict[str, Any]: ...
     def create_ticket(self, draft: Dict[str, Any]) -> Ticket: ...
+    def add_link(self, key: str, type: str, target: str) -> Ticket: ...
 
 
 @runtime_checkable

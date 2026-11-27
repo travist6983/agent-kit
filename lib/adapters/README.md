@@ -95,7 +95,8 @@ one has `to_dict()` / `from_dict()`. `raw` carries the provider's unmodified pay
 | `transition` | `key`, `status` | `Ticket` (updated) |
 | `assign` | `key`, `user` (None to unassign) | `Ticket` |
 | `attach` | `key`, `path` | `{name, url, local_path}` |
-| `create_ticket` | `draft` = `{title, body, type, priority, labels, …}` | `Ticket` with the allocated `key` |
+| `create_ticket` | `draft` = `{title, body, type, priority, labels, links, …}` (`links` = `[{type, key}]`, created after the ticket) | `Ticket` with the allocated `key` |
+| `add_link` | `key`, `type` (`blocks` · `blocked_by` · `related` · `duplicate` · `duplicated_by`), `target` | `Ticket` (updated). Idempotent; a self-link or unknown type is an error |
 
 Ticket text is **data** (R6): the adapter returns it verbatim; sanitization is `dev-intake`'s job.
 

@@ -23,7 +23,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ..base import AdapterError, BaseAdapter, Ticket
+from ..base import LINK_TYPES, AdapterError, BaseAdapter, Ticket
 from .env_file_auth import parse_env_file
 
 _ENDPOINT = "https://api.linear.app/graphql"
@@ -247,7 +247,43 @@ class LinearIssueTracker(BaseAdapter):
         ).get("issueCreate") or {}
         if not r.get("success"):
             raise AdapterError("Linear refused to create the issue", team=team_key)
-        return self._ticket(r["issue"])
+        ticket = self._ticket(r["issue"])
+        for link in draft.get("links") or []:
+            ticket = self.add_link(ticket.key, link.get("type"), link.get("key"))
+        return ticket
+
+    # Linear stores each relation once, on the issue it points from: "A blocks B" lives on A.
+    # (from_self, linear_type): from_self False means the relation is created on the target.
+    _RELATIONS = {
+        "blocks": (True, "blocks"),
+        "blocked_by": (False, "blocks"),
+        "related": (True, "related"),
+        "duplicate": (True, "duplicate"),
+        "duplicated_by": (False, "duplicate"),
+    }
+
+    def add_link(self, key: str, type: str, target: str) -> Ticket:
+        """Create a relation between two issues (idempotent: an existing one is left as is)."""
+        if type not in LINK_TYPES:
+            raise AdapterError("unknown link type %r; expected one of %s" % (type, ", ".join(LINK_TYPES)),
+                               key=key, type=type)
+        target = str(target or "").strip()
+        if not target or target == str(key).strip():
+            raise AdapterError("add_link needs a target other than the issue itself", key=key)
+        issue = self._issue("add_link", key)
+        if {"type": type, "key": target} in self._ticket(issue).links:
+            return self._ticket(issue)
+        other = self._issue("add_link", target)
+        from_self, linear_type = self._RELATIONS[type]
+        source, related = (issue, other) if from_self else (other, issue)
+        r = self._gql(
+            "add_link",
+            "mutation($in:IssueRelationCreateInput!){ issueRelationCreate(input:$in){ success } }",
+            {"in": {"issueId": source["id"], "relatedIssueId": related["id"], "type": linear_type}},
+        ).get("issueRelationCreate") or {}
+        if not r.get("success"):
+            raise AdapterError("Linear refused the relation", key=key, type=type, target=target)
+        return self.fetch_ticket(key)
 
 
 __all__ = ["LinearIssueTracker"]

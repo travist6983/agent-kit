@@ -196,6 +196,21 @@ class RegistryTests(TempRepoCase):
 
 # --------------------------------------------------------------------------------------
 class FileIssueTrackerTests(TempRepoCase):
+    def test_links(self):
+        stack = self.write_config()
+        tr = get("issue_tracker", stack=stack)
+        tr.create_ticket({"title": "Blocker"})
+        made = tr.create_ticket({"title": "Blocked", "links": [{"type": "blocked_by", "key": "PROJ-1"}]})
+        self.assertEqual(made.links, [{"type": "blocked_by", "key": "PROJ-1"}])
+        tr.add_link("PROJ-2", "blocked_by", "PROJ-1")
+        tr.add_link("PROJ-2", "related", "PROJ-9")
+        self.assertEqual(tr.fetch_ticket("PROJ-2").links,
+                         [{"type": "blocked_by", "key": "PROJ-1"}, {"type": "related", "key": "PROJ-9"}])
+        with self.assertRaises(AdapterError):
+            tr.add_link("PROJ-2", "depends", "PROJ-1")
+        with self.assertRaises(AdapterError):
+            tr.add_link("PROJ-2", "blocks", "PROJ-2")
+
     def test_round_trip(self):
         stack = self.write_config()
         tr = get("issue_tracker", stack=stack)

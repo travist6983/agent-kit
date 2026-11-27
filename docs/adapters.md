@@ -105,7 +105,8 @@ every one has `to_dict()` / `from_dict()`. `raw` carries the provider's unmodifi
 | `transition` | `key`, `status` | `Ticket` (updated) |
 | `assign` | `key`, `user` (None to unassign) | `Ticket` |
 | `attach` | `key`, `path` | `{name, url, local_path}` |
-| `create_ticket` | `draft` = `{title, body, type, priority, labels, …}` | `Ticket` with the allocated `key` |
+| `create_ticket` | `draft` = `{title, body, type, priority, labels, links, …}` (`links` = `[{type, key}]`, created after the ticket) | `Ticket` with the allocated `key` |
+| `add_link` | `key`, `type` (`blocks` · `blocked_by` · `related` · `duplicate` · `duplicated_by`), `target` | `Ticket` (updated). Idempotent; a self-link or unknown type is an error |
 
 Ticket text is **data** (R6): the adapter returns it verbatim; sanitization is `dev-intake`'s job.
 
@@ -114,7 +115,7 @@ markdown ticket (first `# ` line = title, rest = body). Comments append to `<KEY
 `transition` / `assign` / `attach` rewrite `<KEY>.json` (a markdown ticket gains a json sibling, which
 then wins). `create_ticket` allocates `<prefix>-<n>` — the literal prefix of
 `project.ticket_key_pattern` (`^SHOP-…` → `SHOP`), else `config.key_prefix`, else `PROJ`. `search` is
-a case-insensitive substring match over key + title + body. Escalation with the file tracker is a
+a case-insensitive substring match over key + title + body. `add_link` records the relation on `key` only. Escalation with the file tracker is a
 comment appended to the ticket plus a `notifications` post.
 
 ### `vcs_host` — built-in: `git-local`, `github`
