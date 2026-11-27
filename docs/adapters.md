@@ -117,7 +117,7 @@ then wins). `create_ticket` allocates `<prefix>-<n>` — the literal prefix of
 a case-insensitive substring match over key + title + body. Escalation with the file tracker is a
 comment appended to the ticket plus a `notifications` post.
 
-### `vcs_host` — built-in: `git-local`
+### `vcs_host` — built-in: `git-local`, `github`
 
 | op | args | returns |
 |---|---|---|
@@ -133,7 +133,9 @@ comment appended to the ticket plus a `notifications` post.
 `<evidence.root>/prs/<branch-slug>.md` (title, base, body, labels, draft flag,
 `git log base..branch --oneline`) + a `.json` sidecar and returns
 `{"url": "file://…", "id": "<branch>", "dry_run": true}`. Review comments append to
-`<slug>.threads.md`. A real host (GitHub, GitLab, Bitbucket, or any other) is a third-party provider.
+`<slug>.threads.md`.
+
+`github`: drives the `gh` CLI in `config.repo_dir` → `app.repo_dir` → cwd, signed in with gh's own login (`gh auth login`), or with the token in the env var `config.token_env` names (passed as `GH_TOKEN`, never echoed). `config.repo` (`owner/name`) pins the repository; `config.gh_bin` overrides the executable. `open_pr` opens a real, published PR (`dry_run: false`; a draft only for `draft=true`), creates any missing label, and refuses a second open PR for the same branch. `id` is the PR number (a PR URL or a branch name also resolves). `post_review_comment` with `path`+`line` is a line comment on the head commit, otherwise a conversation comment; `list_review_threads` returns review threads (with `resolved` / `active`) plus conversation comments. An auth failure raises an error whose message starts `auth-failure:`. GitLab, Bitbucket or any other host is a third-party provider.
 
 ### `test_management` — no built-in provider
 

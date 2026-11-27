@@ -15,8 +15,10 @@ from .base import OPS, BaseAdapter, UnknownProviderError
 
 # role → {short name: relative module path + class}
 BUILTIN: Dict[str, Dict[str, str]] = {
-    "issue_tracker":   {"file": ".providers.file_issue_tracker:FileIssueTracker"},
-    "vcs_host":        {"git-local": ".providers.git_local_vcs:GitLocalVcs"},
+    "issue_tracker":   {"file": ".providers.file_issue_tracker:FileIssueTracker",
+                        "linear": ".providers.linear_issue_tracker:LinearIssueTracker"},
+    "vcs_host":        {"git-local": ".providers.git_local_vcs:GitLocalVcs",
+                        "github": ".providers.github_vcs:GitHubVcs"},
     "test_management": {},
     "analytics":       {},
     "auth_provider":   {"env-file": ".providers.env_file_auth:EnvFileAuth"},
@@ -30,9 +32,11 @@ BUILTIN: Dict[str, Dict[str, str]] = {
 # role-independent aliases (module names / underscore spellings)
 ALIASES: Dict[str, str] = {
     "file_issue_tracker": "issue_tracker:file",
+    "linear_issue_tracker": "issue_tracker:linear",
     "git_local_vcs": "vcs_host:git-local",
     "git_local": "vcs_host:git-local",
     "git-local-vcs": "vcs_host:git-local",
+    "github_vcs": "vcs_host:github",
     "env_file_auth": "auth_provider:env-file",
     "env_file": "auth_provider:env-file",
     "file_notifications": "notifications:file",
