@@ -54,6 +54,7 @@ _ISSUE_FIELDS = """
   project { name }
   attachments { nodes { title url } }
   relations { nodes { type relatedIssue { identifier } } }
+  inverseRelations { nodes { type issue { identifier } } }
   comments(first: 100) { nodes { body createdAt user { name email } } }
 """
 
@@ -99,6 +100,11 @@ class LinearIssueTracker(BaseAdapter):
         who = lambda u: (u or {}).get("email") or (u or {}).get("name")  # noqa: E731
         links = [{"type": r.get("type"), "key": (r.get("relatedIssue") or {}).get("identifier")}
                  for r in (d.get("relations") or {}).get("nodes", [])]
+        # Relations point one way in Linear: "A blocks B" is stored on A. Read the inverse side
+        # too, so a ticket shows what blocks it ("blocked_by"), not only what it blocks.
+        inverse = {"blocks": "blocked_by", "duplicate": "duplicated_by"}
+        links += [{"type": inverse.get(r.get("type"), r.get("type")), "key": (r.get("issue") or {}).get("identifier")}
+                  for r in (d.get("inverseRelations") or {}).get("nodes", [])]
         labels = [l["name"] for l in (d.get("labels") or {}).get("nodes", [])]
         return Ticket(
             key=d["identifier"],
