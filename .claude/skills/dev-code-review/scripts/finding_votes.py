@@ -64,9 +64,11 @@ undecided is a human's to make. There is deliberately no loop-limits key for thi
 that could be turned off would reopen the hole it closes. The quorum, validator count and floor
 still apply to every other finding and are still tunable by replay.
 
-HONEST LIMIT: the reviewer's own `tally` call is the enforcement point. `check` exists and is
-tested, but no recipe, runner, dev-pre-pr step or ship gate calls it yet; check_convergence.py only
-warns (`unvalidated-findings`) on a review with open findings and no independent validation. The
+HONEST LIMIT: the reviewer's own `tally` call writes the result, and two gates re-derive it with
+`check`: dev-pre-pr's review_gate.py blocks a review.json that fails it (or lacks `validation`), and
+the PR-review posting guard (dev-loop-pr-review/scripts/pr_review.sh) refuses to post or preview one
+that fails it. check_convergence.py only warns (`unvalidated-findings`) on a review with open
+findings and no independent validation. The
 script proves the count of distinct returned ballots and the arithmetic. That each validator really
 ran in a fresh context, and read only what it was allowed to, is self-reported: the same limit
 graph-engineering.md states for `judged_blind`.

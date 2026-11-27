@@ -41,8 +41,10 @@ Verbs (each prints ONE JSON object on stdout):
 --base defaults to project.default_branch; --limits to stack.config `limits_file`, else
 .claude/loops/loop-limits.json; --changed-file replaces the git-derived list (tests).
 
-HONEST LIMIT: the reviewer's own `finalize` call is the enforcement point. `check` exists and is
-tested, but no recipe, runner, dev-pre-pr step or ship gate calls it yet.
+HONEST LIMIT: the reviewer's own `finalize` call writes the result. In a loop, dev-pre-pr's
+review_gate.py re-derives it with `check` and blocks a review that fails. On an incoming PR the
+PR-review posting guard does not run `check` (it needs the PR worktree); the session runs it, which
+is prose, not a gate.
 """
 import argparse
 import importlib.util
