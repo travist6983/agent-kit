@@ -54,9 +54,10 @@ line count unknown. The SKILL treats "no plan" as deep.
 HONEST LIMIT: 3 files / 50 lines are ARGUED, NOT MEASURED (3 is assign_tier.py's T0 file bound).
 Size counts every changed file, including ones the reviewer brief skips, and a PR re-review is sized
 on the full diff against the base, not the interdiff: both err upward. The script proves the plan and
-the record, not that the spawns ran as planned (self-reported, like judged_blind); no recipe, runner,
-dev-pre-pr step or ship gate calls `check` yet. prs_per_tick was measured at the full fan-out and is
-not re-derived. The reviewer eval set is reviewed in-loop (floor standard), so it does not score quick.
+the record, not that the spawns ran as planned (self-reported, like judged_blind). In a loop,
+dev-pre-pr's review_gate.py runs `check` and blocks a review that fails; on an incoming PR the posting
+guard does not run it, and the session's run is prose. prs_per_tick was measured at the full fan-out
+and is not re-derived. The reviewer eval set is reviewed in-loop (floor standard), so it does not score quick.
 Sensitive areas reach the selector ONLY through intake.json `sensitive` under --evid. An incoming PR
 has no intake and there is no path-based sensitive-area config (loops.sensitive_areas is requested,
 not built), so a small PR in a sensitive area outside the R6 denylist and shared_core_globs plans
