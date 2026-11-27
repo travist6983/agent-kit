@@ -1,9 +1,11 @@
 // Pure helpers for the recipe-run mod: no `$`, so the tests can call them directly.
 import type { Answer, Question, QuestionKind, RunView, StageRow, Tone, Verdict } from '../types'
 
-// The spine every dev-loop recipe walks, with the file each stage writes under runs/<KEY>/.
+type Stage = { id: string; label: string; file: string | readonly string[] | null }
+
+// The default spine (the defect loop's), with the file each stage writes under runs/<KEY>/.
 // ship and prod-verify write no stage file of their own; they show up through router verdicts.
-export const STAGES: readonly { id: string; label: string; file: string | null }[] = [
+export const STAGES: readonly Stage[] = [
   { id: 'intake', label: 'intake', file: 'intake.json' },
   { id: 'repro', label: 'repro', file: 'repro.json' },
   { id: 'fix', label: 'fix', file: 'fix.json' },
@@ -13,6 +15,39 @@ export const STAGES: readonly { id: string; label: string; file: string | null }
   { id: 'pre-pr', label: 'pre-pr', file: 'pre-pr.json' },
   { id: 'ship', label: 'ship', file: null },
   { id: 'prod-verify', label: 'prod-verify', file: null },
+]
+
+const pick = (...ids: string[]) => ids.map(id => STAGES.find(s => s.id === id) as Stage)
+// Staging recipes open a pull request for human QA and stop: the ship stage reads "stage".
+const STAGE_ONLY: Stage = { id: 'ship', label: 'stage', file: null }
+
+// Each recipe walks its own spine; the pane must not show stages a recipe never runs.
+// A feature has no bug to reproduce: it writes a spec, explores, builds a RED acceptance oracle,
+// plans slices, and implements. implement also reads fix.json so runs from before dev-implement show.
+const SPINES: Record<string, readonly Stage[]> = {
+  'dev-loop-defect': pick('intake', 'repro', 'fix', 'verify', 'regression', 'pre-pr', 'ship', 'prod-verify'),
+  'dev-loop-hard-defect': STAGES,
+  'dev-loop-feature-prerelease': [...pick('intake', 'repro', 'fix', 'verify', 'regression', 'review', 'pre-pr'), STAGE_ONLY],
+  'dev-loop-feature-complete': [
+    STAGES[0] as Stage,
+    { id: 'spec', label: 'spec', file: 'spec.json' },
+    { id: 'explore', label: 'explore', file: 'explore.json' },
+    { id: 'ac-oracle', label: 'ac-oracle', file: 'ac-oracle.json' },
+    { id: 'plan', label: 'plan', file: 'plan.json' },
+    { id: 'implement', label: 'implement', file: ['implement.json', 'fix.json'] },
+    ...pick('verify', 'regression', 'review', 'pre-pr'),
+    STAGE_ONLY,
+  ],
+}
+
+export const spineFor = (recipe: string | null | undefined): readonly Stage[] =>
+  (recipe ? SPINES[recipe] : undefined) ?? STAGES
+
+export const stageFiles = (s: Stage): string[] => (s.file === null ? [] : typeof s.file === 'string' ? [s.file] : [...s.file])
+
+// Every file any spine reads, so the loader can fetch them before it knows the recipe.
+export const ALL_STAGE_FILES: readonly string[] = [
+  ...new Set(['intake.json', ...Object.values(SPINES).flat().concat(STAGES).flatMap(stageFiles)]),
 ]
 
 // recipe_router.py calls the review stage code-review.
@@ -124,8 +159,11 @@ export function buildRun(
   verdicts: Verdict[],
   now: number,
 ): RunView {
-  const rows: StageRow[] = STAGES.map(s => {
-    const doc = s.file ? docs[s.file] : undefined
+  const intake = docs['intake.json']
+  const spine = spineFor(typeof intake?.recipe === 'string' ? intake.recipe : null)
+  const rows: StageRow[] = spine.map(s => {
+    const file = stageFiles(s).find(f => docs[f] !== undefined)
+    const doc = file ? docs[file] : undefined
     const mine = verdicts.filter(v => v.stage === s.id)
     const last = mine[mine.length - 1]
     const outcome = stageOutcome(s.id, doc) ?? (last ? last.result || null : null)
@@ -141,7 +179,6 @@ export function buildRun(
     current = lastDone + 1 < rows.length ? lastDone + 1 : -1
   }
   const stages = rows.map((r, i) => ({ ...r, isCurrent: i === current }))
-  const intake = docs['intake.json']
   const context = docs['context.json']
   return {
     root,
