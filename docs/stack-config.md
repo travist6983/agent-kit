@@ -63,8 +63,8 @@ Schema version of this file, `"1.0.0"`. Bump only when keys change meaning.
 
 ## `adapters` — one provider per role
 
-Each role is `{ "provider": "<name>", "config": { … } }`. Built-ins: `issue_tracker[file]`,
-`vcs_host[git-local]`, `auth_provider[env-file]`, `notifications[file]`, `sandbox[git-worktree]`,
+Each role is `{ "provider": "<name>", "config": { … } }`. Built-ins: `issue_tracker[file, linear]`,
+`vcs_host[git-local, github]`, `auth_provider[env-file]`, `notifications[file]`, `sandbox[git-worktree]`,
 `evidence_store[local]`; `test_management` has none. Any role accepts a third-party class as
 `"provider": "python.module.path:ClassName"`. `"provider": "none"` means the role is absent: a skill
 that needs it emits `blocked` with reason `adapter-unavailable:<role>`. The role contracts are in
@@ -72,8 +72,10 @@ that needs it emits `blocked` with reason `adapter-unavailable:<role>`. The role
 
 | role | default provider | `config` keys |
 |---|---|---|
+| `issue_tracker` | `linear` (opt-in) | `team` (team key, for `create_ticket` and search scope); `api_key_env` (default `LINEAR_API_KEY`); `env_file` (gitignored KEY=value file used when the env var is unset); `initial_status`. Needs only the key. `attach` is unavailable. Linear has no issue type, so `Ticket.type` comes from labels: `bug`/`defect` → `Bug`, `story`/`feature`/`task`/`epic`/`improvement`/`enhancement` → `Story`, none or both → `null` (intake judges by intent). |
 | `issue_tracker` | `file` | `dir` (default `runs/tickets`) — `<KEY>.json` or `<KEY>.md` tickets, `<KEY>.comments.md` logs; `key_prefix` — used by `create_ticket` when `project.ticket_key_pattern` has no literal prefix |
 | `vcs_host` | `git-local` | `repo_dir` (overrides `app.repo_dir`); `prs_dir` (overrides `<evidence.root>/prs`) |
+| `vcs_host` | `github` | `repo` (`owner/name`); `repo_dir`; `gh_bin`; `token_env` (NAME of an env var with a token; default: gh's own login) |
 | `test_management` | `none` | none shipped; a third-party provider's own keys (env-var **names** for its host and credentials, never values) |
 | `analytics` | `none` | none shipped; a provider's own keys |
 | `auth_provider` | `env-file` | see the next table |

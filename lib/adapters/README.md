@@ -12,7 +12,7 @@ lib/adapters/
   config.py        stack.config.json loader: dotted cfg("app.url"), env override, repo_root()
   registry.py      provider name → class ("module.path:Class" for third-party)
   cli.py           python3 lib/adapters/cli.py <role> <op> [--json '{…}'] [k=v …] [positional …]
-  providers/       none · file_issue_tracker · git_local_vcs · file_notifications · env_file_auth
+  providers/       none · file_issue_tracker · linear_issue_tracker · git_local_vcs · file_notifications · env_file_auth
                    git_worktree_sandbox · local_evidence
   tests/           python3 -m unittest discover -s lib/adapters/tests
 ```
@@ -86,7 +86,7 @@ silently, or guess a value. A provider that exists but cannot serve one op (e.g.
 Argument names are the contract (the CLI passes `k=v` as kwargs). Dataclasses live in `base.py`; every
 one has `to_dict()` / `from_dict()`. `raw` carries the provider's unmodified payload.
 
-### `issue_tracker` — built-in: `file`
+### `issue_tracker` — built-in: `file`, `linear`
 | op | args | returns |
 |---|---|---|
 | `fetch_ticket` | `key` | `Ticket` — `{key, type, title, body, status, priority, labels[], components[], assignee, reporter, comments[{author, at, body}], attachments[{name, url, local_path}], links[], raw}` |
@@ -106,7 +106,7 @@ wins). `create_ticket` allocates `<prefix>-<n>` — the literal prefix of `proje
 (`^SHOP-…` → `SHOP`), else `config.key_prefix`, else `PROJ`. `search` is a case-insensitive substring
 match over key + title + body.
 
-### `vcs_host` — built-in: `git-local`
+### `vcs_host` — built-in: `git-local`, `github`
 | op | args | returns |
 |---|---|---|
 | `default_branch` | — | `"main"` (from `project.default_branch`, else origin/HEAD) |
@@ -122,8 +122,9 @@ match over key + title + body.
 `git-local`: runs `git` in `config.repo_dir` → `app.repo_dir` → cwd. `open_pr` writes
 `<evidence.root>/prs/<branch-slug>.md` (title, base, body, labels, draft flag, `git log base..branch
 --oneline`) + a `.json` sidecar and returns `{"url": "file://…", "id": "<branch>", "dry_run": true}`.
-Review comments append to `<slug>.threads.md`. A human simulates a reply or a resolve by editing that file: inside a thread, a line `### reply <author> [<at>]` starts a reply (its body runs to the next `###`/`##` header) and `### status <word>` sets the thread's status. A real host (GitHub, GitLab, Bitbucket, or any other) is a
-third-party provider.
+Review comments append to `<slug>.threads.md`. A human simulates a reply or a resolve by editing that file: inside a thread, a line `### reply <author> [<at>]` starts a reply (its body runs to the next `###`/`##` header) and `### status <word>` sets the thread's status.
+
+`github`: drives the `gh` CLI in `config.repo_dir` → `app.repo_dir` → cwd, signed in with gh's own login (`gh auth login`), or with the token in the env var `config.token_env` names (passed as `GH_TOKEN`, never echoed). `config.repo` (`owner/name`) pins the repository; `config.gh_bin` overrides the executable. `open_pr` opens a real, published PR (`dry_run: false`; a draft only for `draft=true`), creates any missing label, and refuses a second open PR for the same branch. `id` is the PR number (a PR URL or a branch name also resolves). `post_review_comment` with `path`+`line` is a line comment on the head commit, otherwise a conversation comment; `list_review_threads` returns review threads (with `resolved` / `active`) plus conversation comments. An auth failure raises an error whose message starts `auth-failure:`. GitLab, Bitbucket or any other host is a third-party provider.
 
 ### `test_management` — no built-in provider
 | op | args | returns |
